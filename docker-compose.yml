@@ -1,8 +1,7 @@
 services:
   appletree:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "3333:3333"
+    image: ghcr.io/smarterworkerai/appletree:${IMAGE_TAG:-latest}
+    pull_policy: always
+    expose:
+      - "3333"
     restart: unless-stopped

@@ -21,10 +21,10 @@ npm run preview
 ## Docker Compose
 
 ```bash
-docker compose up --build
+docker compose up -d
 ```
 
-The container serves the built static site on port `3333`, which is a better fit for Dokploy or another Docker-based VPS workflow.
+The Compose file pulls the published GHCR image and serves the static site on port `3333`.
 
 ## Dokploy / GitHub
 
@@ -33,7 +33,17 @@ This repo is ready to push to GitHub and deploy from a Docker-aware platform.
 For Dokploy:
 
 ```bash
-docker compose up --build -d
+docker compose up -d
 ```
 
-Use the repository root as the build context and expose port `3333` on the service. Since the app is a static site served by Nginx, no database or persistent volume is required.
+Dokploy can deploy this `docker-compose.yml` directly. By default it pulls `ghcr.io/smarterworkerai/appletree:latest`.
+
+The Compose service only exposes internal port `3333`. Configure the public domain and routing in the Dokploy UI instead of publishing a fixed host port in Compose.
+
+To pin a specific published image version, set `IMAGE_TAG` before deployment, for example:
+
+```bash
+IMAGE_TAG=sha-0251f90 docker compose up -d
+```
+
+Since the app is a static site served by Nginx, no database or persistent volume is required.
