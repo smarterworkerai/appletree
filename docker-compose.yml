@@ -1,6 +1,6 @@
 services:
   appletree:
-    image: ghcr.io/smarterworkerai/appletree:${IMAGE_TAG:-latest}
+    image: ghcr.io/smarterworkerai/appletree:${IMAGE_TAG:-production}
     pull_policy: always
     expose:
       - "3333"

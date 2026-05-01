@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+      - demo
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
 
 permissions:
@@ -27,19 +30,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=raw,value=latest
-            type=sha,format=short
+      - name: Prepare Docker image tags
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image="ghcr.io/${GITHUB_REPOSITORY}"
+          short_sha="${GITHUB_SHA::12}"
+          tags="${image}:sha-${short_sha}"
+
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            tags="${tags},${image}:production"
+          elif [[ "${GITHUB_REF}" == "refs/heads/demo" ]]; then
+            tags="${tags},${image}:demo"
+          elif [[ "${GITHUB_REF}" == refs/tags/v*.*.* ]]; then
+            tags="${tags},${image}:${GITHUB_REF_NAME}"
+          else
+            echo "Unsupported ref: ${GITHUB_REF}" >&2
+            exit 1
+          fi
+
+          echo "tags=${tags}" >> "${GITHUB_OUTPUT}"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.tags.outputs.tags }}
