@@ -13,6 +13,10 @@ permissions:
   contents: read
   packages: write
 
+env:
+  # Docker Buildx build records are diagnostic artifacts, not delivery artifacts.
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+
 jobs:
   publish:
     runs-on: ubuntu-latest
