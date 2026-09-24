@@ -1,8 +1,10 @@
 import hashlib
 import json
+import subprocess
 import sys
 import tomllib
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -56,30 +58,54 @@ class AppletreeAdoptionTest(unittest.TestCase):
     def test_status_health_and_readiness_are_real_probes(self):
         value = hook_request("adw:readiness", environment="demo", target="demo-dokploy")
         value.update(source_sha="a" * 40, operation="readiness")
-        with patch.object(pzagent_adapter, "_request_json", return_value={"composeStatus": "done"}) as provider, patch.object(
+        with patch.object(pzagent_adapter, "_compose", return_value={"composeStatus": "done"}) as provider, patch.object(
             pzagent_adapter, "_fetch", return_value='<title>Apple Tree</title><canvas id="scene"></canvas>'
         ) as http:
             self.assertEqual(pzagent_adapter.dispatch("readiness", value), {"status": "passed"})
         provider.assert_called_once()
         http.assert_called_once_with("https://appletree-demo.smarterworker.cc/")
 
-    def test_runtime_proof_requires_exact_live_image(self):
+    def _runtime_fixture(self):
         image = "ghcr.io/smarterworkerai/appletree@sha256:" + "b" * 64
-        value = hook_request("adw:validate-deployment", environment="production", target="production-dokploy", phase="normal-release", expected_images=["APPLETREE_IMAGE=" + image])
-        value.update(source_sha="a" * 40, operation="runtime-proof")
-        payload = {"composeStatus": "done", "env": "APPLETREE_IMAGE=" + image + "\n"}
-        with patch.object(pzagent_adapter, "_request_json", return_value=payload), patch.object(
-            pzagent_adapter, "_fetch", return_value='<title>Apple Tree</title><canvas id="scene"></canvas>'
-        ):
-            self.assertEqual(pzagent_adapter.dispatch("runtime-proof", value), {"images": ["APPLETREE_IMAGE=" + image]})
+        request = hook_request("adw:validate-deployment", environment="production", target="production-dokploy", phase="normal-release", expected_images=["APPLETREE_IMAGE=" + image])
+        request.update(source_sha="a" * 40, operation="runtime-proof")
+        compose = {"composeStatus": "done", "env": "APPLETREE_IMAGE=" + image + "\n", "appName": "appletree-prod", "serverId": "server-1"}
+        container = {"containerId": "container-1"}
+        config = {"Config": {"Image": image, "Labels": {"com.docker.compose.project": "appletree-prod", "com.docker.compose.service": "appletree"}}, "State": {"Status": "running", "Health": {"Status": "healthy"}}}
+        return image, request, compose, container, config
 
-    def test_e2e_full_fetches_built_assets(self):
+    def test_runtime_proof_inspects_exact_healthy_running_container(self):
+        image, request, compose, container, config = self._runtime_fixture()
+        with patch.object(pzagent_adapter, "_compose", return_value=compose), patch.object(
+            pzagent_adapter, "_provider_json", side_effect=[[container], config]
+        ) as provider, patch.object(pzagent_adapter, "_fetch", return_value='<title>Apple Tree</title><canvas id="scene"></canvas>'):
+            self.assertEqual(pzagent_adapter.dispatch("runtime-proof", request), {"images": ["APPLETREE_IMAGE=" + image]})
+        self.assertEqual(provider.call_count, 2)
+
+    def test_runtime_proof_rejects_stale_duplicate_wrong_label_stopped_and_unhealthy(self):
+        image, request, compose, container, config = self._runtime_fixture()
+        scenarios = []
+        stale = deepcopy(config); stale["Config"]["Image"] = "ghcr.io/smarterworkerai/appletree@sha256:" + "c" * 64; scenarios.append(([container], stale))
+        scenarios.append(([container, {"containerId": "container-2"}], [config, config]))
+        wrong = deepcopy(config); wrong["Config"]["Labels"]["com.docker.compose.project"] = "other"; scenarios.append(([container], wrong))
+        stopped = deepcopy(config); stopped["State"]["Status"] = "exited"; scenarios.append(([container], stopped))
+        unhealthy = deepcopy(config); unhealthy["State"]["Health"]["Status"] = "unhealthy"; scenarios.append(([container], unhealthy))
+        for listed, inspected in scenarios:
+            side_effect = [listed] + (inspected if isinstance(inspected, list) else [inspected])
+            with self.subTest(side_effect=side_effect), patch.object(pzagent_adapter, "_compose", return_value=compose), patch.object(
+                pzagent_adapter, "_provider_json", side_effect=side_effect
+            ), patch.object(pzagent_adapter, "_fetch", return_value='<title>Apple Tree</title><canvas id="scene"></canvas>'):
+                with self.assertRaises(pzagent_adapter.Blocked):
+                    pzagent_adapter.dispatch("runtime-proof", request)
+
+    def test_e2e_uses_browser_runner_and_validates_counts(self):
         value = hook_request("adw:test:e2e:full", environment="pr-preview", target="pr-preview-dokploy")
         value.update(source_sha="a" * 40, operation="e2e-full")
-        html = '<title>Apple Tree</title><canvas id="scene"></canvas><script src="/assets/index.js"></script>'
-        with patch.object(pzagent_adapter, "_fetch", side_effect=[html, "javascript"]):
+        completed = subprocess.CompletedProcess([], 0, '{"status":"passed","selected":2,"executed":2,"skipped":0}\n', "")
+        with patch.object(pzagent_adapter.subprocess, "run", return_value=completed) as runner:
             result = pzagent_adapter.dispatch("e2e-full", value)
         self.assertEqual(result, {"status": "passed", "selected": 2, "executed": 2, "skipped": 0})
+        self.assertIn("browser_e2e.mjs", runner.call_args.args[0][1])
 
 
 if __name__ == "__main__":

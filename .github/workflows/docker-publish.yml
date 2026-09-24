@@ -1,65 +1,200 @@
-name: Publish Docker image
+name: Publish immutable application release
 
 on:
-  push:
-    branches:
-      - main
-      - demo
-    tags:
-      - 'v*.*.*'
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full merged destination SHA to publish
+        required: true
+        type: string
+      ci_run_id:
+        description: Exact successful destination CI run ID
+        required: true
+        type: string
+      ci_run_attempt:
+        description: Exact successful CI run attempt
+        required: true
+        type: string
+      expected_previous_digest:
+        description: Current demo/production release pointer digest, or absent
+        required: true
+        default: absent
+        type: string
+      diagnostic_publish:
+        description: Require the exact source to contain deploy_diag
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: appletree-release-publication
+  cancel-in-progress: false
+
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+  REGISTRY: ghcr.io/smarterworkerai
 
 env:
   # Docker Buildx build records are diagnostic artifacts, not delivery artifacts.
   DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
-  publish:
-    runs-on: ubuntu-latest
+  authorize:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Check out trusted publication controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Authorize exact merged destination and quality evidence
+        uses: ./mise-helper/vendor/pzagent-adw-context/templates/github/actions/authorize-publication
+        with:
+          source_sha: ${{ inputs.source_sha }}
+          ci_run_id: ${{ inputs.ci_run_id }}
+          ci_run_attempt: ${{ inputs.ci_run_attempt }}
+          ci_workflow_path: .github/workflows/ci.yml
+          diagnostic_publish: ${{ inputs.diagnostic_publish }}
+          authorization_path: authorization.json
+      - name: Upload closed authorization record
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: appletree-publication-authorization-${{ inputs.source_sha }}
+          path: authorization.json
+          retention-days: 1
+          if-no-files-found: error
 
-      - name: Prepare Docker image tags
-        id: tags
+  publish:
+    needs: authorize
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      pull-requests: read
+    steps:
+      - name: Check out trusted publication controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: control
+          persist-credentials: false
+      - name: Download closed authorization record
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4
+        with:
+          name: appletree-publication-authorization-${{ inputs.source_sha }}
+          path: authorization
+      - name: Revalidate publication immediately before package writes
+        uses: ./control/mise-helper/vendor/pzagent-adw-context/templates/github/actions/authorize-publication
+        with:
+          source_sha: ${{ inputs.source_sha }}
+          ci_run_id: ${{ inputs.ci_run_id }}
+          ci_run_attempt: ${{ inputs.ci_run_attempt }}
+          ci_workflow_path: .github/workflows/ci.yml
+          diagnostic_publish: ${{ inputs.diagnostic_publish }}
+          authorization_path: authorization-recheck.json
+      - name: Require identical authorization records
+        run: cmp authorization/authorization.json authorization-recheck.json
+      - name: Check out exact authorized application source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - name: Require exact source checkout
         shell: bash
         run: |
           set -euo pipefail
-
-          image="ghcr.io/${GITHUB_REPOSITORY}"
-          short_sha="${GITHUB_SHA::12}"
-          tags="${image}:sha-${short_sha}"
-
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            tags="${tags},${image}:production"
-          elif [[ "${GITHUB_REF}" == "refs/heads/demo" ]]; then
-            tags="${tags},${image}:demo"
-          elif [[ "${GITHUB_REF}" == refs/tags/v*.*.* ]]; then
-            tags="${tags},${image}:${GITHUB_REF_NAME}"
-          else
-            echo "Unsupported ref: ${GITHUB_REF}" >&2
-            exit 1
-          fi
-
-          echo "tags=${tags}" >> "${GITHUB_OUTPUT}"
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+          [[ '${{ inputs.source_sha }}' =~ ^[0-9a-f]{40}$ ]]
+          test "$(git -C source rev-parse HEAD)" = '${{ inputs.source_sha }}'
+      - name: Build exact revision-labelled application image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --label 'org.opencontainers.image.revision=${{ inputs.source_sha }}' \
+            --label 'org.opencontainers.image.source=https://github.com/${{ github.repository }}' \
+            --tag appletree:release source
+          test "$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' appletree:release)" = '${{ inputs.source_sha }}'
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
-          context: .
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Create or verify immutable image tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          short='${{ inputs.source_sha }}'; short="${short:0:12}"
+          remote="${REGISTRY}/appletree:sha-$short"
+          error_file="$(mktemp)"
+          if docker pull "$remote" >/dev/null 2>"$error_file"; then
+            :
+          else
+            error="$(<"$error_file")"
+            case "$error" in
+              *"manifest unknown"*|*"not found"*|*"404"*)
+                docker tag appletree:release "$remote"
+                docker push "$remote"
+                ;;
+              *) echo 'immutable image lookup failed closed' >&2; exit 1 ;;
+            esac
+          fi
+          rm -f "$error_file"
+          docker pull "$remote" >/dev/null
+          test "$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' "$remote")" = '${{ inputs.source_sha }}'
+          docker image inspect --format '{{json .RepoDigests}}' "$remote" > repo-digests.json
+          python3 - <<'PY'
+          import json,re
+          values=json.load(open('repo-digests.json',encoding='utf-8'))
+          matches=[v for v in values if re.fullmatch(r'ghcr\.io/smarterworkerai/appletree@sha256:[0-9a-f]{64}',v)]
+          if len(matches)!=1: raise SystemExit('canonical image digest is ambiguous')
+          open('image-digest.txt','w',encoding='utf-8').write(matches[0]+'\n')
+          PY
+      - name: Build closed release publication artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release
+          target="$(jq -er '.target_branch' authorization/authorization.json)"
+          case "$target" in
+            demo) pointer=demo ;;
+            main) pointer=production ;;
+            *) echo 'authorized target has no release pointer' >&2; exit 1 ;;
+          esac
+          short='${{ inputs.source_sha }}'; short="${short:0:12}"
+          jq -n \
+            --arg source '${{ inputs.source_sha }}' \
+            --arg tag "sha-$short" \
+            --arg image "$(<image-digest.txt)" \
+            '{schema:"appletree.application-release/v1",source_sha:$source,source_tag:$tag,images:{application:$image}}' \
+            > release/manifest.json
+          checksum="$(sha256sum release/manifest.json | cut -d' ' -f1)"
+          expected='${{ inputs.expected_previous_digest }}'
+          if [[ "$expected" == absent ]]; then previous=null; else
+            [[ "$expected" =~ ^sha256:[0-9a-f]{64}$ ]]; previous="\"$expected\""
+          fi
+          jq -n \
+            --arg source '${{ inputs.source_sha }}' \
+            --arg checksum "$checksum" \
+            --arg pointer "$pointer" \
+            --argjson previous "$previous" \
+            '{source_sha:$source,artifact:"manifest.json",sha256:$checksum,repository:"ghcr.io/smarterworkerai/appletree-release",immutable_tag:("sha-"+($source[0:12])),mutable_tag:$pointer,expected_previous_digest:$previous,media_type:"application/vnd.smarterworkerai.appletree.application-release.v1+json"}' \
+            > release/publication.json
+      - name: Install ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+      - name: Publish create-only manifest and compare-and-swap pointer
+        uses: ./control/mise-helper/vendor/pzagent-adw-context/templates/github/actions/publish-immutable-release
+        with:
+          source_sha: ${{ inputs.source_sha }}
+          authorization_path: authorization/authorization.json
+          artifact_path: release
+          registry_token: ${{ github.token }}

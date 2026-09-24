@@ -7,7 +7,6 @@ import os
 import re
 import subprocess
 import sys
-from html.parser import HTMLParser
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -33,42 +32,36 @@ OPERATIONS = {
     "e2e-full": "adw:test:e2e:full",
 }
 IMAGE = re.compile(r"^ghcr\.io/smarterworkerai/appletree(?:@sha256:[0-9a-f]{64}|:hotfix-[0-9a-f]{12})$")
+IDENTIFIER = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 
 class Blocked(RuntimeError):
     pass
 
 
-class Assets(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.paths: list[str] = []
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        values = dict(attrs)
-        value = values.get("src") if tag == "script" else values.get("href") if tag == "link" else None
-        if isinstance(value, str) and value.startswith("/assets/"):
-            self.paths.append(value)
-
-
-def _request_json(path: str) -> dict[str, Any]:
+def _provider_json(path: str, params: dict[str, str]) -> Any:
     endpoint = os.environ.get("DOKPLOY_URL", "").rstrip("/")
     token = os.environ.get("DOKPLOY_TOKEN", "")
-    compose_id = os.environ.get("APPLETREE_DOKPLOY_COMPOSE_ID", "")
-    if not endpoint or not token or not compose_id:
+    if not endpoint or not token or any(not isinstance(value, str) or not value for value in params.values()):
         raise Blocked("provider-input-absent")
     request = Request(
-        endpoint + path + "?" + urlencode({"composeId": compose_id}),
+        endpoint + path + "?" + urlencode(params),
         headers={"x-api-key": token, "Accept": "application/json"},
     )
     try:
         with urlopen(request, timeout=20) as response:  # nosec B310: operator-bound provider URL
-            raw = response.read(1024 * 1024)
+            raw = response.read(2 * 1024 * 1024)
     except (HTTPError, URLError, TimeoutError) as exc:
         raise Blocked("provider-read-failed") from exc
     try:
-        value = json.loads(raw)
+        return json.loads(raw)
     except json.JSONDecodeError as exc:
         raise Blocked("provider-response-invalid") from exc
+
+
+def _compose() -> dict[str, Any]:
+    compose_id = os.environ.get("APPLETREE_DOKPLOY_COMPOSE_ID", "")
+    value = _provider_json("/api/compose.one", {"composeId": compose_id})
     if not isinstance(value, dict):
         raise Blocked("provider-response-invalid")
     return value
@@ -101,7 +94,7 @@ def _identity(operation: str, request: dict[str, Any], keys: set[str] = WIRE) ->
 
 
 def _status() -> dict[str, Any]:
-    payload = _request_json("/api/compose.one")
+    payload = _compose()
     if payload.get("composeStatus") != "done":
         raise Blocked("deployment-not-ready")
     return payload
@@ -113,21 +106,19 @@ def _health(environment: str) -> None:
         raise Blocked("application-semantics-invalid")
 
 
-def _e2e(environment: str, full: bool) -> dict[str, Any]:
-    body = _fetch(ROUTES[environment] + "/")
-    if '<canvas id="scene"></canvas>' not in body:
-        raise Blocked("application-semantics-invalid")
-    selected = 1
-    if full:
-        parser = Assets()
-        parser.feed(body)
-        if not parser.paths:
-            raise Blocked("application-assets-absent")
-        for path in sorted(set(parser.paths)):
-            if not _fetch(ROUTES[environment] + path):
-                raise Blocked("application-asset-empty")
-        selected += len(set(parser.paths))
-    return {"status": "passed", "selected": selected, "executed": selected, "skipped": 0}
+def _browser_e2e(environment: str, full: bool) -> dict[str, Any]:
+    command = ["node", "mise-helper/browser_e2e.mjs", ROUTES[environment], "full" if full else "fast"]
+    try:
+        completed = subprocess.run(command, text=True, capture_output=True, check=True, timeout=60)
+        value = json.loads(completed.stdout)
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as exc:
+        raise Blocked("browser-e2e-failed") from exc
+    expected = {"status", "selected", "executed", "skipped"}
+    if set(value) != expected or value.get("status") != "passed" or value.get("selected") != value.get("executed") or value.get("skipped") != 0:
+        raise Blocked("browser-e2e-evidence-invalid")
+    if value["selected"] != (2 if full else 1):
+        raise Blocked("browser-e2e-count-invalid")
+    return value
 
 
 def _environment_values(raw: str) -> dict[str, str]:
@@ -138,10 +129,40 @@ def _environment_values(raw: str) -> dict[str, str]:
         if "=" not in line:
             raise Blocked("runtime-environment-invalid")
         key, value = line.split("=", 1)
-        if key.strip() in values:
+        key = key.strip()
+        if key in values:
             raise Blocked("runtime-environment-invalid")
-        values[key.strip()] = value
+        values[key] = value
     return values
+
+
+def _prove_running_container(payload: dict[str, Any], image: str) -> None:
+    project, server = payload.get("appName"), payload.get("serverId")
+    if not isinstance(project, str) or not IDENTIFIER.fullmatch(project) or not isinstance(server, str) or not IDENTIFIER.fullmatch(server):
+        raise Blocked("runtime-project-identity-absent")
+    containers = _provider_json("/api/docker.getContainersByAppLabel", {"appName": project, "serverId": server, "type": "standalone"})
+    if not isinstance(containers, list):
+        raise Blocked("runtime-container-discovery-failed")
+    matches: list[dict[str, Any]] = []
+    for container in containers:
+        container_id = container.get("containerId") if isinstance(container, dict) else None
+        if not isinstance(container_id, str) or not IDENTIFIER.fullmatch(container_id):
+            raise Blocked("runtime-container-discovery-failed")
+        metadata = _provider_json("/api/docker.getConfig", {"containerId": container_id, "serverId": server})
+        if not isinstance(metadata, dict) or not isinstance(metadata.get("Config"), dict):
+            raise Blocked("runtime-container-inspection-failed")
+        labels = metadata["Config"].get("Labels")
+        if not isinstance(labels, dict) or labels.get("com.docker.compose.project") != project:
+            raise Blocked("runtime-image-identity-or-health-mismatch")
+        if labels.get("com.docker.compose.service") == "appletree":
+            matches.append(metadata)
+    if len(matches) != 1:
+        raise Blocked("runtime-container-cardinality-differs")
+    metadata = matches[0]
+    state = metadata.get("State")
+    if (metadata["Config"].get("Image") != image or not isinstance(state, dict) or state.get("Status") != "running"
+            or not isinstance(state.get("Health"), dict) or state["Health"].get("Status") != "healthy"):
+        raise Blocked("runtime-image-identity-or-health-mismatch")
 
 
 def _runtime_proof(request: dict[str, Any]) -> dict[str, Any]:
@@ -156,6 +177,7 @@ def _runtime_proof(request: dict[str, Any]) -> dict[str, Any]:
     raw = payload.get("env")
     if not isinstance(raw, str) or _environment_values(raw).get("APPLETREE_IMAGE") != image:
         raise Blocked("runtime-image-identity-or-health-mismatch")
+    _prove_running_container(payload, image)
     _health(environment)
     return {"images": assignments}
 
@@ -195,9 +217,9 @@ def dispatch(operation: str, request: dict[str, Any]) -> dict[str, Any]:
         _status()
         _health(environment)
     elif operation == "e2e-fast":
-        return _e2e(environment, False)
+        return _browser_e2e(environment, False)
     elif operation == "e2e-full":
-        return _e2e(environment, True)
+        return _browser_e2e(environment, True)
     else:
         raise ValueError("operation-unsupported")
     return {"status": "passed"}

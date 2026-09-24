@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -29,6 +30,7 @@ def ensure_dependencies() -> None:
 
 def install() -> None:
     run("npm", "ci")
+    run("npx", "playwright", "install", "chromium")
 
 
 def build() -> None:
@@ -94,11 +96,11 @@ def integration_fast() -> None:
     try:
         _wait_http("http://127.0.0.1:4173/", "<title>Apple Tree</title>")
     finally:
-        process.terminate()
+        os.killpg(process.pid, signal.SIGTERM)
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            process.kill()
+            os.killpg(process.pid, signal.SIGKILL)
             process.wait(timeout=5)
 
 
