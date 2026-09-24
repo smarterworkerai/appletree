@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "environment": {
+      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "targets": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "active",
+              "shadow"
+            ]
+          },
+          "provider": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "mode"
+        ],
+        "type": "object"
+      },
+      "minProperties": 1,
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "environment",
+    "targets"
+  ],
+  "type": "object"
+}

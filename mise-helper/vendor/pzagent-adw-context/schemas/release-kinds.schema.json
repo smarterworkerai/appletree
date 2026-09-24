@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "release_kinds": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "components": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "package": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "package"
+              ],
+              "type": "object"
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "compose_variables": {
+            "additionalProperties": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "manifest_package": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "manifest_package",
+          "components",
+          "compose_variables"
+        ],
+        "type": "object"
+      },
+      "minProperties": 1,
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    }
+  },
+  "required": [
+    "schema_version",
+    "release_kinds"
+  ],
+  "type": "object"
+}

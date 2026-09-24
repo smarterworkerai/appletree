@@ -1,0 +1,44 @@
+["adw:install"]
+description = "Install appletree dependencies from the exact npm lockfile"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/agentic-delivery/adw_contract.py run --task adw:install -- python3 mise-helper/project_tasks.py install"
+
+["adw:build"]
+description = "Build the production Vite bundle"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/agentic-delivery/adw_contract.py run --task adw:build -- python3 mise-helper/project_tasks.py build"
+
+["adw:lint"]
+description = "Run JavaScript syntax and repository hygiene checks"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/agentic-delivery/adw_contract.py run --task adw:lint -- python3 mise-helper/project_tasks.py lint"
+
+["adw:static-analysis"]
+description = "Validate project descriptors, Compose contracts and adapter wiring"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/agentic-delivery/adw_contract.py run --task adw:static-analysis -- python3 mise-helper/project_tasks.py static-analysis"
+
+["adw:test:unit"]
+description = "Run project adapter and configuration unit tests"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/agentic-delivery/adw_contract.py run --task adw:test:unit -- python3 mise-helper/project_tasks.py test-unit"
+
+["adw:test:integration:fast"]
+description = "Build and smoke the Vite preview server"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/agentic-delivery/adw_contract.py run --task adw:test:integration:fast -- python3 mise-helper/project_tasks.py test-integration-fast"
+
+["adw:test:integration:full"]
+description = "Build and smoke the production Docker image"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/agentic-delivery/adw_contract.py run --task adw:test:integration:full -- python3 mise-helper/project_tasks.py test-integration-full"
+
+["adw:verify:minimal"]
+description = "Run the fast appletree build gate"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/agentic-delivery/adw_contract.py run --task adw:verify:minimal --child adw:build -- python3 mise-helper/project_tasks.py verify-minimal"
+
+["adw:verify:full"]
+description = "Run every required appletree local quality gate"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/agentic-delivery/adw_contract.py run --task adw:verify:full --child adw:build --child adw:lint --child adw:static-analysis --child adw:test:unit --child adw:test:integration:fast -- python3 mise-helper/project_tasks.py verify-full"

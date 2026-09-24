@@ -1,0 +1,1198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "capabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "adw:build": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "local-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:check": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "read-only"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:context:check": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "read-only"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:context:sync": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "local-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:deploy:apply": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "remote-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:deploy:config:apply": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "remote-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:deploy:config:plan": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "read-only"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:deploy:config:pull": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "local-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:deploy:status": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "read-only"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:describe": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "read-only"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:health": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "read-only"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:hotfix:apply": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "remote-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:hotfix:restore": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "remote-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:install": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "local-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:lint": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "local-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:readiness": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "read-only"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:static-analysis": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "local-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:test:e2e:fast": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "remote-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:test:e2e:full": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "remote-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:test:integration:fast": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "local-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:test:integration:full": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "local-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:test:unit": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "local-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:validate-deployment": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "remote-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:verify:full": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "local-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        },
+        "adw:verify:minimal": {
+          "additionalProperties": false,
+          "properties": {
+            "environments": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "side_effect": {
+              "const": "local-write"
+            },
+            "status": {
+              "enum": [
+                "supported",
+                "unsupported"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "environments",
+            "side_effect"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "adw:build",
+        "adw:check",
+        "adw:context:check",
+        "adw:context:sync",
+        "adw:deploy:apply",
+        "adw:deploy:config:apply",
+        "adw:deploy:config:plan",
+        "adw:deploy:config:pull",
+        "adw:deploy:status",
+        "adw:describe",
+        "adw:health",
+        "adw:hotfix:apply",
+        "adw:hotfix:restore",
+        "adw:install",
+        "adw:lint",
+        "adw:readiness",
+        "adw:static-analysis",
+        "adw:test:e2e:fast",
+        "adw:test:e2e:full",
+        "adw:test:integration:fast",
+        "adw:test:integration:full",
+        "adw:test:unit",
+        "adw:validate-deployment",
+        "adw:verify:full",
+        "adw:verify:minimal"
+      ],
+      "type": "object"
+    },
+    "ci": {
+      "additionalProperties": false,
+      "properties": {
+        "ci_only_checks": {
+          "items": {
+            "pattern": "^[A-Za-z0-9 _./:-]{1,100}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "diagnostic_marker": {
+          "const": "deploy_diag"
+        },
+        "full_task": {
+          "const": "adw:verify:full"
+        },
+        "minimal_task": {
+          "const": "adw:verify:minimal"
+        },
+        "required_job": {
+          "const": "required-quality"
+        },
+        "workflow_path": {
+          "const": ".github/workflows/ci.yml"
+        }
+      },
+      "required": [
+        "workflow_path",
+        "required_job",
+        "full_task",
+        "minimal_task",
+        "diagnostic_marker",
+        "ci_only_checks"
+      ],
+      "type": "object"
+    },
+    "delivery": {
+      "additionalProperties": false,
+      "properties": {
+        "promotion_pairs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "type": "string"
+              },
+              "target": {
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "target"
+            ],
+            "type": "object"
+          },
+          "maxItems": 8,
+          "type": "array"
+        }
+      },
+      "required": [
+        "promotion_pairs"
+      ],
+      "type": "object"
+    },
+    "diagnostics": {
+      "additionalProperties": false,
+      "properties": {
+        "marker": {
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "marker"
+      ],
+      "type": "object"
+    },
+    "environments": {
+      "items": {
+        "pattern": "^[a-z][a-z0-9-]{0,62}$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "hooks": {
+      "additionalProperties": false,
+      "properties": {
+        "dispatcher": {
+          "additionalProperties": false,
+          "properties": {
+            "argv": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "path_tools": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "argv",
+            "path_tools"
+          ],
+          "type": "object"
+        },
+        "operations": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              "result_keys": {
+                "items": {
+                  "enum": [
+                    "executed",
+                    "images",
+                    "order",
+                    "profile",
+                    "role",
+                    "selected",
+                    "skipped",
+                    "status"
+                  ],
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "timeout_seconds": {
+                "maximum": 3600,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "operation",
+              "timeout_seconds",
+              "result_keys"
+            ],
+            "type": "object"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "dispatcher",
+        "operations"
+      ],
+      "type": "object"
+    },
+    "hotfix": {
+      "additionalProperties": false,
+      "properties": {
+        "ssh_aliases": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "supported_environments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "transports": {
+          "items": {
+            "enum": [
+              "registry",
+              "ssh-docker"
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "supported_environments",
+        "transports",
+        "ssh_aliases"
+      ],
+      "type": "object"
+    },
+    "providers": {
+      "additionalProperties": false,
+      "properties": {
+        "dokploy": {
+          "additionalProperties": false,
+          "properties": {
+            "bindings": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "properties": {
+                  "child_binding": {
+                    "not": {
+                      "enum": [
+                        "DOKPLOY_TOKEN",
+                        "DOKPLOY_URL"
+                      ]
+                    },
+                    "pattern": "^[A-Z][A-Z0-9_]{0,127}$",
+                    "type": "string"
+                  },
+                  "compose_path": {
+                    "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+                    "type": "string"
+                  },
+                  "environment": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "environment_schema_path": {
+                    "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+                    "type": "string"
+                  },
+                  "project": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "resource": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "project",
+                  "environment",
+                  "resource",
+                  "child_binding",
+                  "compose_path",
+                  "environment_schema_path"
+                ],
+                "type": "object"
+              },
+              "type": "object"
+            },
+            "profile_handle": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "profile_handle",
+            "bindings"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "release_kinds": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "components": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "package": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "package"
+              ],
+              "type": "object"
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "compose_variables": {
+            "additionalProperties": false,
+            "minProperties": 1,
+            "patternProperties": {
+              "^[A-Z][A-Z0-9_]{0,127}$": {
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "manifest_package": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "pointer_tags": {
+            "additionalProperties": false,
+            "properties": {
+              "current": {
+                "pattern": ".*\\{target\\}.*",
+                "type": "string"
+              },
+              "rollback": {
+                "pattern": ".*\\{target\\}.*",
+                "type": "string"
+              }
+            },
+            "required": [
+              "current",
+              "rollback"
+            ],
+            "type": "object"
+          },
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "manifest_package",
+          "components",
+          "compose_variables",
+          "pointer_tags"
+        ],
+        "type": "object"
+      },
+      "type": "object"
+    },
+    "repository": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "protected_branches": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._-]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "protected_branches"
+      ],
+      "type": "object"
+    },
+    "retention": {
+      "additionalProperties": false,
+      "properties": {
+        "diagnostic_days": {
+          "maximum": 90,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "grace_hours": {
+          "maximum": 720,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "managed_release_kinds": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "grace_hours",
+        "diagnostic_days",
+        "managed_release_kinds"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "targets": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "items": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "active",
+                    "shadow"
+                  ]
+                },
+                "provider": {
+                  "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                  "type": "string"
+                },
+                "provider_binding": {
+                  "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mode",
+                "provider",
+                "provider_binding"
+              ],
+              "type": "object"
+            },
+            "minProperties": 1,
+            "type": "object"
+          }
+        },
+        "required": [
+          "default",
+          "items"
+        ],
+        "type": "object"
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "repository",
+    "environments",
+    "capabilities",
+    "targets",
+    "providers",
+    "release_kinds",
+    "hooks",
+    "retention",
+    "diagnostics",
+    "hotfix",
+    "ci",
+    "delivery"
+  ],
+  "type": "object"
+}

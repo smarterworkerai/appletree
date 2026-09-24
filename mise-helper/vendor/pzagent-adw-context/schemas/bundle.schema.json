@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "files": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "generic_contract": {
+      "const": ">=2.0.0,<3.0.0"
+    },
+    "migration_notes": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "minimum_mise": {
+      "const": "2026.0.0"
+    },
+    "package": {
+      "const": "pzagent-adw-context"
+    },
+    "platforms": {
+      "const": [
+        "linux",
+        "macos",
+        "cygwin-wsl"
+      ]
+    },
+    "policy": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "runtimes": {
+      "const": [
+        "python>=3.11-stdlib"
+      ]
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "stability": {
+      "const": "experimental"
+    },
+    "task_entrypoint": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "version": {
+      "pattern": "^0\\.[0-9]+\\.[0-9]+$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "package",
+    "version",
+    "stability",
+    "generic_contract",
+    "minimum_mise",
+    "task_entrypoint",
+    "platforms",
+    "runtimes",
+    "policy",
+    "migration_notes",
+    "files"
+  ],
+  "type": "object"
+}

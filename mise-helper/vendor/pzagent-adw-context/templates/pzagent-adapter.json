@@ -1,0 +1,186 @@
+{
+  "capabilities": {
+    "adw:build": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "unsupported"
+    },
+    "adw:check": {
+      "environments": [],
+      "side_effect": "read-only",
+      "status": "supported"
+    },
+    "adw:context:check": {
+      "environments": [],
+      "side_effect": "read-only",
+      "status": "supported"
+    },
+    "adw:context:sync": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "supported"
+    },
+    "adw:deploy:apply": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "status": "unsupported"
+    },
+    "adw:deploy:config:apply": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "status": "unsupported"
+    },
+    "adw:deploy:config:plan": {
+      "environments": [],
+      "side_effect": "read-only",
+      "status": "unsupported"
+    },
+    "adw:deploy:config:pull": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "unsupported"
+    },
+    "adw:deploy:status": {
+      "environments": [],
+      "side_effect": "read-only",
+      "status": "unsupported"
+    },
+    "adw:describe": {
+      "environments": [],
+      "side_effect": "read-only",
+      "status": "supported"
+    },
+    "adw:health": {
+      "environments": [],
+      "side_effect": "read-only",
+      "status": "unsupported"
+    },
+    "adw:hotfix:apply": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "status": "unsupported"
+    },
+    "adw:hotfix:restore": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "status": "unsupported"
+    },
+    "adw:install": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "unsupported"
+    },
+    "adw:lint": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "unsupported"
+    },
+    "adw:readiness": {
+      "environments": [],
+      "side_effect": "read-only",
+      "status": "unsupported"
+    },
+    "adw:static-analysis": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "unsupported"
+    },
+    "adw:test:e2e:fast": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "status": "unsupported"
+    },
+    "adw:test:e2e:full": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "status": "unsupported"
+    },
+    "adw:test:integration:fast": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "unsupported"
+    },
+    "adw:test:integration:full": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "unsupported"
+    },
+    "adw:test:unit": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "unsupported"
+    },
+    "adw:validate-deployment": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "status": "unsupported"
+    },
+    "adw:verify:full": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "unsupported"
+    },
+    "adw:verify:minimal": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "unsupported"
+    }
+  },
+  "ci": {
+    "ci_only_checks": [],
+    "diagnostic_marker": "deploy_diag",
+    "full_task": "adw:verify:full",
+    "minimal_task": "adw:verify:minimal",
+    "required_job": "required-quality",
+    "workflow_path": ".github/workflows/ci.yml"
+  },
+  "delivery": {
+    "promotion_pairs": [
+      {
+        "source": "demo",
+        "target": "main"
+      }
+    ]
+  },
+  "diagnostics": {
+    "marker": "deploy_diag"
+  },
+  "environments": [
+    "pr-preview",
+    "demo",
+    "production"
+  ],
+  "hooks": {
+    "dispatcher": {
+      "argv": [
+        "python3",
+        "mise-helper/pzagent_adapter.py"
+      ],
+      "path_tools": [
+        "python3"
+      ]
+    },
+    "operations": {}
+  },
+  "hotfix": {
+    "ssh_aliases": [],
+    "supported_environments": [],
+    "transports": []
+  },
+  "providers": {},
+  "release_kinds": {},
+  "repository": {
+    "id": "owner/repository",
+    "protected_branches": [
+      "main",
+      "demo"
+    ]
+  },
+  "retention": {
+    "diagnostic_days": 7,
+    "grace_hours": 48,
+    "managed_release_kinds": []
+  },
+  "schema_version": "1.0.0",
+  "targets": {}
+}

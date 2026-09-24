@@ -1,0 +1,14 @@
+name: Retain protected packages
+description: Evaluate a closed default-branch inventory and delete only rechecked safe candidates
+inputs:
+  inventory_path: {required: true}
+  dry_run: {required: true, default: "true"}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        INVENTORY_PATH: ${{ inputs.inventory_path }}
+        DRY_RUN: ${{ inputs.dry_run }}
+        GH_TOKEN: ${{ github.token }}
+      run: python3 "$GITHUB_ACTION_PATH/retain.py"

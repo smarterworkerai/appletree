@@ -1,0 +1,22 @@
+name: appletree-preview
+services:
+  appletree:
+    image: ${APPLETREE_IMAGE:?digest-pinned image required}
+    pull_policy: always
+    expose:
+      - "3333"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3333/ | grep -q 'Apple Tree'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [dokploy-network]
+networks:
+  dokploy-network:
+    external: true

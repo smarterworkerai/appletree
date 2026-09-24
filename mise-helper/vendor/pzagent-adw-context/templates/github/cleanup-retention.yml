@@ -1,0 +1,44 @@
+name: Cleanup retained packages
+on:
+  workflow_call:
+    inputs:
+      dry_run: {type: boolean, required: true}
+  workflow_dispatch:
+    inputs:
+      dry_run: {type: boolean, required: true, default: true}
+permissions:
+  contents: read
+concurrency:
+  group: adw-retention-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    permissions: {contents: read, packages: read}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with: {ref: "${{ github.event.repository.default_branch }}"}
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - name: Generate closed retention inventory
+        run: mise run _pz:retention:inventory --output "$RUNNER_TEMP/pz-retention.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pz-retention-inventory-${{ github.run_id }}
+          path: ${{ runner.temp }}/pz-retention.json
+          retention-days: 1
+          if-no-files-found: error
+  retain:
+    needs: inventory
+    runs-on: ubuntu-latest
+    permissions: {contents: read, packages: write}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with: {ref: "${{ github.event.repository.default_branch }}"}
+      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4
+        with:
+          name: pz-retention-inventory-${{ github.run_id }}
+          path: ${{ runner.temp }}/retention
+      - uses: ./mise-helper/vendor/pzagent-adw-context/templates/github/actions/retain-protected-packages
+        with:
+          inventory_path: ${{ runner.temp }}/retention/pz-retention.json
+          dry_run: ${{ inputs.dry_run }}
