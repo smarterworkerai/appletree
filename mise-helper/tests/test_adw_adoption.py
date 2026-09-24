@@ -81,6 +81,10 @@ class AppletreeAdoptionTest(unittest.TestCase):
         ) as provider, patch.object(pzagent_adapter, "_fetch", return_value='<title>Apple Tree</title><canvas id="scene"></canvas>'):
             self.assertEqual(pzagent_adapter.dispatch("runtime-proof", request), {"images": ["APPLETREE_IMAGE=" + image]})
         self.assertEqual(provider.call_count, 2)
+        self.assertEqual(
+            provider.call_args_list[0].args,
+            ("/api/docker.getContainersByAppNameMatch", {"appName": "appletree-prod", "appType": "docker-compose", "serverId": "server-1"}),
+        )
 
     def test_runtime_proof_supports_dokploy_local_runtime_without_server_id(self):
         image, request, compose, container, config = self._runtime_fixture()
@@ -91,6 +95,7 @@ class AppletreeAdoptionTest(unittest.TestCase):
             self.assertEqual(pzagent_adapter.dispatch("runtime-proof", request), {"images": ["APPLETREE_IMAGE=" + image]})
         self.assertNotIn("serverId", provider.call_args_list[0].args[1])
         self.assertNotIn("serverId", provider.call_args_list[1].args[1])
+        self.assertEqual(provider.call_args_list[0].args[1]["appType"], "docker-compose")
 
     def test_runtime_proof_rejects_stale_duplicate_wrong_label_stopped_and_unhealthy(self):
         image, request, compose, container, config = self._runtime_fixture()
