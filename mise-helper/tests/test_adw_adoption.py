@@ -142,6 +142,10 @@ if (!sun.children.every(child => child.material.depthTest === false)) throw new 
         self.assertEqual(result, {"status": "passed", "selected": 2, "executed": 2, "skipped": 0})
         self.assertIn("browser_e2e.mjs", runner.call_args.args[0][1])
 
+    def test_preview_compose_allows_ssh_loaded_hotfix_images(self):
+        preview = (ROOT / "infra/dokploy/docker-compose.preview.yml").read_text()
+        self.assertNotIn("pull_policy: always", preview)
+
     def test_publisher_is_content_exact_and_does_not_move_deployment_pointers(self):
         workflow = (ROOT / ".github/workflows/docker-publish.yml").read_text()
         self.assertIn('test "$remote_id" = "$local_id"', workflow)

@@ -2,7 +2,6 @@ name: appletree-preview
 services:
   appletree:
     image: ${APPLETREE_IMAGE:?digest-pinned image required}
-    pull_policy: always
     expose:
       - "3333"
     restart: unless-stopped
