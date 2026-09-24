@@ -15,11 +15,7 @@ on:
         description: Exact successful CI run attempt
         required: true
         type: string
-      expected_previous_digest:
-        description: Current demo/production release pointer digest, or absent
-        required: true
-        default: absent
-        type: string
+
       diagnostic_publish:
         description: Require the exact source to contain deploy_diag
         required: true
@@ -131,6 +127,8 @@ jobs:
           set -euo pipefail
           short='${{ inputs.source_sha }}'; short="${short:0:12}"
           remote="${REGISTRY}/appletree:sha-$short"
+          local_id="$(docker image inspect --format '{{.Id}}' appletree:release)"
+          [[ "$local_id" =~ ^sha256:[0-9a-f]{64}$ ]]
           error_file="$(mktemp)"
           if docker pull "$remote" >/dev/null 2>"$error_file"; then
             :
@@ -146,6 +144,8 @@ jobs:
           fi
           rm -f "$error_file"
           docker pull "$remote" >/dev/null
+          remote_id="$(docker image inspect --format '{{.Id}}' "$remote")"
+          test "$remote_id" = "$local_id"
           test "$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' "$remote")" = '${{ inputs.source_sha }}'
           docker image inspect --format '{{json .RepoDigests}}' "$remote" > repo-digests.json
           python3 - <<'PY'
@@ -155,17 +155,11 @@ jobs:
           if len(matches)!=1: raise SystemExit('canonical image digest is ambiguous')
           open('image-digest.txt','w',encoding='utf-8').write(matches[0]+'\n')
           PY
-      - name: Build closed release publication artifact
+      - name: Build immutable release manifest
         shell: bash
         run: |
           set -euo pipefail
           mkdir release
-          target="$(jq -er '.target_branch' authorization/authorization.json)"
-          case "$target" in
-            demo) pointer=demo ;;
-            main) pointer=production ;;
-            *) echo 'authorized target has no release pointer' >&2; exit 1 ;;
-          esac
           short='${{ inputs.source_sha }}'; short="${short:0:12}"
           jq -n \
             --arg source '${{ inputs.source_sha }}' \
@@ -173,24 +167,34 @@ jobs:
             --arg image "$(<image-digest.txt)" \
             '{schema:"appletree.application-release/v1",source_sha:$source,source_tag:$tag,images:{application:$image}}' \
             > release/manifest.json
-          checksum="$(sha256sum release/manifest.json | cut -d' ' -f1)"
-          expected='${{ inputs.expected_previous_digest }}'
-          if [[ "$expected" == absent ]]; then previous=null; else
-            [[ "$expected" =~ ^sha256:[0-9a-f]{64}$ ]]; previous="\"$expected\""
-          fi
-          jq -n \
-            --arg source '${{ inputs.source_sha }}' \
-            --arg checksum "$checksum" \
-            --arg pointer "$pointer" \
-            --argjson previous "$previous" \
-            '{source_sha:$source,artifact:"manifest.json",sha256:$checksum,repository:"ghcr.io/smarterworkerai/appletree-release",immutable_tag:("sha-"+($source[0:12])),mutable_tag:$pointer,expected_previous_digest:$previous,media_type:"application/vnd.smarterworkerai.appletree.application-release.v1+json"}' \
-            > release/publication.json
       - name: Install ORAS
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
-      - name: Publish create-only manifest and compare-and-swap pointer
-        uses: ./control/mise-helper/vendor/pzagent-adw-context/templates/github/actions/publish-immutable-release
-        with:
-          source_sha: ${{ inputs.source_sha }}
-          authorization_path: authorization/authorization.json
-          artifact_path: release
-          registry_token: ${{ github.token }}
+      - name: Publish or verify create-only immutable release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          short='${{ inputs.source_sha }}'; short="${short:0:12}"
+          immutable="${REGISTRY}/appletree-release:sha-$short"
+          existing="$(mktemp -d)"
+          error_file="$(mktemp)"
+          if oras pull "$immutable" --output "$existing" >/dev/null 2>"$error_file"; then
+            cmp release/manifest.json "$existing/manifest.json"
+          else
+            error="$(<"$error_file")"
+            case "$error" in
+              *"manifest unknown"*|*"not found"*|*"404"*)
+                oras push "$immutable" \
+                  --artifact-type application/vnd.smarterworkerai.appletree.application-release.v1+json \
+                  --annotation 'org.opencontainers.image.revision=${{ inputs.source_sha }}' \
+                  release/manifest.json:application/json
+                ;;
+              *) echo 'immutable release lookup failed closed' >&2; exit 1 ;;
+            esac
+          fi
+          rm -f "$error_file"
+          descriptor="$(oras manifest fetch --descriptor "$immutable")"
+          jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<<"$descriptor" >/dev/null
+          readback="$(mktemp -d)"
+          oras pull "$immutable" --output "$readback" >/dev/null
+          cmp release/manifest.json "$readback/manifest.json"
+          echo 'Immutable release published; deploy-owned pointers remain unchanged.'
