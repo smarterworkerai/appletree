@@ -1,0 +1,371 @@
+{
+  "capabilities": {
+    "adw:build": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": {
+        "checksum": "sha256:ba81b7916baaab365fcda35e5a996ca4ccf0e8751be3c5dd433362458aa68914",
+        "layer": "project",
+        "path": "mise-helper/tasks.toml",
+        "ref": "HEAD"
+      },
+      "status": "supported"
+    },
+    "adw:check": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": {
+        "checksum": "sha256:23b52408af2438776ced9d8a8f9f23f72281b32cde9782a2f4c8e6c8291c0794",
+        "layer": "generic",
+        "path": "mise-helper/vendor/agentic-delivery/tasks.toml",
+        "ref": "5668b0d01dacb97786514e9cfac621825e6a68cc"
+      },
+      "status": "supported"
+    },
+    "adw:context:check": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:context:sync": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:deploy:apply": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "remote-write",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:deploy:config:apply": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "remote-write",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:deploy:config:plan": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:deploy:config:pull": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "local-write",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:deploy:status": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:describe": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": {
+        "checksum": "sha256:23b52408af2438776ced9d8a8f9f23f72281b32cde9782a2f4c8e6c8291c0794",
+        "layer": "generic",
+        "path": "mise-helper/vendor/agentic-delivery/tasks.toml",
+        "ref": "5668b0d01dacb97786514e9cfac621825e6a68cc"
+      },
+      "status": "supported"
+    },
+    "adw:health": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:hotfix:apply": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:hotfix:restore": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:install": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": {
+        "checksum": "sha256:ba81b7916baaab365fcda35e5a996ca4ccf0e8751be3c5dd433362458aa68914",
+        "layer": "project",
+        "path": "mise-helper/tasks.toml",
+        "ref": "HEAD"
+      },
+      "status": "supported"
+    },
+    "adw:lint": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": {
+        "checksum": "sha256:ba81b7916baaab365fcda35e5a996ca4ccf0e8751be3c5dd433362458aa68914",
+        "layer": "project",
+        "path": "mise-helper/tasks.toml",
+        "ref": "HEAD"
+      },
+      "status": "supported"
+    },
+    "adw:readiness": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:static-analysis": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": {
+        "checksum": "sha256:ba81b7916baaab365fcda35e5a996ca4ccf0e8751be3c5dd433362458aa68914",
+        "layer": "project",
+        "path": "mise-helper/tasks.toml",
+        "ref": "HEAD"
+      },
+      "status": "supported"
+    },
+    "adw:test:e2e:fast": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:test:e2e:full": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:test:integration:fast": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": {
+        "checksum": "sha256:ba81b7916baaab365fcda35e5a996ca4ccf0e8751be3c5dd433362458aa68914",
+        "layer": "project",
+        "path": "mise-helper/tasks.toml",
+        "ref": "HEAD"
+      },
+      "status": "supported"
+    },
+    "adw:test:integration:full": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": {
+        "checksum": "sha256:ba81b7916baaab365fcda35e5a996ca4ccf0e8751be3c5dd433362458aa68914",
+        "layer": "project",
+        "path": "mise-helper/tasks.toml",
+        "ref": "HEAD"
+      },
+      "status": "supported"
+    },
+    "adw:test:unit": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": {
+        "checksum": "sha256:ba81b7916baaab365fcda35e5a996ca4ccf0e8751be3c5dd433362458aa68914",
+        "layer": "project",
+        "path": "mise-helper/tasks.toml",
+        "ref": "HEAD"
+      },
+      "status": "supported"
+    },
+    "adw:validate-deployment": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "remote-write",
+      "source": {
+        "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+        "layer": "context",
+        "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+        "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+      },
+      "status": "supported"
+    },
+    "adw:verify:full": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": {
+        "checksum": "sha256:ba81b7916baaab365fcda35e5a996ca4ccf0e8751be3c5dd433362458aa68914",
+        "layer": "project",
+        "path": "mise-helper/tasks.toml",
+        "ref": "HEAD"
+      },
+      "status": "supported"
+    },
+    "adw:verify:minimal": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": {
+        "checksum": "sha256:ba81b7916baaab365fcda35e5a996ca4ccf0e8751be3c5dd433362458aa68914",
+        "layer": "project",
+        "path": "mise-helper/tasks.toml",
+        "ref": "HEAD"
+      },
+      "status": "supported"
+    }
+  },
+  "contract": {
+    "compatible": ">=2.0.0,<3.0.0",
+    "name": "adw-mise-task-contract",
+    "version": "2.0.0"
+  },
+  "environments": [
+    "pr-preview",
+    "demo",
+    "production"
+  ],
+  "evidence": {
+    "root": ".hermes/evidence"
+  },
+  "project": {
+    "id": "smarterworkerai/appletree"
+  },
+  "required_secret_env": [
+    "DOKPLOY_TOKEN"
+  ],
+  "schema_version": "2.0.0",
+  "sources": [
+    {
+      "checksum": "sha256:23b52408af2438776ced9d8a8f9f23f72281b32cde9782a2f4c8e6c8291c0794",
+      "layer": "generic",
+      "path": "mise-helper/vendor/agentic-delivery/tasks.toml",
+      "ref": "5668b0d01dacb97786514e9cfac621825e6a68cc"
+    },
+    {
+      "checksum": "sha256:ba81b7916baaab365fcda35e5a996ca4ccf0e8751be3c5dd433362458aa68914",
+      "layer": "project",
+      "path": "mise-helper/tasks.toml",
+      "ref": "HEAD"
+    },
+    {
+      "checksum": "sha256:3e813a95fdf87426e84681cfb62a2e3fac547a5336a7093c142a26d456868bce",
+      "layer": "context",
+      "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+      "ref": "9ed89906d75b6ed3e54780ecaa295dc7623c7306"
+    }
+  ],
+  "verification": {
+    "full": [
+      "adw:build",
+      "adw:lint",
+      "adw:static-analysis",
+      "adw:test:unit",
+      "adw:test:integration:fast"
+    ],
+    "minimal": [
+      "adw:build"
+    ]
+  }
+}

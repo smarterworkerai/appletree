@@ -1,0 +1,95 @@
+name: ADW CI
+run-name: ADW CI ${{ github.event_name }} PR#${{ github.event.pull_request.number || 0 }} to ${{ github.base_ref || '-' }} head ${{ github.event.pull_request.head.sha || github.sha }}
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      confirm_quality:
+        description: Confirm the full required quality graph
+        type: boolean
+        required: true
+        default: false
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  pull-requests: read
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.classify.outputs.mode }}
+      reason: ${{ steps.classify.outputs.reason }}
+      reuse_sha: ${{ steps.classify.outputs.reuse_sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Check bundled workflow drift
+        run: python3 mise-helper/vendor/pzagent-adw-context/ci.py workflow-drift --root .
+      - id: classify
+        uses: ./mise-helper/vendor/pzagent-adw-context/templates/github/actions/classify-ci-event
+        with:
+          event_name: ${{ github.event_name }}
+          source_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          confirm_quality: ${{ inputs.confirm_quality }}
+      - name: Report diagnostic suppression
+        if: steps.classify.outputs.mode == 'suppressed'
+        run: |
+          echo 'WARNING: deploy_diag suppresses automatic quality for this exact revision.'
+  required-quality:
+    needs: classify
+    if: needs.classify.outputs.mode != 'suppressed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - name: Reject unknown quality mode
+        if: needs.classify.outputs.mode != 'full-quality' && needs.classify.outputs.mode != 'fast-feedback' && needs.classify.outputs.mode != 'reuse'
+        run: exit 21
+      - name: Run required full quality graph
+        if: needs.classify.outputs.mode == 'full-quality'
+        env:
+          ADW_TEST_REPORT_DIR: ${{ runner.temp }}/adw-test-reports
+        run: mise run adw:verify:full
+      - name: Archive full-quality test reports when present
+        if: always() && needs.classify.outputs.mode == 'full-quality'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: adw-test-reports
+          path: ${{ runner.temp }}/adw-test-reports/**/target/*-reports/TEST-*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Prove exact prior quality tree
+        if: needs.classify.outputs.mode == 'reuse' && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 mise-helper/vendor/pzagent-adw-context/ci.py proof-pr
+          --repository "${{ github.repository }}"
+          --pr "${{ github.event.pull_request.number }}"
+          --target "${{ github.base_ref }}"
+          --expected-sha "${{ github.event.pull_request.head.sha }}"
+          --adapter .hermes/pzagent-adapter.json
+      - name: Prove exact merged destination tree
+        if: needs.classify.outputs.mode == 'reuse' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 mise-helper/vendor/pzagent-adw-context/ci.py proof-destination
+          --repository "${{ github.repository }}"
+          --target "${{ github.ref_name }}"
+          --expected-sha "${{ github.sha }}"
+          --adapter .hermes/pzagent-adapter.json
+      - name: Run non-promotable minimal feedback
+        if: needs.classify.outputs.mode == 'fast-feedback'
+        run: mise run adw:verify:minimal

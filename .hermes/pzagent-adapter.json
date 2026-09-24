@@ -1,0 +1,381 @@
+{
+  "capabilities": {
+    "adw:build": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "supported"
+    },
+    "adw:check": {
+      "environments": [],
+      "side_effect": "read-only",
+      "status": "supported"
+    },
+    "adw:context:check": {
+      "environments": [],
+      "side_effect": "read-only",
+      "status": "supported"
+    },
+    "adw:context:sync": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "supported"
+    },
+    "adw:deploy:apply": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "remote-write",
+      "status": "supported"
+    },
+    "adw:deploy:config:apply": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "remote-write",
+      "status": "supported"
+    },
+    "adw:deploy:config:plan": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "status": "supported"
+    },
+    "adw:deploy:config:pull": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "local-write",
+      "status": "supported"
+    },
+    "adw:deploy:status": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "status": "supported"
+    },
+    "adw:describe": {
+      "environments": [],
+      "side_effect": "read-only",
+      "status": "supported"
+    },
+    "adw:health": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "status": "supported"
+    },
+    "adw:hotfix:apply": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "status": "supported"
+    },
+    "adw:hotfix:restore": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "status": "supported"
+    },
+    "adw:install": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "supported"
+    },
+    "adw:lint": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "supported"
+    },
+    "adw:readiness": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "status": "supported"
+    },
+    "adw:static-analysis": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "supported"
+    },
+    "adw:test:e2e:fast": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "status": "supported"
+    },
+    "adw:test:e2e:full": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "status": "supported"
+    },
+    "adw:test:integration:fast": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "supported"
+    },
+    "adw:test:integration:full": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "supported"
+    },
+    "adw:test:unit": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "supported"
+    },
+    "adw:validate-deployment": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "remote-write",
+      "status": "supported"
+    },
+    "adw:verify:full": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "supported"
+    },
+    "adw:verify:minimal": {
+      "environments": [],
+      "side_effect": "local-write",
+      "status": "supported"
+    }
+  },
+  "ci": {
+    "ci_only_checks": [],
+    "diagnostic_marker": "deploy_diag",
+    "full_task": "adw:verify:full",
+    "minimal_task": "adw:verify:minimal",
+    "required_job": "required-quality",
+    "workflow_path": ".github/workflows/ci.yml"
+  },
+  "delivery": {
+    "promotion_pairs": [
+      {
+        "source": "demo",
+        "target": "main"
+      }
+    ]
+  },
+  "diagnostics": {
+    "marker": "deploy_diag"
+  },
+  "environments": [
+    "pr-preview",
+    "demo",
+    "production"
+  ],
+  "hooks": {
+    "dispatcher": {
+      "argv": [
+        "python3",
+        "mise-helper/pzagent_adapter.py"
+      ],
+      "path_tools": [
+        "python3"
+      ]
+    },
+    "operations": {
+      "adw:deploy:config:plan": {
+        "operation": "config-plan",
+        "result_keys": [
+          "order",
+          "role"
+        ],
+        "timeout_seconds": 30
+      },
+      "adw:deploy:status": {
+        "operation": "deploy-status",
+        "result_keys": [
+          "status"
+        ],
+        "timeout_seconds": 60
+      },
+      "adw:describe": {
+        "operation": "describe",
+        "result_keys": [
+          "profile"
+        ],
+        "timeout_seconds": 10
+      },
+      "adw:health": {
+        "operation": "health",
+        "result_keys": [
+          "status"
+        ],
+        "timeout_seconds": 30
+      },
+      "adw:hotfix:apply": {
+        "operation": "hotfix-build",
+        "result_keys": [
+          "images"
+        ],
+        "timeout_seconds": 1200
+      },
+      "adw:readiness": {
+        "operation": "readiness",
+        "result_keys": [
+          "status"
+        ],
+        "timeout_seconds": 60
+      },
+      "adw:test:e2e:fast": {
+        "operation": "e2e-fast",
+        "result_keys": [
+          "status",
+          "selected",
+          "executed",
+          "skipped"
+        ],
+        "timeout_seconds": 300
+      },
+      "adw:test:e2e:full": {
+        "operation": "e2e-full",
+        "result_keys": [
+          "status",
+          "selected",
+          "executed",
+          "skipped"
+        ],
+        "timeout_seconds": 600
+      },
+      "adw:validate-deployment": {
+        "operation": "runtime-proof",
+        "result_keys": [
+          "images"
+        ],
+        "timeout_seconds": 180
+      }
+    }
+  },
+  "hotfix": {
+    "ssh_aliases": [],
+    "supported_environments": [
+      "pr-preview"
+    ],
+    "transports": [
+      "registry"
+    ]
+  },
+  "providers": {
+    "dokploy": {
+      "bindings": {
+        "application-demo": {
+          "child_binding": "APPLETREE_DOKPLOY_COMPOSE_ID",
+          "compose_path": "infra/dokploy/docker-compose.demo.yml",
+          "environment": "demo",
+          "environment_schema_path": "infra/dokploy/environment-keys/demo.json",
+          "project": "appletree",
+          "resource": "appletree-demo"
+        },
+        "application-preview": {
+          "child_binding": "APPLETREE_DOKPLOY_COMPOSE_ID",
+          "compose_path": "infra/dokploy/docker-compose.preview.yml",
+          "environment": "pr-preview",
+          "environment_schema_path": "infra/dokploy/environment-keys/preview.json",
+          "project": "appletree",
+          "resource": "appletree-preview"
+        },
+        "application-production": {
+          "child_binding": "APPLETREE_DOKPLOY_COMPOSE_ID",
+          "compose_path": "infra/dokploy/docker-compose.production.yml",
+          "environment": "production",
+          "environment_schema_path": "infra/dokploy/environment-keys/production.json",
+          "project": "appletree",
+          "resource": "appletree"
+        }
+      },
+      "profile_handle": "pr-preview"
+    }
+  },
+  "release_kinds": {
+    "application": {
+      "components": {
+        "application": {
+          "package": "ghcr.io/smarterworkerai/appletree"
+        }
+      },
+      "compose_variables": {
+        "APPLETREE_IMAGE": "application"
+      },
+      "manifest_package": "ghcr.io/smarterworkerai/appletree-release",
+      "pointer_tags": {
+        "current": "target-{target}-current",
+        "rollback": "target-{target}-rollback"
+      },
+      "schema": "appletree.application-release/v1"
+    }
+  },
+  "repository": {
+    "id": "smarterworkerai/appletree",
+    "protected_branches": [
+      "main",
+      "demo"
+    ]
+  },
+  "retention": {
+    "diagnostic_days": 7,
+    "grace_hours": 48,
+    "managed_release_kinds": [
+      "application"
+    ]
+  },
+  "schema_version": "1.0.0",
+  "targets": {
+    "demo": {
+      "default": "demo-dokploy",
+      "items": {
+        "demo-dokploy": {
+          "mode": "active",
+          "provider": "dokploy",
+          "provider_binding": "application-demo"
+        }
+      }
+    },
+    "pr-preview": {
+      "default": "pr-preview-dokploy",
+      "items": {
+        "pr-preview-dokploy": {
+          "mode": "active",
+          "provider": "dokploy",
+          "provider_binding": "application-preview"
+        }
+      }
+    },
+    "production": {
+      "default": "production-dokploy",
+      "items": {
+        "production-dokploy": {
+          "mode": "active",
+          "provider": "dokploy",
+          "provider_binding": "application-production"
+        }
+      }
+    }
+  }
+}

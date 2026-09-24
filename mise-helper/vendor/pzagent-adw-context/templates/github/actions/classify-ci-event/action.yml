@@ -1,0 +1,33 @@
+name: Classify ADW CI event
+description: Event-tiered quality, exact-SHA reuse, and deploy_diag decision
+inputs:
+  event_name: {description: GitHub event name, required: true}
+  source_sha: {description: Exact workflow source SHA, required: true}
+  confirm_quality: {description: Explicit manual quality confirmation, required: false, default: "false"}
+outputs:
+  mode: {description: Selected quality mode, value: "${{ steps.classify.outputs.mode }}"}
+  reason: {description: Content-safe selection reason, value: "${{ steps.classify.outputs.reason }}"}
+  reuse_sha: {description: Exact reused quality SHA when applicable, value: "${{ steps.classify.outputs.reuse_sha }}"}
+runs:
+  using: composite
+  steps:
+    - id: classify
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        INPUT_EVENT_NAME: ${{ inputs.event_name }}
+        INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+        INPUT_CONFIRM_QUALITY: ${{ inputs.confirm_quality }}
+        INPUT_REF_NAME: ${{ github.head_ref || github.ref_name }}
+        INPUT_REPOSITORY: ${{ github.repository }}
+        INPUT_PR: ${{ github.event.pull_request.number }}
+        INPUT_TARGET: ${{ github.base_ref }}
+      run: |
+        args=(--event "$INPUT_EVENT_NAME" --branch "$INPUT_REF_NAME" --adapter .hermes/pzagent-adapter.json
+              --repository "$INPUT_REPOSITORY" --expected-sha "$INPUT_SOURCE_SHA")
+        if [ "$INPUT_EVENT_NAME" = pull_request ]; then
+          args+=(--pr "$INPUT_PR" --target "$INPUT_TARGET")
+        fi
+        if [ -f deploy_diag ]; then args+=(--marker); fi
+        if [ "$INPUT_CONFIRM_QUALITY" = true ]; then args+=(--manual-confirm); fi
+        python3 mise-helper/vendor/pzagent-adw-context/ci.py classify "${args[@]}"

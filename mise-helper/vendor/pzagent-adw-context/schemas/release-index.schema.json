@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "bundle_sha256": {
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "package_version": {
+      "pattern": "^0\\.[0-9]+\\.[0-9]+$"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "source_ref": {
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "tag": {
+      "pattern": "^v0\\.[0-9]+\\.[0-9]+$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "package_version",
+    "source_ref",
+    "bundle_sha256",
+    "tag"
+  ],
+  "type": "object"
+}

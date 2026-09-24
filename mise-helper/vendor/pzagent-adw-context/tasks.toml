@@ -1,0 +1,82 @@
+["adw:context:check"]
+description = "Validate the pinned pz context bundle without mutation"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py context-check --repo-root ."
+
+["adw:context:sync"]
+description = "Explicitly stage and validate one immutable pz context update"
+dir = "{{config_root}}"
+usage = "arg \"<version-or-ref>\" help=\"Protected version or exact ref\"\narg \"<bundle-sha256>\" help=\"Trusted release bundle descriptor checksum\"\nflag \"--allow-downgrade\" help=\"Permit an older context version\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py context-sync --repo-root . --source "$usage_version_or_ref" --bundle-sha256 "$usage_bundle_sha256" ${usage_allow_downgrade:+--allow-downgrade}'
+
+["adw:deploy:config:pull"]
+description = "Read redacted provider configuration metadata"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py config-pull --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --profile-root "${PZ_ADW_PROFILE_ROOT:?}"'
+
+["adw:deploy:config:plan"]
+description = "Produce a redacted Dokploy configuration plan"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py config-plan --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --profile-root "${PZ_ADW_PROFILE_ROOT:?}"'
+
+["adw:deploy:config:apply"]
+description = "Apply an approved locked read-back Dokploy transaction"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py config-apply --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --approval-file "${PZ_ADW_APPROVAL_FILE:?}" --profile-root "${PZ_ADW_PROFILE_ROOT:?}"'
+
+["adw:deploy:apply"]
+description = "Run an approved shared deployment transaction"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py deploy-apply --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --approval-file "${PZ_ADW_APPROVAL_FILE:?}" --profile-root "${PZ_ADW_PROFILE_ROOT:?}" --release-kind "${PZ_ADW_RELEASE_KIND:?}" --release-source-sha "${PZ_ADW_RELEASE_SOURCE_SHA:?}" --release-manifest "${PZ_ADW_RELEASE_MANIFEST:?}" --manifest-reference "${PZ_ADW_MANIFEST_REFERENCE:?}" --expected-pointers "${PZ_ADW_EXPECTED_POINTERS:?}"'
+
+["adw:deploy:status"]
+description = "Read redacted deployment status"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py probe adw:deploy:status --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --profile-root "${PZ_ADW_PROFILE_ROOT:?}"'
+
+["adw:health"]
+description = "Run the declared semantic health hook"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py probe adw:health --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --profile-root "${PZ_ADW_PROFILE_ROOT:?}"'
+
+["adw:readiness"]
+description = "Run the declared semantic readiness hook"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py probe adw:readiness --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --profile-root "${PZ_ADW_PROFILE_ROOT:?}"'
+
+["adw:test:e2e:fast"]
+description = "Run explicitly approved fast live E2E through shared policy"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py e2e adw:test:e2e:fast --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --approval-file "${PZ_ADW_APPROVAL_FILE:?}"'
+
+["adw:test:e2e:full"]
+description = "Run explicitly approved full live E2E through shared policy"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py e2e adw:test:e2e:full --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --approval-file "${PZ_ADW_APPROVAL_FILE:?}"'
+
+["adw:validate-deployment"]
+description = "Run shared status, health and readiness validation without implicit E2E"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py validate-deployment --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --approval-file "${PZ_ADW_APPROVAL_FILE:?}" --profile-root "${PZ_ADW_PROFILE_ROOT:?}"'
+
+["adw:hotfix:apply"]
+description = "Run explicitly authorized temporary hotfix path"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Non-demo/non-production preview environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py hotfix-apply --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --approval-file "${PZ_ADW_APPROVAL_FILE:?}" --profile-root "${PZ_ADW_PROFILE_ROOT:?}" --run-id "${ADW_RUN_ID:?}" --transport "${PZ_ADW_HOTFIX_TRANSPORT:-registry}" ${PZ_ADW_SSH_ALIAS:+--ssh-alias "$PZ_ADW_SSH_ALIAS"}'
+
+["adw:hotfix:restore"]
+description = "Restore an approved preview hotfix artifact"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Non-demo/non-production preview environment\"\nflag \"--target <target>\" help=\"Optional logical target\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py hotfix-restore --environment "$usage_environment" ${usage_target:+--target "$usage_target"} --approval-file "${PZ_ADW_APPROVAL_FILE:?}" --profile-root "${PZ_ADW_PROFILE_ROOT:?}" --artifact "${PZ_ADW_RESTORE_ARTIFACT:?}"'
