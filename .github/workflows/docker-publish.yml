@@ -33,10 +33,6 @@ env:
   DOCKER_BUILD_RECORD_UPLOAD: "false"
   REGISTRY: ghcr.io/smarterworkerai
 
-env:
-  # Docker Buildx build records are diagnostic artifacts, not delivery artifacts.
-  DOCKER_BUILD_RECORD_UPLOAD: "false"
-
 jobs:
   authorize:
     runs-on: ubuntu-24.04

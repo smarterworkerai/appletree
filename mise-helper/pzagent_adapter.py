@@ -142,10 +142,10 @@ def _prove_running_container(payload: dict[str, Any], image: str) -> None:
         raise Blocked("runtime-project-identity-absent")
     if server is not None and (not isinstance(server, str) or not IDENTIFIER.fullmatch(server)):
         raise Blocked("runtime-project-identity-absent")
-    discovery: dict[str, str] = {"appName": project, "type": "standalone"}
+    discovery: dict[str, str] = {"appName": project, "appType": "docker-compose"}
     if server is not None:
         discovery["serverId"] = server
-    containers = _provider_json("/api/docker.getContainersByAppLabel", discovery)
+    containers = _provider_json("/api/docker.getContainersByAppNameMatch", discovery)
     if not isinstance(containers, list):
         raise Blocked("runtime-container-discovery-failed")
     matches: list[dict[str, Any]] = []
