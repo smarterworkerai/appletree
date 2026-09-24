@@ -274,12 +274,15 @@
     }
   },
   "hotfix": {
-    "ssh_aliases": [],
+    "ssh_aliases": [
+      "pr-preview"
+    ],
     "supported_environments": [
       "pr-preview"
     ],
     "transports": [
-      "registry"
+      "registry",
+      "ssh-docker"
     ]
   },
   "providers": {

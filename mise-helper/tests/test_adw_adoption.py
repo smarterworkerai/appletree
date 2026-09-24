@@ -37,6 +37,26 @@ class AppletreeAdoptionTest(unittest.TestCase):
         self.assertTrue(all(value["status"] == "supported" for value in adapter["capabilities"].values()))
         self.assertEqual(set(adapter["targets"]), {"pr-preview", "demo", "production"})
         self.assertEqual(adapter["hotfix"]["supported_environments"], ["pr-preview"])
+        self.assertEqual(adapter["hotfix"]["transports"], ["registry", "ssh-docker"])
+        self.assertEqual(adapter["hotfix"]["ssh_aliases"], ["pr-preview"])
+
+    def test_sun_disc_is_a_layered_camera_space_scene_feature(self):
+        script = """
+import * as THREE from 'three';
+import { createSunDisc } from './src/sky.js';
+const sun = createSunDisc(THREE);
+if (sun.name !== 'sun-disc') throw new Error('sun-name');
+if (sun.children.length !== 2) throw new Error('sun-layers');
+if (sun.position.x <= 0 || sun.position.y <= 0 || sun.position.z >= 0) throw new Error('sun-position');
+if (!sun.children.every(child => child.material.depthTest === false)) throw new Error('sun-depth');
+"""
+        subprocess.run(
+            ["node", "--input-type=module", "--eval", script],
+            cwd=ROOT,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
 
     def test_manifest_provenance_matches_exact_files(self):
         manifest = json.loads((ROOT / ".hermes/adw-task-manifest.json").read_text())
@@ -121,6 +141,10 @@ class AppletreeAdoptionTest(unittest.TestCase):
             result = pzagent_adapter.dispatch("e2e-full", value)
         self.assertEqual(result, {"status": "passed", "selected": 2, "executed": 2, "skipped": 0})
         self.assertIn("browser_e2e.mjs", runner.call_args.args[0][1])
+
+    def test_preview_compose_allows_ssh_loaded_hotfix_images(self):
+        preview = (ROOT / "infra/dokploy/docker-compose.preview.yml").read_text()
+        self.assertNotIn("pull_policy: always", preview)
 
     def test_publisher_is_content_exact_and_does_not_move_deployment_pointers(self):
         workflow = (ROOT / ".github/workflows/docker-publish.yml").read_text()

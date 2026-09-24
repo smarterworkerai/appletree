@@ -23,7 +23,7 @@ The full quality graph builds the Vite bundle, checks syntax and repository hygi
 
 The project adapter declares one active Dokploy target for PR-preview, demo, and production. Provider discovery uses logical project/environment/resource names at runtime; mutable IDs and credentials are never stored in Git.
 
-Normal deployment consumes an immutable application release manifest and digest-pinned image through the shared pzagent deployment engine. Preview hotfixes are separately authorized temporary operations; demo and production hotfixes are forbidden. Project hooks may build artifacts and prove semantic state, but all provider writes, readback, locking, compensation, and pointer promotion remain owned by the shared engine.
+Normal deployment consumes an immutable application release manifest and digest-pinned image through the shared pzagent deployment engine. Preview hotfixes are separately authorized temporary operations and may use the allowlisted `pr-preview` SSH alias; demo and production hotfixes are forbidden. Project hooks may build artifacts and prove semantic state, but all provider writes, readback, locking, compensation, and pointer promotion remain owned by the shared engine.
 
 Public routes:
 

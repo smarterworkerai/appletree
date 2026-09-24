@@ -18,6 +18,7 @@ try {
   if (!response || !response.ok()) throw new Error('browser-root-response-invalid');
   const canvas = page.locator('#scene');
   await canvas.waitFor({ state: 'visible', timeout: 15000 });
+  if (await canvas.getAttribute('data-sky-feature') !== 'sun-disc') throw new Error('browser-sun-disc-absent');
   await page.waitForFunction(() => {
     const element = document.querySelector('#scene');
     const context = element?.getContext('webgl2') || element?.getContext('webgl');
