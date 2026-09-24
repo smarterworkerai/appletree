@@ -82,6 +82,16 @@ class AppletreeAdoptionTest(unittest.TestCase):
             self.assertEqual(pzagent_adapter.dispatch("runtime-proof", request), {"images": ["APPLETREE_IMAGE=" + image]})
         self.assertEqual(provider.call_count, 2)
 
+    def test_runtime_proof_supports_dokploy_local_runtime_without_server_id(self):
+        image, request, compose, container, config = self._runtime_fixture()
+        compose.pop("serverId")
+        with patch.object(pzagent_adapter, "_compose", return_value=compose), patch.object(
+            pzagent_adapter, "_provider_json", side_effect=[[container], config]
+        ) as provider, patch.object(pzagent_adapter, "_fetch", return_value='<title>Apple Tree</title><canvas id="scene"></canvas>'):
+            self.assertEqual(pzagent_adapter.dispatch("runtime-proof", request), {"images": ["APPLETREE_IMAGE=" + image]})
+        self.assertNotIn("serverId", provider.call_args_list[0].args[1])
+        self.assertNotIn("serverId", provider.call_args_list[1].args[1])
+
     def test_runtime_proof_rejects_stale_duplicate_wrong_label_stopped_and_unhealthy(self):
         image, request, compose, container, config = self._runtime_fixture()
         scenarios = []
@@ -106,6 +116,14 @@ class AppletreeAdoptionTest(unittest.TestCase):
             result = pzagent_adapter.dispatch("e2e-full", value)
         self.assertEqual(result, {"status": "passed", "selected": 2, "executed": 2, "skipped": 0})
         self.assertIn("browser_e2e.mjs", runner.call_args.args[0][1])
+
+    def test_publisher_is_content_exact_and_does_not_move_deployment_pointers(self):
+        workflow = (ROOT / ".github/workflows/docker-publish.yml").read_text()
+        self.assertIn('test "$remote_id" = "$local_id"', workflow)
+        self.assertIn("Immutable release published; deploy-owned pointers remain unchanged.", workflow)
+        self.assertNotIn("oras cp", workflow)
+        self.assertNotIn("mutable_tag", workflow)
+        self.assertNotIn("expected_previous_digest", workflow)
 
 
 if __name__ == "__main__":

@@ -138,9 +138,14 @@ def _environment_values(raw: str) -> dict[str, str]:
 
 def _prove_running_container(payload: dict[str, Any], image: str) -> None:
     project, server = payload.get("appName"), payload.get("serverId")
-    if not isinstance(project, str) or not IDENTIFIER.fullmatch(project) or not isinstance(server, str) or not IDENTIFIER.fullmatch(server):
+    if not isinstance(project, str) or not IDENTIFIER.fullmatch(project):
         raise Blocked("runtime-project-identity-absent")
-    containers = _provider_json("/api/docker.getContainersByAppLabel", {"appName": project, "serverId": server, "type": "standalone"})
+    if server is not None and (not isinstance(server, str) or not IDENTIFIER.fullmatch(server)):
+        raise Blocked("runtime-project-identity-absent")
+    discovery: dict[str, str] = {"appName": project, "type": "standalone"}
+    if server is not None:
+        discovery["serverId"] = server
+    containers = _provider_json("/api/docker.getContainersByAppLabel", discovery)
     if not isinstance(containers, list):
         raise Blocked("runtime-container-discovery-failed")
     matches: list[dict[str, Any]] = []
@@ -148,7 +153,10 @@ def _prove_running_container(payload: dict[str, Any], image: str) -> None:
         container_id = container.get("containerId") if isinstance(container, dict) else None
         if not isinstance(container_id, str) or not IDENTIFIER.fullmatch(container_id):
             raise Blocked("runtime-container-discovery-failed")
-        metadata = _provider_json("/api/docker.getConfig", {"containerId": container_id, "serverId": server})
+        inspection = {"containerId": container_id}
+        if server is not None:
+            inspection["serverId"] = server
+        metadata = _provider_json("/api/docker.getConfig", inspection)
         if not isinstance(metadata, dict) or not isinstance(metadata.get("Config"), dict):
             raise Blocked("runtime-container-inspection-failed")
         labels = metadata["Config"].get("Labels")
