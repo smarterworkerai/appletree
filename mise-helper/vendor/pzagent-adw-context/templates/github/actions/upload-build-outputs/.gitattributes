@@ -1,0 +1,2 @@
+# Generated runtime hashes describe exact bytes across producer and consumer repos.
+runtime/** -text

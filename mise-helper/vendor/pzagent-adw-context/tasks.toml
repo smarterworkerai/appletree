@@ -1,0 +1,221 @@
+["adw:context:check"]
+description = "Validate the pinned pz context bundle without mutation"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py context-check --repo-root ."
+
+["adw:context:sync"]
+description = "Explicitly stage and validate one immutable pz context update"
+dir = "{{config_root}}"
+usage = "arg \"<version-or-ref>\" help=\"Protected version or exact ref\"\narg \"<bundle-sha256>\" help=\"Trusted release bundle descriptor checksum\"\nflag \"--allow-downgrade\" help=\"Permit an older context version\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py context-sync --repo-root . --source "$usage_version_or_ref" --bundle-sha256 "$usage_bundle_sha256" ${usage_allow_downgrade:+--allow-downgrade}'
+
+["adw:local:clean"]
+description = "Clean bounded local ADW resources or explicitly confirmed host-wide resources"
+dir = "{{config_root}}"
+usage = '''flag "--prefix <prefix>" help="Required bounded project prefix in scoped mode"
+flag "--dry-run" help="Report candidates without deleting them"
+flag "--aggressive" help="Select all /tmp content and unused Docker resources"
+flag "--yes" help="Required confirmation for aggressive mode"'''
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py local-clean --repo-root . ${usage_prefix:+--prefix "$usage_prefix"} ${usage_dry_run:+--dry-run} ${usage_aggressive:+--aggressive} ${usage_yes:+--yes}'
+
+["adw:deploy:config:pull"]
+description = "Read redacted provider configuration metadata"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--remote <remote>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py config-pull --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${usage_remote:+--remote "$usage_remote"}'
+
+["adw:deploy:config:plan"]
+description = "Produce a redacted Dokploy configuration plan"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--remote <remote>\"\nflag \"--ref <ref>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py config-plan --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${usage_remote:+--remote "$usage_remote"} ${usage_ref:+--ref "$usage_ref"}'
+
+["adw:deploy:config:apply"]
+description = "Apply an locked read-back Dokploy transaction"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--remote <remote>\"\nflag \"--ref <ref>\"\nflag \"--snapshot-path <path>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py config-apply --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${usage_remote:+--remote "$usage_remote"} ${PZ_ADW_APPROVAL_FILE:+--approval-file "$PZ_ADW_APPROVAL_FILE"} ${usage_approval_file:+--approval-file "$usage_approval_file"} ${usage_ref:+--ref "$usage_ref"} ${usage_snapshot_path:+--snapshot-path "$usage_snapshot_path"}'
+
+["adw:deploy:apply"]
+description = "Run an shared deployment transaction"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--remote <remote>\"\nflag \"--ref <ref>\"\nflag \"--kind <value>\"\nflag \"--release-ref <value>\"\nflag \"--operation-dir <value>\"\nflag \"--reconcile-pointers\"\nflag \"--on-failure <value>\"\nflag \"--restore-compose <path>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py deploy-apply --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${usage_remote:+--remote "$usage_remote"} ${PZ_ADW_APPROVAL_FILE:+--approval-file "$PZ_ADW_APPROVAL_FILE"} ${usage_approval_file:+--approval-file "$usage_approval_file"} ${usage_ref:+--ref "$usage_ref"} ${usage_kind:+--kind "$usage_kind"} ${usage_release_ref:+--release-ref "$usage_release_ref"} ${usage_operation_dir:+--operation-dir "$usage_operation_dir"} ${usage_reconcile_pointers:+--reconcile-pointers} ${usage_on_failure:+--on-failure "$usage_on_failure"} ${usage_restore_compose:+--restore-compose "$usage_restore_compose"} ${PZ_ADW_RELEASE_KIND:+--release-kind "$PZ_ADW_RELEASE_KIND"} ${PZ_ADW_RELEASE_SOURCE_SHA:+--release-source-sha "$PZ_ADW_RELEASE_SOURCE_SHA"} ${PZ_ADW_RELEASE_MANIFEST:+--release-manifest "$PZ_ADW_RELEASE_MANIFEST"} ${PZ_ADW_MANIFEST_REFERENCE:+--manifest-reference "$PZ_ADW_MANIFEST_REFERENCE"} ${PZ_ADW_EXPECTED_POINTERS:+--expected-pointers "$PZ_ADW_EXPECTED_POINTERS"}'
+
+["adw:deploy:status"]
+description = "Read redacted deployment status"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--remote <remote>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py probe adw:deploy:status --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${usage_remote:+--remote "$usage_remote"}'
+
+["adw:health"]
+description = "Run the declared semantic health hook"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--remote <remote>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py probe adw:health --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${usage_remote:+--remote "$usage_remote"}'
+
+["adw:readiness"]
+description = "Run the declared semantic readiness hook"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--remote <remote>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py probe adw:readiness --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${usage_remote:+--remote "$usage_remote"}'
+
+["adw:test:e2e:fast"]
+description = "Run explicitly selected fast live E2E through shared policy"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\"\nflag \"--env-file <path>\"\nflag \"--execution-mode <mode>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py e2e adw:test:e2e:fast --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${PZ_ADW_APPROVAL_FILE:+--approval-file "$PZ_ADW_APPROVAL_FILE"} ${usage_env_file:+--env-file "$usage_env_file"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"}'
+
+["adw:test:e2e:full"]
+description = "Run explicitly selected full live E2E through shared policy"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\" help=\"Optional logical target\"\nflag \"--env-file <path>\"\nflag \"--execution-mode <mode>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py e2e adw:test:e2e:full --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${PZ_ADW_APPROVAL_FILE:+--approval-file "$PZ_ADW_APPROVAL_FILE"} ${usage_env_file:+--env-file "$usage_env_file"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"}'
+
+["adw:validate-deployment"]
+description = "Run shared status, health and readiness validation without implicit E2E"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--remote <remote>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py validate-deployment --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${usage_remote:+--remote "$usage_remote"} ${PZ_ADW_APPROVAL_FILE:+--approval-file "$PZ_ADW_APPROVAL_FILE"} ${usage_approval_file:+--approval-file "$usage_approval_file"}'
+
+["adw:hotfix:apply"]
+description = "Build, transfer and apply a temporary preview hotfix"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Preview environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--transport <value>\"\nflag \"--ssh-alias <value>\"\nflag \"--run-id <value>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py hotfix-apply --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${PZ_ADW_APPROVAL_FILE:+--approval-file "$PZ_ADW_APPROVAL_FILE"} ${usage_approval_file:+--approval-file "$usage_approval_file"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${usage_transport:+--transport "$usage_transport"} ${usage_ssh_alias:+--ssh-alias "$usage_ssh_alias"} ${usage_run_id:+--run-id "$usage_run_id"}'
+
+["adw:hotfix:restore"]
+description = "Restore a preview hotfix from its local restore artifact"
+dir = "{{config_root}}"
+usage = "arg \"<environment>\" help=\"Preview environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--artifact <path>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py hotfix-restore --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${PZ_ADW_APPROVAL_FILE:+--approval-file "$PZ_ADW_APPROVAL_FILE"} ${usage_approval_file:+--approval-file "$usage_approval_file"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${PZ_ADW_RESTORE_ARTIFACT:+--artifact "$PZ_ADW_RESTORE_ARTIFACT"} ${usage_artifact:+--artifact "$usage_artifact"}'
+
+["pz:release:inspect"]
+description = "Inspect a release or emit component inventory for human and CI coordinators"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py release-inspect"
+
+["pz:release:package"]
+description = "Package verified ADW build handover through project hooks in human or CI mode"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py release-package"
+
+["pz:release:publish"]
+description = "Publish a prepared release; CI requires a revalidated authorization receipt"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py release-publish"
+
+["pz:workflow:publish"]
+description = "Inspect, build missing components through ADW, package and publish"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py workflow-publish"
+
+["pz:workflow:publish-deploy"]
+description = "Publish a selected source then deploy the resulting immutable release"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py workflow-publish-deploy"
+
+["pz:release:rollback"]
+description = "Human-operated release-rollback"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py release-rollback"
+
+["pz:release:promote"]
+description = "Evidence-aware PR fast-forward into a protected release line"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py release-promote"
+
+["pz:release:prove-merged-branch"]
+description = "Read-only proof that a merged work branch may be deleted"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py release-prove-merged-branch"
+
+["pz:release:pointers:handover"]
+description = "Approval-bound target pointer handover with CAS and a resumable journal"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py release-pointers-handover"
+
+["pz:provider:provision"]
+description = "Provision one declared Dokploy or Kubernetes target with private ownership and redacted receipts"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py provider-provision"
+
+["pz:release:pointers:retire"]
+description = "Plan then retire absent target pointers using only owned non-runnable placeholders"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py release-pointers-retire"
+
+["pz:release:pointers:orphans"]
+description = "Report pointer targets absent from the adapter without registry writes"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py release-pointers-orphans"
+
+["pz:provider:deprovision"]
+description = "Delete only privately journaled created resources and verify runtime cleanup"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py provider-deprovision"
+
+["pz:k3d:up"]
+description = "Create or verify one explicitly profiled local k3d test cluster"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py cluster-up"
+
+["pz:k3d:teardown"]
+description = "Delete only the profiled k3d cluster and verify scoped leftovers"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py cluster-teardown"
+
+["pz:rehearsal"]
+description = "Repeatable preview delivery rehearsal with a client-ready report (human only)"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py rehearsal"
+
+["pz:release:retention"]
+description = "Preview or apply reference-aware retention; CI requires a revalidated receipt"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py release-retention"
+
+["pz:workflow:deploy-existing"]
+description = "Human-operated workflow-deploy-existing"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py workflow-deploy-existing"
+
+["pz:workflow:status"]
+description = "Human-operated workflow-status"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py workflow-status"
+
+["pz:workflow:resume"]
+description = "Human-operated workflow-resume"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py workflow-resume"
+
+["pz:quality:export"]
+description = "Export sealed verified component outputs (local-write)"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py quality-export"
+
+["pz:quality:import"]
+description = "Import sealed output; CI may read exact producer artifacts (local-write)"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py quality-import"
+
+["adw:verify:full"]
+description = "Run the declared full quality graph and export outputs in CI"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py quality-verify"
+
+["adw:describe"]
+description = "Describe the generic contract and context extension tasks"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py context-describe"
+
+["pz:workflows:sync"]
+description = "Write pinned workflow templates or check drift (local-write)"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py workflows-sync"
+
+["pz:project:init"]
+description = "Generate owned project files with fail-closed local task stubs"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/modules/project_init.py"

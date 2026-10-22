@@ -1,0 +1,15 @@
+min_version = { hard = "2026.9.5" }
+
+[settings]
+lockfile = true
+
+[vars]
+adw_contract_version = "2.2.0"
+adw_mise_tested_version = "2026.9.5"
+
+[task_config]
+includes = [
+  "mise-helper/vendor/agentic-delivery/tasks.toml",
+  "mise-helper/vendor/context/tasks.toml",
+  "mise-helper/tasks.toml",
+]

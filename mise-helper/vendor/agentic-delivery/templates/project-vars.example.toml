@@ -1,0 +1,10 @@
+# Copy selected project-owned values into the project's [vars]
+# configuration and replace or remove every placeholder.
+[vars]
+adw_project_id = "REPLACE_ME"
+adw_component_id = "REPLACE_ME"
+adw_task_source_path = "mise-helper/tasks.toml"
+adw_health_target_template = "REPLACE_OR_REMOVE_ME"
+adw_readiness_target_template = "REPLACE_OR_REMOVE_ME"
+adw_e2e_suite = "REPLACE_OR_REMOVE_ME"
+adw_deployment_config_artifact = "REPLACE_OR_REMOVE_ME"

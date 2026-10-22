@@ -1,0 +1,37 @@
+{
+  "components": {
+    "web": {
+      "context": ".",
+      "dockerfile": "Dockerfile",
+      "stages": [
+        "build"
+      ],
+      "exports": {
+        "build": [
+          "/app/dist"
+        ]
+      }
+    }
+  },
+  "hooks": {
+    "build": "bundle:release_build"
+  },
+  "kind_environments": {
+    "application": [
+      "pr-preview",
+      "demo",
+      "production"
+    ]
+  },
+  "platforms": [
+    "linux/amd64"
+  ],
+  "schema_version": "1.0.0",
+  "quality_exports": {
+    "web": {
+      "build": {
+        "dist": "app/dist"
+      }
+    }
+  }
+}

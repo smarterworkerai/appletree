@@ -1,0 +1,198 @@
+{
+  "capabilities": {
+    "adw:build": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:check": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": "generic",
+      "status": "supported"
+    },
+    "adw:context:check": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:context:sync": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:deploy:apply": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:deploy:config:apply": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:deploy:config:plan": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:deploy:config:pull": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:deploy:status": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:describe": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": "generic",
+      "status": "supported"
+    },
+    "adw:health": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:hotfix:apply": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:hotfix:restore": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:install": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:lint": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:local:clean": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:readiness": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:static-analysis": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:test:e2e:fast": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:test:e2e:full": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:test:integration:fast": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:test:integration:full": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:test:unit": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:validate-deployment": {
+      "environments": [],
+      "side_effect": "remote-write",
+      "source": "generic",
+      "status": "unsupported"
+    },
+    "adw:verify:full": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:verify:minimal": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    }
+  },
+  "contract": {
+    "compatible": ">=2.0.0,<3.0.0",
+    "name": "adw-mise-task-contract",
+    "version": "2.2.0"
+  },
+  "environments": [],
+  "evidence": {
+    "root": ".adw/evidence"
+  },
+  "project": {
+    "id": "fixture/library"
+  },
+  "required_secret_env": [],
+  "schema_version": "2.2.0",
+  "sources": {
+    "generic": {
+      "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "layer": "generic",
+      "path": "mise-helper/vendor/agentic-delivery/tasks.toml",
+      "ref": "1111111111111111111111111111111111111111"
+    },
+    "project": {
+      "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "layer": "project",
+      "path": "mise-helper/tasks.toml",
+      "ref": "HEAD"
+    }
+  },
+  "verification": {
+    "full": [
+      "adw:build",
+      "adw:lint",
+      "adw:test:unit"
+    ],
+    "minimal": [
+      "adw:build"
+    ]
+  }
+}

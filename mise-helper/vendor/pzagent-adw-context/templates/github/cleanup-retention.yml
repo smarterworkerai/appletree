@@ -1,0 +1,88 @@
+name: Cleanup retained packages through public pz task
+on:
+  workflow_call:
+    inputs:
+      dry_run: {type: boolean, required: true}
+      source_sha: {type: string, required: true}
+      target: {type: string, required: true}
+      release_kind: {type: string, required: true}
+      ci_run_id: {type: string, required: true}
+      ci_run_attempt: {type: string, required: true}
+      ci_workflow_path: {type: string, required: true}
+  workflow_dispatch:
+    inputs:
+      dry_run: {type: boolean, required: true, default: true}
+      source_sha: {type: string, required: true}
+      target: {type: string, required: true}
+      release_kind: {type: string, required: true}
+      ci_run_id: {type: string, required: true}
+      ci_run_attempt: {type: string, required: true}
+      ci_workflow_path: {type: string, required: true}
+permissions:
+  contents: read
+concurrency:
+  group: adw-retention-${{ github.repository }}-${{ inputs.release_kind }}
+  cancel-in-progress: false
+jobs:
+  authorize:
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, pull-requests: read, actions: read, checks: read}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: ./mise-helper/vendor/pzagent-adw-context/templates/github/actions/authorize-publication
+        with:
+          source_sha: ${{ inputs.source_sha }}
+          ci_run_id: ${{ inputs.ci_run_id }}
+          ci_run_attempt: ${{ inputs.ci_run_attempt }}
+          ci_workflow_path: ${{ inputs.ci_workflow_path }}
+          release_kind: ${{ inputs.release_kind }}
+          publication_lane: ${{ inputs.release_kind }}
+          proof_scope: destination
+          target: ${{ inputs.target }}
+          authorization_path: authorization.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pz-retention-authorization-${{ inputs.release_kind }}-${{ inputs.source_sha }}
+          path: authorization.json
+          retention-days: 1
+          if-no-files-found: error
+  retain:
+    needs: authorize
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.9.13
+          sha256: a72f49916b33ba952ba398046c5cc91a58238f0b718fee1d938206ef2af21c6d
+          cache_save: false
+      - uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4
+        with:
+          name: pz-retention-authorization-${{ inputs.release_kind }}-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/authorization
+      - name: Preview or apply fresh reference-aware retention
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_KIND: ${{ inputs.release_kind }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=(--kind "$RELEASE_KIND"
+                --authorization-file "$RUNNER_TEMP/authorization/authorization.json"
+                --execution-mode ci)
+          if [[ "$DRY_RUN" != "true" ]]; then
+            args+=(--apply)
+          fi
+          mise run pz:release:retention -- "${args[@]}"

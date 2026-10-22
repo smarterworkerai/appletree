@@ -1,0 +1,36 @@
+schema_version = "1.0.0"
+
+[defaults]
+isolated_workspace = "none"
+
+[tasks."adw:install"]
+implemented = true
+commands = [{argv = ["npm", "ci", "--no-fund"]}]
+
+[tasks."adw:build"]
+implemented = true
+commands = [{argv = ["npm", "run", "build"]}]
+
+[tasks."adw:lint"]
+implemented = true
+commands = [{argv = ["python3", "mise-helper/site_checks.py", "lint"]}]
+
+[tasks."adw:static-analysis"]
+implemented = true
+commands = [{argv = ["node", "--check", "src/main.js"]}, {argv = ["python3", "mise-helper/site_checks.py", "static-analysis"]}]
+
+[tasks."adw:test:unit"]
+implemented = true
+commands = [{argv = ["python3", "-m", "unittest", "discover", "-s", "tests", "-q"]}]
+
+[tasks."adw:test:integration:fast"]
+implemented = true
+commands = [{argv = ["python3", "mise-helper/site_checks.py", "http-smoke"]}]
+
+[tasks."adw:test:integration:full"]
+implemented = true
+commands = [{argv = ["python3", "mise-helper/site_checks.py", "container-smoke"]}]
+
+[tasks."adw:verify:minimal"]
+implemented = true
+commands = [{argv = ["mise", "run", "adw:install"]}, {argv = ["mise", "run", "adw:build"]}]

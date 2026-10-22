@@ -1,0 +1,616 @@
+{
+  "schema_version": "1.0.0",
+  "criterion": "CI authority: provenance/gate/proof acceptance, publication authorization, integrity/producer binding, promotion and retention/deletion decisions. Dispatch, raw observations and operational hooks do not grant that authority.",
+  "roots": [
+    "modules.adapter",
+    "modules.build_outputs",
+    "modules.bundle",
+    "modules.ci.build_artifacts",
+    "modules.ci.ci_only",
+    "modules.ci.contract",
+    "modules.ci.evidence",
+    "modules.ci.github_api",
+    "modules.ci.live_pr",
+    "modules.ci.policy",
+    "modules.ci.provenance",
+    "modules.ci.publication_proof",
+    "modules.ci.quality_proof",
+    "modules.ci.release_authorization",
+    "modules.ci.reuse",
+    "modules.ci.workflow_drift",
+    "modules.ci_release",
+    "modules.common",
+    "modules.execution",
+    "modules.merged_source_proof",
+    "modules.operator_lines",
+    "modules.operator_publish",
+    "modules.operator_registry",
+    "modules.operator_retention",
+    "modules.operator_state",
+    "modules.oras_registry",
+    "modules.providers",
+    "modules.quality_outputs",
+    "modules.quality_tasks",
+    "modules.release_manifest",
+    "modules.retention",
+    "modules.workflows_sync",
+    "templates.github.actions.authorize-publication.authorize",
+    "templates.github.actions.publish-immutable-release.publish",
+    "modules.pointer_retirement"
+  ],
+  "observations": {
+    "modules.build_archive": {
+      "validators": [
+        "modules.quality_outputs:import_quality",
+        "modules.build_outputs:verify"
+      ],
+      "reason": "Archive transport only. Imported source/recipe/producer identity and every payload seal are verified by trusted quality_outputs/import_quality and build_outputs/verify before reuse.",
+      "imports": {
+        "modules.quality_outputs": [
+          "*"
+        ]
+      },
+      "symbols": {
+        "modules.quality_outputs": [
+          "pack",
+          "unpack"
+        ]
+      }
+    },
+    "modules.operator_credentials": {
+      "validators": [
+        "modules.operator_publish:package"
+      ],
+      "reason": "Process environment setup only. package checks closed requested component set and local image identities; publish revalidates CI authorization independently. The environment helper cannot supply an approval decision.",
+      "imports": {
+        "modules.operator_publish": [
+          "clean_environment"
+        ]
+      },
+      "symbols": {
+        "modules.operator_publish": [
+          "clean_environment"
+        ]
+      }
+    },
+    "modules.operator_github": {
+      "validators": [
+        "modules.operator_lines:_validate_promotion_gate",
+        "modules.operator_lines:_merged_readback",
+        "modules.operator_retention:inventory",
+        "modules.operator_retention:run",
+        "modules.pointer_retirement:inventory",
+        "modules.pointer_retirement:retire",
+        "modules.pointer_retirement:_reconcile_deleted"
+      ],
+      "reason": "GitHub transport and pagination only. Trusted promotion checks exact live proof/ref/journal identity; retention validates declared-owner packages/manifests/protected graph, refreshes eligibility before each deletion and checks deletion readback.",
+      "imports": {
+        "modules.operator_lines": [
+          "api"
+        ],
+        "modules.operator_retention": [
+          "api",
+          "pages"
+        ],
+        "modules.pointer_retirement": [
+          "api",
+          "pages"
+        ]
+      },
+      "symbols": {
+        "modules.operator_lines": [
+          "api"
+        ],
+        "modules.operator_retention": [
+          "api",
+          "pages"
+        ],
+        "modules.pointer_retirement": [
+          "api",
+          "pages"
+        ]
+      }
+    },
+    "modules.operator_sources": {
+      "validators": [
+        "modules.operator_lines:_validate_promotion_gate",
+        "modules.operator_publish:source_snapshot"
+      ],
+      "reason": "Commit/object observations only. Promotion compares the selected ref against the exact trusted gate SHA. Source snapshot archives that selected SHA, rejects unsupported paths/links, and publication checks immutable source/platform identity and CI authorization.",
+      "imports": {
+        "modules.operator_lines": [
+          "resolve"
+        ],
+        "modules.operator_publish": [
+          "object_repository",
+          "resolve"
+        ]
+      },
+      "symbols": {
+        "modules.operator_lines": [
+          "resolve"
+        ],
+        "modules.operator_publish": [
+          "object_repository",
+          "resolve"
+        ]
+      }
+    },
+    "modules.operator_workflows": {
+      "validators": [
+        "modules.operator_retention:inventory",
+        "modules.operator_retention:run",
+        "modules.operator_publish:publish"
+      ],
+      "reason": "Operational task dispatch only. Child exit status or result never grants CI authority without trusted revalidation. Retention ignores child result, independently reads provider images and rechecks the protected graph; human publish-deploy runs only after trusted publication. CI composes authorized jobs separately.",
+      "imports": {
+        "modules.operator_retention": [
+          "adw"
+        ],
+        "modules.operator_publish": [
+          "deploy_existing"
+        ]
+      },
+      "symbols": {
+        "modules.operator_retention": [
+          "adw"
+        ],
+        "modules.operator_publish": [
+          "deploy_existing"
+        ]
+      }
+    },
+    "modules.providers.dokploy": {
+      "validators": [
+        "modules.operator_retention:inventory",
+        "modules.retention:candidates",
+        "modules.pointer_retirement:absence"
+      ],
+      "reason": "Registered provider I/O and runtime observations only. Trusted retention checks each declared component repository and digest-bound manifest graph; provider methods cannot authorize publication/promotion or choose deletion candidates.",
+      "imports": {
+        "modules.pointer_retirement": [
+          "profile_credentials"
+        ]
+      },
+      "symbols": {
+        "modules.pointer_retirement": [
+          "profile_credentials"
+        ]
+      }
+    },
+    "modules.runtime_proof": {
+      "validators": [
+        "modules.operator_retention:inventory",
+        "modules.retention:candidates"
+      ],
+      "reason": "Provider-transitive environment parsing is observation data, not CI proof acceptance. Trusted retention independently requires declared immutable image references and validates complete protected-root reachability before deletion.",
+      "imports": {},
+      "symbols": {}
+    },
+    "modules.providers.kubernetes": {
+      "validators": [
+        "modules.operator_retention:inventory",
+        "modules.retention:candidates"
+      ],
+      "reason": "Registered Kubernetes I/O supplies configured/runtime image observations only. Trusted retention independently checks declared immutable component repositories and protected manifest reachability; operational driver/hooks cannot authorize CI publication/promotion or choose deletion candidates.",
+      "imports": {},
+      "symbols": {}
+    },
+    "modules.dokploy_transaction": {
+      "validators": [
+        "modules.operator_retention:inventory",
+        "modules.retention:candidates"
+      ],
+      "reason": "Existing compatibility re-exports of the provider lock and environment parser, now reached through the Kubernetes operational driver. No proof acceptance or CI authorization; trusted retention validates every protected immutable image observation.",
+      "imports": {},
+      "symbols": {}
+    },
+    "modules.dokploy_lifecycle_api": {
+      "validators": [
+        "modules.pointer_retirement:absence"
+      ],
+      "reason": "Bounded provider HTTP observations only. Trusted absence validates the completed private ownership scope, target removal, scoped resource HTTP 404 responses and an independently scoped empty runtime inventory. No operational receipt or API acceptance boolean authorizes deletion.",
+      "imports": {
+        "modules.pointer_retirement": [
+          "API",
+          "HTTP",
+          "Missing"
+        ]
+      },
+      "symbols": {
+        "modules.pointer_retirement": [
+          "API",
+          "HTTP",
+          "Missing"
+        ]
+      }
+    }
+  },
+  "dynamic_imports": {
+    "modules.providers:get:importlib.import_module": {
+      "call_sha256": "f0693d44d1d14018caf28fa17221f7bd05391711d686b11a8dc9444588bec051",
+      "scope_sha256": "b5a7e321d00cf2781b523774c6faba64d8929dbf9ecac3b66de124377f15fa89",
+      "validator": "modules.providers:require",
+      "reason": "Only the literal reviewed _REGISTERED map is loadable after require(kind); returned provider is an observation/operational implementation, never CI authority.",
+      "targets": [
+        "modules.providers.dokploy",
+        "modules.providers.kubernetes"
+      ],
+      "external_trusted_paths": [],
+      "declarations": {
+        "_REGISTERED": "a0db5bcf6b9058560dd00232c0ae2610622249e67f785e8e6f130226f8479825"
+      }
+    },
+    "modules.quality_tasks:engine:importlib.util.spec_from_file_location": {
+      "call_sha256": "1b7d3464057ba86c408f3b8dbcb9e483fff348aadc6e2af1565e0aa5666f509d",
+      "scope_sha256": "47e2c66b3dbbaba4b6f752e161cb20aa1805761424961ec5b824f2ce4e5ef417",
+      "validator": "modules.quality_tasks:engine",
+      "reason": "Fixed vendored generic contract path is itself trusted; no project-supplied loader or module selection.",
+      "targets": [],
+      "external_trusted_paths": [
+        "mise-helper/vendor/agentic-delivery/adw_contract.py"
+      ]
+    },
+    "modules.quality_tasks:engine:importlib.util.module_from_spec": {
+      "call_sha256": "64a3245daab3be5b951387f79def9338b3184c7bb0dbdb47beeb889efa36cfae",
+      "scope_sha256": "47e2c66b3dbbaba4b6f752e161cb20aa1805761424961ec5b824f2ce4e5ef417",
+      "validator": "modules.quality_tasks:engine",
+      "reason": "Fixed vendored generic contract path is itself trusted; no project-supplied loader or module selection.",
+      "targets": [],
+      "external_trusted_paths": [
+        "mise-helper/vendor/agentic-delivery/adw_contract.py"
+      ]
+    },
+    "modules.quality_tasks:engine:spec.loader.exec_module": {
+      "call_sha256": "5c5d311718509c3cba769ffdf6a63cdf88637e61e91617f68702915917de54d9",
+      "scope_sha256": "47e2c66b3dbbaba4b6f752e161cb20aa1805761424961ec5b824f2ce4e5ef417",
+      "validator": "modules.quality_tasks:engine",
+      "reason": "Fixed vendored generic contract path is itself trusted; no project-supplied loader or module selection.",
+      "targets": [],
+      "external_trusted_paths": [
+        "mise-helper/vendor/agentic-delivery/adw_contract.py"
+      ]
+    }
+  },
+  "call_boundaries": {
+    "modules.ci.github_api:GitHub._fetch_live:subprocess.run": {
+      "call_sha256": [
+        "8f95ae50a94fc0da458563342fdf329cd9001398867ba14b0633b9140a5f6a0c"
+      ],
+      "scope_sha256": "823fb7984bfcecaa4465a85816672d5256fd27135774ee4813c4dcc3ac90b90e",
+      "validator": "modules.ci.provenance:trusted_source",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.ci.github_api:GitHub.download_artifact:subprocess.run": {
+      "call_sha256": [
+        "8ef341e3a569783c8680a8923bf8782d64ad495ff0204134fef1b2b2e6fcba77"
+      ],
+      "scope_sha256": "33b9f07482983e7e7db7b6d08a52d53b1754d9d6237af8237e728db5376f0ffb",
+      "validator": "modules.ci.provenance:trusted_source",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.ci.provenance:_provider_get:subprocess.run": {
+      "call_sha256": [
+        "abad5c87e3d6bdb289839e71682993e0ea29e708913d062f397cd245fa4df8a2"
+      ],
+      "scope_sha256": "9a6b61f1abb8ef028071d299bfe0f3c7591f85b9c60ef6131d977cf6deb9d724",
+      "validator": "modules.ci.provenance:_released_vendor",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.ci_release:public_task:subprocess.run": {
+      "call_sha256": [
+        "7297c9e2e93ba67d925d599678084300bf0afff8777ec76d9da603a6e87001c6"
+      ],
+      "scope_sha256": "3fc53566f590bacc9f3a43668e8e48834b1385c6371a24468e46f38f1c78d278",
+      "validator": "modules.ci_release:selection",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.ci_release:selection:subprocess.check_output": {
+      "call_sha256": [
+        "bdf78f431ff0d85efc44883cb2bef4ce920ed145fad83702f41a8d4a259026ab",
+        "1987c0a8765b50b5fd487fa86ef0758e221577b88661a1f0e72ff6a02b5be5fc"
+      ],
+      "scope_sha256": "17470871a393c1a3cd208eb0f85d4aaa7df094b4ba603838d2a4b7c6ed94246d",
+      "validator": "modules.ci_release:selection",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.ci_release:selection:subprocess.run": {
+      "call_sha256": [
+        "51f83096b9e1e3a52a2eaaaa66518d2f4c6bd193af9925f57b43e977887a5293"
+      ],
+      "scope_sha256": "17470871a393c1a3cd208eb0f85d4aaa7df094b4ba603838d2a4b7c6ed94246d",
+      "validator": "modules.ci_release:selection",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.ci_release:prepare:subprocess.run": {
+      "call_sha256": [
+        "8a59662c43e73e4a35cd0d8b6dfc86cbcbf16b070b56e0b65cfcbb57497fa129"
+      ],
+      "scope_sha256": "267f26aa7787ed03538b630adc4b6b83f16884c247daa80563a3fccaa5878fe4",
+      "validator": "modules.ci_release:selection",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.common:git_common_state:subprocess.run": {
+      "call_sha256": [
+        "c16175c3e6b4d1006c6f608dd16bc7e73798cfa8f68d354a1851033ef24896cd"
+      ],
+      "scope_sha256": "1afd7ea55eeace73ee2c0067a540026b2c0ae7b1fd565e736dc0fd3c43a9f3e3",
+      "validator": "modules.common:git_common_state",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.merged_source_proof:validate_input:subprocess.run": {
+      "call_sha256": [
+        "9884da8c9d97d13b00589a08d52ff694827076b84c659a4412194ad6c252e989"
+      ],
+      "scope_sha256": "ef86c7b516dfaeaa0cd267e50d6c18784c63816111a7c76e693ead86a3034ff8",
+      "validator": "modules.merged_source_proof:prove",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.merged_source_proof:_git:subprocess.run": {
+      "call_sha256": [
+        "3b8301082907240d88c2e218740bb18dde2d90c14aaf95e303e1da46d4f37419"
+      ],
+      "scope_sha256": "472a5fbf19cf9982486c3ea5a27f60723301d084ef2503e3a084d9d43373a7b8",
+      "validator": "modules.merged_source_proof:prove",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.merged_source_proof:operator_prove:subprocess.run": {
+      "call_sha256": [
+        "62acdcb14965817c6a6ad65bb4c897135877ccd4032cd861966ac251f913ff1c"
+      ],
+      "scope_sha256": "f60283c7d1b2c9f8cd3ab05b1a16deb4e42e1bab4bcfeebebe73753393310dd6",
+      "validator": "modules.merged_source_proof:prove",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.merged_source_proof:operator_prove.is_ancestor:subprocess.run": {
+      "call_sha256": [
+        "756bb036a195edad128b8076fd918e83180b4967729717480ae12f0e87efb4d5"
+      ],
+      "scope_sha256": "ad79e81b7a183c97d62b7a63085b32fa37ff66b196b596e0e9bfc39995f3ee3f",
+      "validator": "modules.merged_source_proof:prove",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.operator_publish:tool:subprocess.run": {
+      "call_sha256": [
+        "be513ffd10e738e3159850766995cb187f12e256d56cf68b3326dd88be76e76c"
+      ],
+      "scope_sha256": "1722aaa40d14de07065cd8f959b7eec7d2dff969e028cd1d6119bd424c445c34",
+      "validator": "modules.operator_publish:publish",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.operator_publish:source_snapshot:subprocess.run": {
+      "call_sha256": [
+        "fddba304a522160e29c50a56ed47104e774050348bb4ef3d59c95e9f00e895b8"
+      ],
+      "scope_sha256": "b20acdf9579055c766f38b27e202cd72e137b784e9f842d687c9d4c71b650103",
+      "validator": "modules.operator_publish:publish",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.operator_registry:oras:subprocess.run": {
+      "call_sha256": [
+        "f6d2f1f3f2a0d2faa5ba2249fab6bd55582d4a637f6f9b75efc3a1a94e078aef"
+      ],
+      "scope_sha256": "36d9ab38d86fd0e47d0491d1eaf21a8e39b17c9baa6fbe70675d65763d48d91b",
+      "validator": "modules.operator_registry:read_manifest",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.operator_registry:authentication:subprocess.run": {
+      "call_sha256": [
+        "1c3a543f0275e3a6cdacd4d24786bd97e1e9a50acb3f884acd34ecc2ab8efbe2"
+      ],
+      "scope_sha256": "a05f89ba5c31af8713bef1e5a8b25e8c25fdefd1f6c95c7904ad53da4537e56b",
+      "validator": "modules.operator_registry:read_manifest",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.oras_registry:OrasRegistry.resolve:subprocess.run": {
+      "call_sha256": [
+        "87ccab81ee4cf8888a2b25747dd9d0ca3b15d1041d6de8db7ddd10be10a43a5e"
+      ],
+      "scope_sha256": "f3b107685bc118ba63c0e79a2957da1d922af191d1704518535096a3f39a6082",
+      "validator": "modules.oras_registry:OrasRegistry.resolve",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.oras_registry:OrasRegistry.copy_if_unchanged:subprocess.run": {
+      "call_sha256": [
+        "c4fc3c26b8b70759ec477afddb3d4b631f30e9e9c06f179a0844533af3e543a9"
+      ],
+      "scope_sha256": "cd9bb41b936a116f51fa9cc06756db227d58ce6efed780d56c15be5659e0835d",
+      "validator": "modules.oras_registry:OrasRegistry.resolve",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.quality_outputs:source_files:subprocess.check_output": {
+      "call_sha256": [
+        "93fcabc2845d1a58258051571994ded886f4820083ddeea507ae5387f11684e6"
+      ],
+      "scope_sha256": "dea744dedecf2ebb92f40bc265e863af34e714131c62ae8ee774240e7d5a0371",
+      "validator": "modules.quality_outputs:import_quality",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.quality_outputs:tools:subprocess.run": {
+      "call_sha256": [
+        "7bbec44574a789e151c9b646a68ad5153a6653b9ec2ab82e3ca40890c5a6e89f"
+      ],
+      "scope_sha256": "fd723ef1bfe468c2d89ccf86ea8f92ec60cb4e708293e7a28ba62ea8ef628d88",
+      "validator": "modules.quality_outputs:import_quality",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.quality_outputs:tools:subprocess.check_output": {
+      "call_sha256": [
+        "d66912e8487e0bad751632e023e46b2f606d56cfefb7a9116de8ec84b83d0c02"
+      ],
+      "scope_sha256": "fd723ef1bfe468c2d89ccf86ea8f92ec60cb4e708293e7a28ba62ea8ef628d88",
+      "validator": "modules.quality_outputs:import_quality",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.quality_outputs:export_quality:subprocess.check_output": {
+      "call_sha256": [
+        "191d9952ac8e6e42f03dfa2ec7a3afd106d6f35e170b33692b07ec091fab0006",
+        "16a601cb8f9d8daa2002c08e49d5c6e0975e77769506041f4f7255c0146b17d5"
+      ],
+      "scope_sha256": "9e8396b5ff637456ccb5d75d7e04ffa5111d9327e7466831826459107d33a25e",
+      "validator": "modules.quality_outputs:import_quality",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.quality_outputs:export_quality:subprocess.run": {
+      "call_sha256": [
+        "8356bed0a16da4678ce2d53cea3c69a824f45645be8e47a10c462abe229b8017"
+      ],
+      "scope_sha256": "9e8396b5ff637456ccb5d75d7e04ffa5111d9327e7466831826459107d33a25e",
+      "validator": "modules.quality_outputs:import_quality",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.quality_tasks:verify:subprocess.run": {
+      "call_sha256": [
+        "f880b2c9356a52b5201b558af7729744bd449f154bb6262d87fb5250de68358b"
+      ],
+      "scope_sha256": "57263a4409bb0cde46772325b6e4d90d79a848e59ec0c351dcf4911239593f7c",
+      "validator": "modules.quality_outputs:export_quality",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "templates.github.actions.publish-immutable-release.publish:digest:subprocess.run": {
+      "call_sha256": [
+        "296c818cfa864ddeb0cd58344885df7151c9abcdf9d83cf9b80037eeeab2ce01"
+      ],
+      "scope_sha256": "cb3e6e242c99209eaf6d99bb413bb1d27cc74cdf2470741c6acb1651bdf0b939",
+      "validator": "templates.github.actions.publish-immutable-release.publish:digest",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "templates.github.actions.publish-immutable-release.publish:<module>:subprocess.run": {
+      "call_sha256": [
+        "4fed1b35ea6b5fe0e60f32044f33b8aff14b66bfcfdfa7278a463289690f671f",
+        "6a19245c990d883fa00ef34bdaa49ee76cd6543a7c5fc024b1a01e139203a902",
+        "552a00de5dc38457592cc27586a7f2b1cf504fbcc3f357d6118781884f356ba9",
+        "2bb29b7694f823a4ac401453d99d4414af4ef5dcc9d6c011f825de32bca5acad"
+      ],
+      "scope_sha256": "70d309ff38d1545e96ea9602e1951c684b1eca4b00c0fbf067baed35fa739f42",
+      "validator": "templates.github.actions.publish-immutable-release.publish:digest",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    }
+  },
+  "historical_31_module_classification": {
+    "modules.approval": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational receipt guard; no trusted CI authority caller. CI provider writes are not configured; future integration needs external credential/job gating and human nonce issuance."
+    },
+    "modules.build_archive": {
+      "classification": "allowlisted observation boundary",
+      "reason": "Archive transport only. Imported source/recipe/producer identity and every payload seal are verified by trusted quality_outputs/import_quality and build_outputs/verify before reuse."
+    },
+    "modules.build_outputs": {
+      "classification": "trusted decision owner",
+      "reason": "Accepts payload source/recipe identity and byte/mode integrity seals."
+    },
+    "modules.context_sync": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Installation dispatch; exact released vendor bytes and lock/source bindings are independently verified by trusted provenance._released_vendor and bundle validation."
+    },
+    "modules.dokploy_preflight": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Removed in R2; moved observation code is modules.providers.dokploy, checked as a registered observation boundary."
+    },
+    "modules.dokploy_transaction": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Removed in R2; moved provider transaction code has no CI authority consumer beyond validated observations."
+    },
+    "modules.execution": {
+      "classification": "trusted decision owner",
+      "reason": "Chooses human versus CI mode used by trusted receipt revalidation."
+    },
+    "modules.hooks": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational project-hook dispatch; hook exit/result cannot authorize CI publication, promotion or deletion."
+    },
+    "modules.hotfix": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational preview orchestration outside CI authority closure; receipt/credential policy belongs to operator integration."
+    },
+    "modules.hotfix_registry": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Temporary operational image transport; later trusted readers validate immutable descriptors/manifests independently."
+    },
+    "modules.hotfix_state": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational temporary-state journal; not a publication/proof or deletion decision input."
+    },
+    "modules.hotfix_transfer": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational image transfer; no trusted CI authority consumer."
+    },
+    "modules.local_cleanup": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operator-only bounded host cleanup, outside CI registry retention authority; broad CLI reachability does not create a decision root."
+    },
+    "modules.merged_source_proof": {
+      "classification": "trusted decision owner",
+      "reason": "Accepts merged-work-branch ancestry/tree proof before cleanup."
+    },
+    "modules.operator_credentials": {
+      "classification": "allowlisted observation boundary",
+      "reason": "Process environment setup only. package checks closed requested component set and local image identities; publish revalidates CI authorization independently. The environment helper cannot supply an approval decision."
+    },
+    "modules.operator_github": {
+      "classification": "allowlisted observation boundary",
+      "reason": "GitHub transport and pagination only. Trusted promotion checks exact live proof/ref/journal identity; retention validates declared-owner packages/manifests/protected graph, refreshes eligibility before each deletion and checks deletion readback."
+    },
+    "modules.operator_lines": {
+      "classification": "trusted decision owner",
+      "reason": "Accepts exact promotion proofs and bound destination state."
+    },
+    "modules.operator_registry": {
+      "classification": "trusted decision owner",
+      "reason": "Validates immutable manifest/layer digests, kind/source and component identities."
+    },
+    "modules.operator_sources": {
+      "classification": "allowlisted observation boundary",
+      "reason": "Commit/object observations only. Promotion compares the selected ref against the exact trusted gate SHA. Source snapshot archives that selected SHA, rejects unsupported paths/links, and publication checks immutable source/platform identity and CI authorization."
+    },
+    "modules.operator_ssh": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational transport; no trusted CI authority caller."
+    },
+    "modules.operator_state": {
+      "classification": "trusted decision owner",
+      "reason": "Validates resumable journal schema and safe serialized state/locking used by trusted mutation decisions."
+    },
+    "modules.operator_workflows": {
+      "classification": "allowlisted observation boundary",
+      "reason": "Operational task dispatch only. Child exit status or result never grants CI authority without trusted revalidation. Retention ignores child result, independently reads provider images and rechecks the protected graph; human publish-deploy runs only after trusted publication. CI composes authorized jobs separately."
+    },
+    "modules.rehearsal": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operator-only preview test orchestration; reports are not CI proof or publication receipts."
+    },
+    "modules.remote_config": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational config orchestration; not a CI authority input. No canonical CI provider-write job is configured."
+    },
+    "modules.remote_deploy": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational deployment/pointer orchestration outside CI authority closure; trusted registry readers independently validate all pointer data they consume."
+    },
+    "modules.remote_probe": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational health observations; no current trusted decision consumer. R2b PR B adds read-only identity without granting CI authority."
+    },
+    "modules.remote_validation": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational runtime and hook checks; not CI provenance/publication/promotion acceptance."
+    },
+    "modules.retention": {
+      "classification": "trusted decision owner",
+      "reason": "Selects deletion eligibility from complete protected reference graphs."
+    },
+    "modules.runtime_proof": {
+      "classification": "allowlisted observation boundary",
+      "reason": "Provider-transitive environment parsing is observation data, not CI proof acceptance. Trusted retention independently requires declared immutable image references and validates complete protected-root reachability before deletion."
+    },
+    "modules.target_pointers": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational pointer CAS orchestration. Trusted OrasRegistry.resolve/copy_if_unchanged and operator_registry.read_manifest/inspect independently validate pointer/immutable state."
+    },
+    "modules.task_evidence": {
+      "classification": "observation/operational boundary outside decision closure",
+      "reason": "Operational reporting only; trusted CI evidence readers validate producer/run/job/source bindings independently."
+    }
+  }
+}

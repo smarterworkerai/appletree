@@ -1,0 +1,31 @@
+{
+  "files": {
+    ".adw/ADW.md": "11b76be5b9ecb03a8b42702dd6dc2598777898c421580d2965d6386c29d1b8b5",
+    ".adw/adw-task-manifest.json": "3652657143822cf68321f5a2f95d3594a961b8507dfd8dca0508af3ac9310411",
+    ".adw/build-toolchain.json": "19e483ca6c4557cf4a0e7defa47791cf486a2bd43570f8a9e8cda3631b9b3708",
+    ".adw/pz-release.json": "15247f8f4eca1b3f227337b5afe18fce2d04a697ea5aa6d3569739aa6981fb89",
+    ".adw/pzagent-adapter.json": "fe802d71c764b16bbe8fb4d4e05a977e218d91308dfb18f1acd376626795837a",
+    ".adw/pzagent-context-lock.json": "ac673eca71e45bfe7f8fd210ffec5a5a46e5ef028418c18032fbb2771226f48b",
+    ".github/workflows/ci.yml": "739a95444563afadd95f3f05c0d6eacfcac4239a35714c00bf25cb6b8ce686c7",
+    ".github/workflows/cleanup-retention.yml": "e5e7757bdd5441a553853e50fa4aeeb594bfe0d4ce7b6649a43e3a421bbb4360",
+    ".github/workflows/publish-release.yml": "127b15d18d7d53d7c2f4d2705f8765e3673cae46a4b2edc2d222eebdca53652c",
+    ".github/workflows/trust-root-bootstrap.yml": "3e139b62593f1c86fbf2e326390fa2b41da571fb259579bfb1958b82c090b24e",
+    ".gitignore": "85b866f3712c62378c57c626c2a5841909e5d66a5f52b377dc30379eefa515c3",
+    "AGENTS.md": "65c9d2e64497b45a74c55dbb5524a52ad197baa81507a667572a618e7bd4442a",
+    "infra/dokploy/.env.demo.example": "832e34a9023097cb01bb4544a846a3c74ac4dc0a7bbe3efc681936d796eb7a75",
+    "infra/dokploy/.env.pr-preview.example": "832e34a9023097cb01bb4544a846a3c74ac4dc0a7bbe3efc681936d796eb7a75",
+    "infra/dokploy/.env.production.example": "832e34a9023097cb01bb4544a846a3c74ac4dc0a7bbe3efc681936d796eb7a75",
+    "infra/dokploy/demo.keys.json": "48c0b966d9558833c9cb287b554db9eae640b7c7d56d57389b513a7b4836ff93",
+    "infra/dokploy/docker-compose.demo.yml": "ae6d68f293f4d306570aaf838d6cda35d375b368d5efbd9aa8ae76a40487b2ee",
+    "infra/dokploy/docker-compose.pr-preview.yml": "ae6d68f293f4d306570aaf838d6cda35d375b368d5efbd9aa8ae76a40487b2ee",
+    "infra/dokploy/docker-compose.production.yml": "ae6d68f293f4d306570aaf838d6cda35d375b368d5efbd9aa8ae76a40487b2ee",
+    "infra/dokploy/pr-preview.keys.json": "48c0b966d9558833c9cb287b554db9eae640b7c7d56d57389b513a7b4836ff93",
+    "infra/dokploy/production.keys.json": "48c0b966d9558833c9cb287b554db9eae640b7c7d56d57389b513a7b4836ff93",
+    "mise-helper/README.md": "de747a76616f5e7e5a81046406cd0cb477f4dca1dcdfb8ff367b4fda2c036b41",
+    "mise-helper/project-commands.toml": "f58a8a154fe208277a2fa5444903595835a0f56ac71b01c96f9805748e183d63",
+    "mise-helper/tasks.toml": "fae110b78ffe839188fc549b108ad0f7b6a7eb4a188ef4ff0683fa748251484e",
+    "mise.toml": "9820ee32a08e73fda8cf5da9d536bd4100d240324f7193cc9a7a8358627be2e6"
+  },
+  "owner": "pz:project:init",
+  "schema_version": "1.0.0"
+}

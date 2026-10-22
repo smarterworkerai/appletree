@@ -1,0 +1,800 @@
+{
+  "operations": {
+    "/compose.create": {
+      "POST": {
+        "body": {
+          "properties": {
+            "appName": {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-zA-Z0-9._-]+$",
+              "type": "string"
+            },
+            "composeFile": {
+              "type": "string"
+            },
+            "composeType": {
+              "enum": [
+                "docker-compose",
+                "stack"
+              ],
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "environmentId": {
+              "type": "string"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "serverId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "environmentId"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/compose.delete": {
+      "POST": {
+        "body": {
+          "properties": {
+            "composeId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "deleteVolumes": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "composeId",
+            "deleteVolumes"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/compose.one": {
+      "GET": {
+        "body": {},
+        "query": [
+          {
+            "name": "composeId",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/compose.search": {
+      "GET": {
+        "body": {},
+        "query": [
+          {
+            "name": "appName",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "description",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "environmentId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          {
+            "name": "projectId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/compose.update": {
+      "POST": {
+        "body": {
+          "properties": {
+            "appName": {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-zA-Z0-9._-]+$",
+              "type": "string"
+            },
+            "autoDeploy": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "bitbucketBranch": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "bitbucketId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "bitbucketOwner": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "bitbucketRepository": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "bitbucketRepositorySlug": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "command": {
+              "type": "string"
+            },
+            "composeFile": {
+              "type": "string"
+            },
+            "composeId": {
+              "type": "string"
+            },
+            "composePath": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "composeStatus": {
+              "enum": [
+                "idle",
+                "running",
+                "done",
+                "error"
+              ],
+              "type": "string"
+            },
+            "composeType": {
+              "enum": [
+                "docker-compose",
+                "stack"
+              ],
+              "type": "string"
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "customGitBranch": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "customGitSSHKeyId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "customGitUrl": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "enableSubmodules": {
+              "type": "boolean"
+            },
+            "env": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "environmentId": {
+              "type": "string"
+            },
+            "giteaBranch": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "giteaId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "giteaOwner": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "giteaRepository": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "githubId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "gitlabBranch": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "gitlabId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "gitlabOwner": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "gitlabPathNamespace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "gitlabProjectId": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "gitlabRepository": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "isolatedDeployment": {
+              "type": "boolean"
+            },
+            "isolatedDeploymentsVolume": {
+              "type": "boolean"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "owner": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "randomize": {
+              "type": "boolean"
+            },
+            "refreshToken": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repository": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sourceType": {
+              "enum": [
+                "git",
+                "github",
+                "gitlab",
+                "bitbucket",
+                "gitea",
+                "raw"
+              ],
+              "type": "string"
+            },
+            "suffix": {
+              "type": "string"
+            },
+            "triggerType": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "push",
+                    "tag"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "watchPaths": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "composeId"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/docker.getContainersByAppLabel": {
+      "GET": {
+        "body": {},
+        "query": [
+          {
+            "name": "appName",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "pattern": "^[a-zA-Z0-9.\\-_]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "serverId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "required": true,
+            "schema": {
+              "enum": [
+                "standalone",
+                "swarm"
+              ],
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/environment.byProjectId": {
+      "GET": {
+        "body": {},
+        "query": [
+          {
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/environment.create": {
+      "POST": {
+        "body": {
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "projectId"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/environment.one": {
+      "GET": {
+        "body": {},
+        "query": [
+          {
+            "name": "environmentId",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/environment.remove": {
+      "POST": {
+        "body": {
+          "properties": {
+            "environmentId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "environmentId"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/environment.update": {
+      "POST": {
+        "body": {
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "env": {
+              "type": "string"
+            },
+            "environmentId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "environmentId"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/project.all": {
+      "GET": {
+        "body": {},
+        "query": []
+      }
+    },
+    "/project.create": {
+      "POST": {
+        "body": {
+          "properties": {
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "env": {
+              "type": "string"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/project.one": {
+      "GET": {
+        "body": {},
+        "query": [
+          {
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/project.remove": {
+      "POST": {
+        "body": {
+          "properties": {
+            "projectId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/project.update": {
+      "POST": {
+        "body": {
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "env": {
+              "type": "string"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "organizationId": {
+              "type": "string"
+            },
+            "projectId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "projectId"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/server.all": {
+      "GET": {
+        "body": {},
+        "query": []
+      }
+    },
+    "/server.one": {
+      "GET": {
+        "body": {},
+        "query": [
+          {
+            "name": "serverId",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "schema_version": "1.0.0",
+  "software_version": "v0.29.2"
+}

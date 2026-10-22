@@ -1,0 +1,3 @@
+# pz:project:init bootstrap
+[task_config]
+includes = ["mise-helper/vendor/agentic-delivery/tasks.toml", "mise-helper/vendor/pzagent-adw-context/tasks.toml"]

@@ -1,0 +1,250 @@
+{
+  "capabilities": {
+    "adw:build": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:check": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": "generic",
+      "status": "supported"
+    },
+    "adw:context:check": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:context:sync": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:deploy:apply": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "remote-write",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:deploy:config:apply": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "remote-write",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:deploy:config:plan": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:deploy:config:pull": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "local-write",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:deploy:status": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:describe": {
+      "environments": [],
+      "side_effect": "read-only",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:health": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:hotfix:apply": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:hotfix:restore": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:install": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:lint": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:local:clean": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:readiness": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "read-only",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:static-analysis": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:test:e2e:fast": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:test:e2e:full": {
+      "environments": [
+        "pr-preview"
+      ],
+      "side_effect": "remote-write",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:test:integration:fast": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:test:integration:full": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:test:unit": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    },
+    "adw:validate-deployment": {
+      "environments": [
+        "pr-preview",
+        "demo",
+        "production"
+      ],
+      "side_effect": "remote-write",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:verify:full": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "context",
+      "status": "supported"
+    },
+    "adw:verify:minimal": {
+      "environments": [],
+      "side_effect": "local-write",
+      "source": "project",
+      "status": "supported"
+    }
+  },
+  "contract": {
+    "compatible": ">=2.0.0,<3.0.0",
+    "name": "adw-mise-task-contract",
+    "version": "2.2.0"
+  },
+  "environments": [
+    "pr-preview",
+    "demo",
+    "production"
+  ],
+  "evidence": {
+    "root": ".adw/evidence"
+  },
+  "project": {
+    "id": "smarterworkerai/appletree"
+  },
+  "required_secret_env": [],
+  "schema_version": "2.2.0",
+  "sources": {
+    "context": {
+      "checksum": "sha256:db5e42626982679249ea8b21ece693d595661693e2537dc4794a7431fdd9986a",
+      "layer": "context",
+      "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
+      "ref": "9be26d010699ea93a108e53edc7afd4f3bacd48b"
+    },
+    "generic": {
+      "checksum": "sha256:2970eb7e5c3181972f3d46e243dd7f286c7e195b8336daa98af8be55f0d1c2ef",
+      "layer": "generic",
+      "path": "mise-helper/vendor/agentic-delivery/tasks.toml",
+      "ref": "4d417eccc17981768d7f63db7b3517a8a4541c11"
+    },
+    "project": {
+      "checksum": "sha256:fae110b78ffe839188fc549b108ad0f7b6a7eb4a188ef4ff0683fa748251484e",
+      "layer": "project",
+      "path": "mise-helper/tasks.toml",
+      "ref": "HEAD"
+    }
+  },
+  "verification": {
+    "full": [
+      "adw:build",
+      "adw:lint",
+      "adw:static-analysis",
+      "adw:test:unit",
+      "adw:test:integration:fast"
+    ],
+    "minimal": [
+      "adw:build"
+    ]
+  }
+}

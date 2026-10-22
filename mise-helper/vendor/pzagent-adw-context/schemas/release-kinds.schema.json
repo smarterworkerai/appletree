@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "release_kinds": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "image_variables"
+            ]
+          },
+          {
+            "required": [
+              "compose_variables"
+            ]
+          }
+        ],
+        "properties": {
+          "components": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "package": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "package"
+              ],
+              "type": "object"
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "compose_variables": {
+            "additionalProperties": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "image_variables": {
+            "additionalProperties": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "manifest_package": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "pointer_tags": {
+            "additionalProperties": false,
+            "properties": {
+              "current": {
+                "pattern": ".*\\{target\\}.*",
+                "type": "string"
+              },
+              "rollback": {
+                "pattern": ".*\\{target\\}.*",
+                "type": "string"
+              }
+            },
+            "required": [
+              "current",
+              "rollback"
+            ],
+            "type": "object"
+          },
+          "publication_pointers": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9-]{0,62}$",
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "manifest_package",
+          "components",
+          "pointer_tags"
+        ],
+        "type": "object"
+      },
+      "minProperties": 1,
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    }
+  },
+  "required": [
+    "schema_version",
+    "release_kinds"
+  ],
+  "type": "object"
+}

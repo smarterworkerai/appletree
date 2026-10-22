@@ -1,0 +1,301 @@
+name: ADW CI
+run-name: ADW CI ${{ github.event_name }} PR#${{ github.event.pull_request.number || 0 }} to ${{ github.base_ref || '-' }} head ${{ github.event.pull_request.head.sha || github.sha }}
+on:
+  push:
+    branches: [demo, main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      confirm_quality:
+        description: Confirm the full required quality graph
+        type: boolean
+        required: true
+        default: false
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  pull-requests: read
+  issues: read
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+jobs:
+  trust-root-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Continue when this event has no pull request
+        if: github.event_name != 'pull_request'
+        run: echo 'No PR trust-root decision is required for this event.'
+      - name: Check out only the trusted default branch controller
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Fail fast on a missing trust-root decision
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 mise-helper/vendor/pzagent-adw-context/ci.py bootstrap-status \
+            --repository "$REPOSITORY" --pr "$PR_NUMBER" > bootstrap-status.json
+          python3 -c 'import json; r=json.load(open("bootstrap-status.json")); print(r["message"]); raise SystemExit(0 if r["allowed"] else 21)'
+  classify:
+    needs: [trust-root-gate]
+    runs-on: ubuntu-24.04
+    outputs:
+      mode: ${{ steps.classify.outputs.mode }}
+      reason: ${{ steps.classify.outputs.reason }}
+      proof_rejected: ${{ steps.classify.outputs.proof_rejected }}
+      reuse_sha: ${{ steps.classify.outputs.reuse_sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve project directory
+        run: |
+          directory=$(python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, "mise-helper/vendor/pzagent-adw-context"); from modules.common import project_dir; print(project_dir(Path.cwd()).name)')
+          echo "ADW_PROJECT_DIR=$directory" >> "$GITHUB_ENV"
+      - name: Check bundled workflow drift
+        run: python3 mise-helper/vendor/pzagent-adw-context/ci.py workflow-drift --root .
+      - id: classify
+        uses: ./mise-helper/vendor/pzagent-adw-context/templates/github/actions/classify-ci-event
+        with:
+          event_name: ${{ github.event_name }}
+          source_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          confirm_quality: ${{ inputs.confirm_quality }}
+      - name: Summarize CI classification
+        env:
+          CLASSIFICATION_MODE: ${{ steps.classify.outputs.mode }}
+          CLASSIFICATION_REASON: ${{ steps.classify.outputs.reason }}
+          PROOF_REJECTED: ${{ steps.classify.outputs.proof_rejected }}
+        run: |
+          printf "## ADW CI classification\n\n- Mode: %s\n- Reason: %s\n" \
+            "$CLASSIFICATION_MODE" "$CLASSIFICATION_REASON" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$PROOF_REJECTED" ]; then
+            printf -- "- Proof rejected: %s\n" "$PROOF_REJECTED" >> "$GITHUB_STEP_SUMMARY"
+          fi
+  required-quality:
+    needs: [trust-root-gate, classify]
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      pull-requests: read
+      packages: read
+    if: needs.trust-root-gate.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      build_artifacts: ${{ steps.build-output.outputs.artifacts }}
+      build_artifact_ids: ${{ steps.build-output.outputs.artifact-ids }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve project directory
+        run: |
+          directory=$(python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, "mise-helper/vendor/pzagent-adw-context"); from modules.common import project_dir; print(project_dir(Path.cwd()).name)')
+          echo "ADW_PROJECT_DIR=$directory" >> "$GITHUB_ENV"
+      - name: Reject unknown quality mode
+        if: needs.classify.outputs.mode != 'full-quality' && needs.classify.outputs.mode != 'fast-feedback' && needs.classify.outputs.mode != 'reuse'
+        run: exit 21
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        if: needs.classify.outputs.mode == 'full-quality' || needs.classify.outputs.mode == 'fast-feedback'
+        with:
+          version: 2026.9.13
+          sha256: a72f49916b33ba952ba398046c5cc91a58238f0b718fee1d938206ef2af21c6d
+          cache_save: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_protected) }}
+      - name: Configure quality paths
+        if: needs.classify.outputs.mode == 'full-quality' || needs.classify.outputs.mode == 'fast-feedback'
+        env:
+          ADW_BUILD_CACHE_ROOT: ${{ runner.temp }}/adw-build-cache
+          ADW_DEPENDENCY_CACHE_ROOT: ${{ runner.temp }}/adw-deps
+          ADW_TEST_REPORT_DIR: ${{ runner.temp }}/adw-test-reports
+          ADW_TIMING_DIR: ${{ runner.temp }}/adw-timings
+          ADW_BUILD_OUTPUT_DIR: ${{ runner.temp }}/adw-build-output/bundle
+        run: |
+          printf '%s\n' "ADW_BUILD_CACHE_ROOT=$ADW_BUILD_CACHE_ROOT" "ADW_DEPENDENCY_CACHE_ROOT=$ADW_DEPENDENCY_CACHE_ROOT" "ADW_TEST_REPORT_DIR=$ADW_TEST_REPORT_DIR" "ADW_TIMING_DIR=$ADW_TIMING_DIR" "ADW_BUILD_OUTPUT_DIR=$ADW_BUILD_OUTPUT_DIR" >> "$GITHUB_ENV"
+      - name: Fingerprint declared dependency caches
+        id: dependencies
+        if: (needs.classify.outputs.mode == 'full-quality' || needs.classify.outputs.mode == 'fast-feedback') && hashFiles('.adw/adw-cache.json', '.hermes/adw-cache.json') != ''
+        run: >-
+          python3 mise-helper/vendor/pzagent-adw-context/cache.py plan
+          --cache-root "$ADW_DEPENDENCY_CACHE_ROOT" --trust github --github-output "$GITHUB_OUTPUT"
+      - name: Restore exact dependency cache
+        id: dependency-restore
+        if: steps.dependencies.outputs.key != ''
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: ${{ steps.dependencies.outputs.key }}
+          path: ${{ steps.dependencies.outputs.paths }}
+      - name: Discard unconfirmed or partial restore
+        if: steps.dependencies.outputs.key != '' && steps.dependency-restore.outputs.cache-hit != 'true'
+        run: >-
+          python3 mise-helper/vendor/pzagent-adw-context/cache.py reset
+          --cache-root "$ADW_DEPENDENCY_CACHE_ROOT"
+      - name: Exclude project outputs and unsafe cache contents
+        if: steps.dependencies.outputs.key != '' && steps.dependency-restore.outputs.cache-hit == 'true'
+        env:
+          CACHE_KEY: ${{ steps.dependencies.outputs.key }}
+        run: |
+          (python3 mise-helper/vendor/pzagent-adw-context/cache.py verify --cache-root "$ADW_DEPENDENCY_CACHE_ROOT" --key "$CACHE_KEY" &&
+           python3 mise-helper/vendor/pzagent-adw-context/cache.py sanitize --cache-root "$ADW_DEPENDENCY_CACHE_ROOT") ||
+            python3 mise-helper/vendor/pzagent-adw-context/cache.py reset --cache-root "$ADW_DEPENDENCY_CACHE_ROOT"
+      # Optional, technology-neutral transport; the project tool validates its
+      # own per-module inputs. Never restore across compatibility prefixes.
+      - name: Fingerprint declared build caches
+        id: build-cache
+        if: (needs.classify.outputs.mode == 'full-quality' || needs.classify.outputs.mode == 'fast-feedback') && hashFiles('.adw/adw-cache.json', '.hermes/adw-cache.json', '.adw/adw-build-cache.json', '.hermes/adw-build-cache.json') != ''
+        run: >-
+          python3 mise-helper/vendor/pzagent-adw-context/cache.py plan
+          --section build_results --cache-root "$ADW_BUILD_CACHE_ROOT"
+          --trust github --github-output "$GITHUB_OUTPUT"
+      - name: Restore compatible build cache
+        id: build-cache-restore
+        if: steps.build-cache.outputs.key != ''
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: ${{ steps.build-cache.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.build-cache.outputs.key }}-
+          path: ${{ steps.build-cache.outputs.paths }}
+      - name: Verify restored build cache or start empty
+        if: steps.build-cache.outputs.key != ''
+        env:
+          CACHE_KEY: ${{ steps.build-cache-restore.outputs.cache-matched-key }}
+        run: |
+          (test -n "$CACHE_KEY" &&
+           python3 mise-helper/vendor/pzagent-adw-context/cache.py verify --section build_results --cache-root "$ADW_BUILD_CACHE_ROOT" --key "$CACHE_KEY" &&
+           python3 mise-helper/vendor/pzagent-adw-context/cache.py sanitize --section build_results --cache-root "$ADW_BUILD_CACHE_ROOT") ||
+            python3 mise-helper/vendor/pzagent-adw-context/cache.py reset --section build_results --cache-root "$ADW_BUILD_CACHE_ROOT"
+      - name: Read optional Docker cache declaration
+        id: docker-cache
+        if: needs.classify.outputs.mode == 'full-quality'
+        continue-on-error: true
+        run: python3 mise-helper/vendor/pzagent-adw-context/docker_cache.py --github-output "$GITHUB_OUTPUT"
+      - name: Log in for optional GHCR cache reads
+        if: steps.docker-cache.outputs.enabled == 'true' && steps.docker-cache.outputs.registry == 'ghcr.io'
+        continue-on-error: true
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Set up optional registry cache builder
+        id: buildx
+        if: steps.docker-cache.outputs.enabled == 'true'
+        continue-on-error: true
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          version: v0.34.0
+          use: false
+          cache-binary: false
+          driver-opts: |
+            image=moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f
+            network=host
+      - name: Enable read-only Docker cache
+        if: steps.buildx.outcome == 'success'
+        env:
+          CACHE_BUILDER: ${{ steps.buildx.outputs.name }}
+        run: |
+          printf 'PZ_ADW_BUILDX_BUILDER=%s\nPZ_ADW_DOCKER_CACHE_WRITE=false\n' "$CACHE_BUILDER" >> "$GITHUB_ENV"
+      - name: Run required full quality graph
+        id: quality
+        env:
+          ADW_BUILD_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        if: needs.classify.outputs.mode == 'full-quality'
+        run: mise run adw:verify:full
+      - name: Archive compiled build outputs
+        id: build-output
+        if: success() && needs.classify.outputs.mode == 'full-quality' && steps.quality.outputs.build_upload_manifest != ''
+        continue-on-error: true
+        uses: ./mise-helper/vendor/pzagent-adw-context/templates/github/actions/upload-build-outputs
+        with:
+          manifest: ${{ steps.quality.outputs.build_upload_manifest }}
+          source-sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Archive full-quality test reports when present
+        if: always() && needs.classify.outputs.mode == 'full-quality'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: adw-test-reports
+          path: ${{ runner.temp }}/adw-test-reports/**/target/*-reports/TEST-*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Prove exact prior quality tree
+        if: needs.classify.outputs.mode == 'reuse' && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 mise-helper/vendor/pzagent-adw-context/ci.py proof-pr
+          --repository "${{ github.repository }}"
+          --pr "${{ github.event.pull_request.number }}"
+          --target "${{ github.base_ref }}"
+          --expected-sha "${{ github.event.pull_request.head.sha }}"
+          --adapter "$ADW_PROJECT_DIR/pzagent-adapter.json"
+      - name: Prove exact merged destination tree
+        if: needs.classify.outputs.mode == 'reuse' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 mise-helper/vendor/pzagent-adw-context/ci.py proof-destination
+          --repository "${{ github.repository }}"
+          --target "${{ github.ref_name }}"
+          --expected-sha "${{ github.sha }}"
+          --adapter "$ADW_PROJECT_DIR/pzagent-adapter.json"
+      - name: Run non-promotable minimal feedback
+        if: needs.classify.outputs.mode == 'fast-feedback'
+        run: mise run adw:verify:minimal
+      # GitHub scopes PR writes to refs/pull/<number>/merge; base branches cannot
+      # restore them. The compatibility key is shared so PRs can read base caches.
+      - name: Prepare dependency cache after successful full quality
+        id: dependency-save-check
+        continue-on-error: true
+        if: success() && needs.classify.outputs.mode == 'full-quality' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_protected)) && steps.dependencies.outputs.key != '' && steps.dependency-restore.outputs.cache-hit != 'true'
+        env:
+          CACHE_KEY: ${{ steps.dependencies.outputs.key }}
+        run: >-
+          python3 mise-helper/vendor/pzagent-adw-context/cache.py seal
+          --cache-root "$ADW_DEPENDENCY_CACHE_ROOT" --key "$CACHE_KEY"
+      - name: Save dependency downloads after successful quality
+        if: success() && steps.dependency-save-check.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: ${{ steps.dependencies.outputs.key }}
+          path: ${{ steps.dependencies.outputs.paths }}
+      # A unique suffix allows successful runs to save newly built modules even
+      # after a prefix hit; Actions cache entries themselves are immutable.
+      - name: Prepare build cache after successful full quality
+        id: build-cache-save-check
+        continue-on-error: true
+        if: success() && needs.classify.outputs.mode == 'full-quality' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_protected)) && steps.build-cache.outputs.key != ''
+        env:
+          CACHE_KEY: ${{ steps.build-cache.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: >-
+          python3 mise-helper/vendor/pzagent-adw-context/cache.py seal
+          --section build_results --cache-root "$ADW_BUILD_CACHE_ROOT" --key "$CACHE_KEY"
+      - name: Save updated build cache
+        if: success() && steps.build-cache-save-check.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: ${{ steps.build-cache.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.build-cache.outputs.paths }}
+      - name: Archive task and command timings
+        if: always() && (needs.classify.outputs.mode == 'full-quality' || needs.classify.outputs.mode == 'fast-feedback')
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: adw-timings
+          path: ${{ runner.temp }}/adw-timings/*.json
+          if-no-files-found: ignore
+          retention-days: 7

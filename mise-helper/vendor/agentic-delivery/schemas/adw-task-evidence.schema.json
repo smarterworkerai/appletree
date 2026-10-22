@@ -1,0 +1,365 @@
+{
+  "$defs": {
+    "source": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "layer": {
+                "enum": [
+                  "generic",
+                  "context"
+                ]
+              }
+            },
+            "required": [
+              "layer"
+            ]
+          },
+          "then": {
+            "properties": {
+              "ref": {
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layer": {
+                "const": "project"
+              }
+            },
+            "required": [
+              "layer"
+            ]
+          },
+          "then": {
+            "properties": {
+              "ref": {
+                "pattern": "^(?:HEAD|[0-9a-f]{40})$"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "checksum": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "layer": {
+          "enum": [
+            "generic",
+            "context",
+            "project"
+          ]
+        },
+        "path": {
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+          "type": "string"
+        },
+        "ref": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "layer",
+        "ref",
+        "checksum",
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/smarterworkerai/agentic-delivery/skills/adw/adw-core/assets/mise/v2/schemas/adw-task-evidence.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "passed",
+              "skipped",
+              "unsupported"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "exit_code": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "failed"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "exit_code": {
+            "const": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "blocked"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "exit_code": {
+            "const": 20
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "contract-error"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "exit_code": {
+            "const": 21
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "task": {
+            "not": {
+              "enum": [
+                "adw:verify:minimal",
+                "adw:verify:full",
+                "adw:validate-deployment",
+                "adw:hotfix:apply"
+              ]
+            }
+          }
+        },
+        "required": [
+          "task"
+        ]
+      },
+      "then": {
+        "properties": {
+          "children": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "arguments": {
+      "additionalProperties": false,
+      "properties": {
+        "environment": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "target": {
+          "pattern": "^[a-z][a-z0-9-]{0,62}$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "children": {
+      "items": {
+        "enum": [
+          "adw:describe",
+          "adw:check",
+          "adw:install",
+          "adw:build",
+          "adw:lint",
+          "adw:static-analysis",
+          "adw:test:unit",
+          "adw:test:integration:fast",
+          "adw:verify:minimal",
+          "adw:verify:full",
+          "adw:deploy:config:pull",
+          "adw:deploy:config:plan",
+          "adw:deploy:config:apply",
+          "adw:deploy:apply",
+          "adw:deploy:status",
+          "adw:health",
+          "adw:readiness",
+          "adw:validate-deployment",
+          "adw:hotfix:apply",
+          "adw:context:check",
+          "adw:context:sync"
+        ]
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "contract_version": {
+      "const": "2.2.0"
+    },
+    "effective_source": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/source"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "exit_code": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "findings": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "finished_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "freshness": {
+      "type": "object"
+    },
+    "run_id": {
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "2.2.0"
+    },
+    "source_revision": {
+      "oneOf": [
+        {
+          "pattern": "^(?:unknown|[0-9a-f]{40})$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "started_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "failed",
+        "skipped",
+        "unsupported",
+        "blocked",
+        "contract-error"
+      ]
+    },
+    "task": {
+      "enum": [
+        "adw:describe",
+        "adw:check",
+        "adw:install",
+        "adw:build",
+        "adw:lint",
+        "adw:static-analysis",
+        "adw:test:unit",
+        "adw:test:integration:fast",
+        "adw:verify:minimal",
+        "adw:verify:full",
+        "adw:deploy:config:pull",
+        "adw:deploy:config:plan",
+        "adw:deploy:config:apply",
+        "adw:deploy:apply",
+        "adw:deploy:status",
+        "adw:health",
+        "adw:readiness",
+        "adw:test:e2e:fast",
+        "adw:validate-deployment",
+        "adw:hotfix:apply",
+        "adw:hotfix:restore",
+        "adw:context:check",
+        "adw:context:sync",
+        "adw:test:integration:full",
+        "adw:test:e2e:full"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "contract_version",
+    "run_id",
+    "task",
+    "status",
+    "exit_code",
+    "started_at",
+    "finished_at",
+    "source_revision",
+    "effective_source",
+    "arguments",
+    "findings",
+    "children"
+  ],
+  "title": "ADW mise task evidence",
+  "type": "object"
+}

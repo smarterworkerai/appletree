@@ -1,0 +1,202 @@
+name: Publish immutable project release
+
+on:
+  workflow_call:
+    inputs:
+      pr_number: {type: number, required: true}
+      source_sha: {type: string, required: true}
+      source_branch: {type: string, required: false, default: ""}
+      release_target: {type: string, required: false, default: preview}
+      release_kind: {type: string, required: true}
+      ci_run_id: {type: number, required: true}
+      ci_run_attempt: {type: number, required: true}
+      publication_pointer: {type: string, required: false, default: ""}
+      expected_pointer_digest: {type: string, required: false, default: ""}
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Exact source PR: open for preview, the merged promotion PR for demo/main"
+        required: true
+        type: number
+      source_sha:
+        description: Full immutable source SHA to publish
+        required: true
+        type: string
+      source_branch:
+        description: Legacy compatibility input; the authorization receipt determines the quality producer branch
+        required: true
+        type: string
+      release_target:
+        description: Publication proof scope; preview uses the open PR, demo/main the destination
+        required: true
+        default: preview
+        type: choice
+        options: [preview, demo, main]
+      ci_run_id:
+        description: Successful exact-source CI run ID
+        required: true
+        type: number
+      ci_run_attempt:
+        description: Successful and current exact-source CI attempt
+        required: true
+        type: number
+      release_kind:
+        description: Declared release kind
+        required: true
+        type: string
+      publication_pointer:
+        description: Optional pointer declared by the release kind; empty publishes only immutable references
+        required: false
+        default: ""
+        type: string
+      expected_pointer_digest:
+        description: Current selected pointer digest, or absent; empty when no pointer is selected
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pz-registry-pointer-maintenance
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+
+jobs:
+  authorize:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Authorize exact release proof
+        uses: ./mise-helper/vendor/pzagent-adw-context/templates/github/actions/authorize-publication
+        with:
+          source_sha: ${{ inputs.source_sha }}
+          ci_run_id: ${{ inputs.ci_run_id }}
+          ci_run_attempt: ${{ inputs.ci_run_attempt }}
+          ci_workflow_path: .github/workflows/ci.yml
+          release_kind: ${{ inputs.release_kind }}
+          publication_lane: ${{ inputs.release_kind }}
+          proof_scope: ${{ inputs.release_target == 'preview' && 'pull_request' || 'destination' }}
+          pr_number: ${{ inputs.pr_number }}
+          target: ${{ inputs.release_target != 'preview' && inputs.release_target || '' }}
+          publication_pointer: ${{ inputs.publication_pointer }}
+          expected_pointer_digest: ${{ inputs.expected_pointer_digest }}
+          authorization_path: authorization.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pz-release-authorization-${{ inputs.release_kind }}-${{ inputs.source_sha }}
+          path: authorization.json
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs: authorize
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: read
+      packages: write
+      pull-requests: read
+    env:
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      PZ_CI_KIND: ${{ inputs.release_kind }}
+      PZ_CI_SOURCE_SHA: ${{ inputs.source_sha }}
+      PZ_CI_PUBLICATION_POINTER: ${{ inputs.publication_pointer }}
+      PZ_CI_EXPECTED_POINTER_DIGEST: ${{ inputs.expected_pointer_digest }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.9.13
+          sha256: a72f49916b33ba952ba398046c5cc91a58238f0b718fee1d938206ef2af21c6d
+          install_args: aqua:oras-project/oras
+          cache_save: false
+      - uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4
+        with:
+          name: pz-release-authorization-${{ inputs.release_kind }}-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/authorization
+      - name: Bind the exact authorized quality producer
+        run: |
+          printf 'PZ_CI_QUALITY_PRODUCER=%s\n' \
+            "$(jq -c '.quality_producer' "$RUNNER_TEMP/authorization/authorization.json")" >> "$GITHUB_ENV"
+      - name: Configure isolated release handover
+        id: release-config
+        run: |
+          printf 'PZ_CI_SOURCE_ROOT=%s\nPZ_CI_STATE_DIR=%s\nPZ_CI_AUTHORIZATION_FILE=%s\n' \
+            "$GITHUB_WORKSPACE" "$RUNNER_TEMP/pz-release" "$RUNNER_TEMP/authorization/authorization.json" >> "$GITHUB_ENV"
+          python3 mise-helper/vendor/pzagent-adw-context/ci.py release-coordinator configure
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ${{ steps.release-config.outputs.registry }}
+          username: ${{ github.triggering_actor }}
+          password: ${{ github.token }}
+      - name: Inspect immutable component inventory through public task
+        id: inventory
+        run: python3 mise-helper/vendor/pzagent-adw-context/ci.py release-coordinator inventory
+      - name: Read optional Docker cache declaration
+        id: docker-cache
+        if: steps.inventory.outputs.has_missing == 'true'
+        continue-on-error: true
+        run: python3 mise-helper/vendor/pzagent-adw-context/docker_cache.py --github-output "$GITHUB_OUTPUT"
+      - name: Set up optional registry cache builder
+        id: buildx
+        if: steps.docker-cache.outputs.enabled == 'true'
+        continue-on-error: true
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          version: v0.34.0
+          use: false
+          cache-binary: false
+          driver-opts: |
+            image=moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f
+            network=host
+      - name: Enable authorized publication cache
+        if: steps.buildx.outcome == 'success'
+        env:
+          CACHE_BUILDER: ${{ steps.buildx.outputs.name }}
+          CACHE_WRITE: ${{ github.ref_protected && 'true' || 'false' }}
+        run: printf 'PZ_ADW_BUILDX_BUILDER=%s\nPZ_ADW_DOCKER_CACHE_WRITE=%s\n' "$CACHE_BUILDER" "$CACHE_WRITE" >> "$GITHUB_ENV"
+      - name: Import compatible quality output or select canonical build
+        id: preparation
+        env:
+          MISE_AUTO_INSTALL: "false"
+          GH_TOKEN: ${{ github.token }}
+        run: python3 mise-helper/vendor/pzagent-adw-context/ci.py release-coordinator prepare
+      - name: Build missing components through canonical ADW tasks
+        if: steps.preparation.outputs.build_required == 'true'
+        env:
+          MISE_AUTO_INSTALL: "false"
+          PZ_ADW_SOURCE_ROOT: ${{ github.workspace }}
+          PZ_ADW_SOURCE_SHA: ${{ inputs.source_sha }}
+          PZ_ADW_BUILD_DIR: ${{ runner.temp }}/pz-release/build
+          PZ_ADW_PLATFORM: ${{ steps.release-config.outputs.platform }}
+          PZ_ADW_COMPONENTS: ${{ steps.inventory.outputs.missing }}
+        run: |
+          mise run adw:install
+          mise run adw:build
+      - name: Package verified build handover through public task
+        run: python3 mise-helper/vendor/pzagent-adw-context/ci.py release-coordinator package
+      - name: Publish manifest and optional preview CAS through public task
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 mise-helper/vendor/pzagent-adw-context/ci.py release-coordinator publish

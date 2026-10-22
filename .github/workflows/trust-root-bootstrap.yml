@@ -1,0 +1,111 @@
+name: Trust-root bootstrap
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created, edited, deleted]
+
+concurrency:
+  group: trust-root-bootstrap-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: write
+
+jobs:
+  evaluate:
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request && github.actor != 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ignore closed or merged pull requests
+        id: live-pr
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        with:
+          script: |
+            const {data: pull} = await github.rest.pulls.get({
+              owner: context.repo.owner, repo: context.repo.repo,
+              pull_number: Number(process.env.PR_NUMBER),
+            });
+            const open = pull.state === 'open' && pull.merged === false;
+            core.setOutput('open', String(open));
+            if (!open) core.info('Closed or merged pull request: no bootstrap decision or check run.');
+
+      - name: Check out only the trusted default branch controller
+        if: steps.live-pr.outputs.open == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Evaluate the exact live PR revision
+        if: steps.live-pr.outputs.open == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Optional read-only token for the provider repository; enables automatic
+          # approval of exact released-vendor repins. Absent means manual approval.
+          PZAGENT_PROVIDER_TOKEN: ${{ secrets.PZAGENT_PROVIDER_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: >-
+          python3 mise-helper/vendor/pzagent-adw-context/ci.py bootstrap-status
+          --repository "$REPOSITORY"
+          --pr "$PR_NUMBER"
+          | tee bootstrap-status.json
+
+      - name: Preserve the exact controller decision
+        if: github.event_name == 'pull_request_target' && steps.live-pr.outputs.open == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pzagent-trust-root-decision-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: bootstrap-status.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Explain the gate and publish its exact-head result
+        if: steps.live-pr.outputs.open == 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        with:
+          script: |
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync('bootstrap-status.json', 'utf8'));
+            const issue_number = Number(process.env.PR_NUMBER);
+            const marker = '<!-- pzagent-trust-root-bootstrap -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner, repo: context.repo.repo, issue_number, per_page: 100,
+            });
+            const bot = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker));
+            const body = `${marker}\n## Trust-root bootstrap approval\n\n${result.message}`;
+            if (result.status !== 'normal' || bot) {
+              if (bot) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  comment_id: bot.id, body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number, body,
+                });
+              }
+            }
+            const waiting = !result.allowed;
+            await github.rest.checks.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              name: 'trust-root-bootstrap', head_sha: result.head_sha,
+              external_id: result.controller_external_id,
+              status: 'completed', conclusion: waiting ? 'action_required' : 'success',
+              output: {
+                title: waiting ? 'Administrator decision required' : 'Trust-root gate satisfied',
+                summary: result.message,
+              },
+            });

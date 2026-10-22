@@ -1,0 +1,552 @@
+{
+  "$defs": {
+    "capability": {
+      "additionalProperties": false,
+      "properties": {
+        "environments": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "side_effect": {
+          "enum": [
+            "read-only",
+            "local-write",
+            "remote-write",
+            "destructive"
+          ]
+        },
+        "source": {
+          "pattern": "^[a-z][a-z0-9-]{0,62}$",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "supported",
+            "unsupported"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "side_effect",
+        "environments",
+        "source"
+      ],
+      "type": "object"
+    },
+    "source": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "layer": {
+                "enum": [
+                  "generic",
+                  "context"
+                ]
+              }
+            },
+            "required": [
+              "layer"
+            ]
+          },
+          "then": {
+            "properties": {
+              "ref": {
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layer": {
+                "const": "project"
+              }
+            },
+            "required": [
+              "layer"
+            ]
+          },
+          "then": {
+            "properties": {
+              "ref": {
+                "pattern": "^(?:HEAD|[0-9a-f]{40})$"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "checksum": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "layer": {
+          "enum": [
+            "generic",
+            "context",
+            "project"
+          ]
+        },
+        "path": {
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+          "type": "string"
+        },
+        "ref": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "layer",
+        "ref",
+        "checksum",
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/smarterworkerai/agentic-delivery/skills/adw/adw-core/assets/mise/v2/schemas/adw-task-manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "capabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "adw:build": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        },
+        "adw:check": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "read-only"
+            },
+            "status": {
+              "const": "supported"
+            }
+          }
+        },
+        "adw:context:check": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "read-only"
+            }
+          }
+        },
+        "adw:context:sync": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        },
+        "adw:deploy:apply": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "remote-write"
+            }
+          }
+        },
+        "adw:deploy:config:apply": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "remote-write"
+            }
+          }
+        },
+        "adw:deploy:config:plan": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "read-only"
+            }
+          }
+        },
+        "adw:deploy:config:pull": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        },
+        "adw:deploy:status": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "read-only"
+            }
+          }
+        },
+        "adw:describe": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "read-only"
+            },
+            "status": {
+              "const": "supported"
+            }
+          }
+        },
+        "adw:health": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "read-only"
+            }
+          }
+        },
+        "adw:hotfix:apply": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "remote-write"
+            }
+          }
+        },
+        "adw:hotfix:restore": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "remote-write"
+            }
+          }
+        },
+        "adw:install": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        },
+        "adw:lint": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        },
+        "adw:local:clean": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        },
+        "adw:readiness": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "read-only"
+            }
+          }
+        },
+        "adw:static-analysis": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        },
+        "adw:test:e2e:fast": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "remote-write"
+            }
+          }
+        },
+        "adw:test:e2e:full": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "remote-write"
+            }
+          }
+        },
+        "adw:test:integration:fast": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        },
+        "adw:test:integration:full": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        },
+        "adw:test:unit": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        },
+        "adw:validate-deployment": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "remote-write"
+            }
+          }
+        },
+        "adw:verify:full": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        },
+        "adw:verify:minimal": {
+          "$ref": "#/$defs/capability",
+          "properties": {
+            "side_effect": {
+              "const": "local-write"
+            }
+          }
+        }
+      },
+      "required": [
+        "adw:describe",
+        "adw:check",
+        "adw:install",
+        "adw:build",
+        "adw:lint",
+        "adw:static-analysis",
+        "adw:test:unit",
+        "adw:test:integration:fast",
+        "adw:verify:minimal",
+        "adw:verify:full",
+        "adw:deploy:config:pull",
+        "adw:deploy:config:plan",
+        "adw:deploy:config:apply",
+        "adw:deploy:apply",
+        "adw:deploy:status",
+        "adw:health",
+        "adw:readiness",
+        "adw:test:e2e:fast",
+        "adw:validate-deployment",
+        "adw:hotfix:apply",
+        "adw:hotfix:restore",
+        "adw:context:check",
+        "adw:context:sync",
+        "adw:test:integration:full",
+        "adw:test:e2e:full",
+        "adw:local:clean"
+      ],
+      "type": "object"
+    },
+    "context_freshness": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "enum": [
+            "advisory",
+            "require-current-compatible"
+          ]
+        },
+        "upstream": {
+          "additionalProperties": false,
+          "properties": {
+            "branch": {
+              "const": "main"
+            },
+            "index_path": {
+              "minLength": 1,
+              "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+              "type": "string"
+            },
+            "repository": {
+              "const": "smarterworkerai/agentic-delivery"
+            }
+          },
+          "required": [
+            "repository",
+            "branch",
+            "index_path"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "policy",
+        "upstream"
+      ],
+      "type": "object"
+    },
+    "contract": {
+      "additionalProperties": false,
+      "properties": {
+        "compatible": {
+          "pattern": "^>=[0-9]+\\.[0-9]+\\.[0-9]+,<[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "type": "string"
+        },
+        "name": {
+          "const": "adw-mise-task-contract"
+        },
+        "version": {
+          "const": "2.2.0"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "compatible"
+      ],
+      "type": "object"
+    },
+    "environments": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "root": {
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "root"
+      ],
+      "type": "object"
+    },
+    "project": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "required_secret_env": {
+      "items": {
+        "pattern": "^[A-Z][A-Z0-9_]*$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "schema_version": {
+      "const": "2.2.0"
+    },
+    "sources": {
+      "additionalProperties": false,
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9-]{0,62}$": {
+          "$ref": "#/$defs/source"
+        }
+      },
+      "type": "object"
+    },
+    "verification": {
+      "additionalProperties": false,
+      "properties": {
+        "full": {
+          "items": {
+            "enum": [
+              "adw:build",
+              "adw:lint",
+              "adw:static-analysis",
+              "adw:test:integration:fast",
+              "adw:test:unit"
+            ]
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "minimal": {
+          "anyOf": [
+            {
+              "contains": {
+                "const": "adw:build"
+              }
+            },
+            {
+              "contains": {
+                "const": "adw:test:unit"
+              }
+            },
+            {
+              "contains": {
+                "const": "adw:test:integration:fast"
+              }
+            }
+          ],
+          "items": {
+            "enum": [
+              "adw:build",
+              "adw:lint",
+              "adw:static-analysis",
+              "adw:test:integration:fast",
+              "adw:test:unit"
+            ]
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "minimal",
+        "full"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "contract",
+    "project",
+    "evidence",
+    "environments",
+    "sources",
+    "capabilities",
+    "verification"
+  ],
+  "title": "ADW mise task manifest",
+  "type": "object"
+}

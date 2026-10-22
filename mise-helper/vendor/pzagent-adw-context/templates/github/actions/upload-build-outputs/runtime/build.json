@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "inputs": {
+    "package.json": "9d4871f7ce418d0072c072a00ff4f02f9699a79ad1b8e014406d3f21e021d4d2",
+    "package-lock.json": "2d248b566f9e8e3ae2b597ff6a5e577286961d89d38679ec924f1406ebbc6c11",
+    "main.cjs": "3ec5ada3bb11bc41ac5e762154144a91529f67dfceb1025669e0962551033267",
+    "upload.cjs": "4ea7a4e542e597c96945903ebd4d592da561f89b2251fb88eacf3b4b07003ab5"
+  },
+  "files": {
+    "445.index.cjs.js": "1dcf2810dde3502bee2d02a9bcf209a832359e3ba2f3e5d43599d7133fa4c9ab",
+    "659.index.cjs.js": "d1ef2d36223540c953b370c0191c3877ea6bad2590d20bd5058dfdff12388472",
+    "835.index.cjs.js": "f06b620acd63b8715401097d39d2c1df7acc344c6b60671c00b8762cf62d9fb2",
+    "index.cjs": "a359a04d2740285d646a9e36096bf7133a3da8280d204cd8bdcc2061a8d5d141",
+    "licenses.txt": "ef88cd17f0c47cd6e6700f3f3dd0d43109df620a7aa7204377bf259d9a6ce1c2"
+  }
+}

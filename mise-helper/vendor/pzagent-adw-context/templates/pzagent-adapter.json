@@ -1,0 +1,34 @@
+{
+  "ci": {
+    "ci_only_checks": []
+  },
+  "delivery": {
+    "promotion_pairs": [
+      {
+        "source": "demo",
+        "target": "main"
+      }
+    ]
+  },
+  "hooks": {
+    "operations": {}
+  },
+  "hotfix": {
+    "ssh_aliases": [],
+    "transports": []
+  },
+  "providers": {},
+  "release_kinds": {},
+  "repository": {
+    "id": "owner/repository",
+    "protected_branches": [
+      "main",
+      "demo"
+    ]
+  },
+  "retention": {
+    "grace_hours": 48
+  },
+  "schema_version": "1.1.0",
+  "targets": {}
+}

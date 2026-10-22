@@ -1,0 +1,18 @@
+name: Publish immutable release
+description: Revalidate authorization and a closed artifact before packages-write publication
+inputs:
+  source_sha: {description: Exact authorized source SHA, required: true}
+  authorization_path: {description: Read-only authorization record, required: true}
+  artifact_path: {description: Downloaded closed build artifact directory, required: true}
+  registry_token: {description: Job-scoped registry token, required: true}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha }}
+        AUTHORIZATION_PATH: ${{ inputs.authorization_path }}
+        ARTIFACT_PATH: ${{ inputs.artifact_path }}
+        REGISTRY_TOKEN: ${{ inputs.registry_token }}
+        GH_TOKEN: ${{ github.token }}
+      run: python3 "$GITHUB_ACTION_PATH/publish.py"

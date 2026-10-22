@@ -1,0 +1,203 @@
+{
+  "ci": {
+    "ci_only_checks": []
+  },
+  "delivery": {
+    "promotion_pairs": [
+      {
+        "source": "demo",
+        "target": "main"
+      }
+    ]
+  },
+  "hooks": {
+    "operations": {
+      "adw:deploy:config:plan": {
+        "command": "bundle:dokploy",
+        "operation": "config-plan",
+        "result_keys": [
+          "role",
+          "order"
+        ],
+        "timeout_seconds": 180
+      },
+      "adw:deploy:status": {
+        "command": "bundle:dokploy",
+        "operation": "deploy-status",
+        "result_keys": [
+          "status"
+        ],
+        "timeout_seconds": 180
+      },
+      "adw:describe": {
+        "command": "bundle:dokploy",
+        "operation": "describe",
+        "result_keys": [
+          "profile"
+        ],
+        "timeout_seconds": 180
+      },
+      "adw:health": {
+        "command": "bundle:dokploy",
+        "operation": "health",
+        "result_keys": [
+          "status"
+        ],
+        "timeout_seconds": 180
+      },
+      "adw:hotfix:apply": {
+        "command": "bundle:dokploy",
+        "operation": "hotfix-build",
+        "result_keys": [
+          "images"
+        ],
+        "timeout_seconds": 180
+      },
+      "adw:readiness": {
+        "command": "python3 mise-helper/site_hook.py",
+        "operation": "readiness",
+        "result_keys": [
+          "status"
+        ],
+        "timeout_seconds": 180
+      },
+      "adw:test:e2e:fast": {
+        "command": "bundle:dokploy",
+        "operation": "e2e-fast",
+        "result_keys": [
+          "status",
+          "selected",
+          "executed",
+          "skipped"
+        ],
+        "timeout_seconds": 180
+      },
+      "adw:test:e2e:full": {
+        "command": "bundle:dokploy",
+        "operation": "e2e-full",
+        "result_keys": [
+          "status",
+          "selected",
+          "executed",
+          "skipped"
+        ],
+        "timeout_seconds": 180
+      },
+      "adw:validate-deployment": {
+        "command": "bundle:dokploy",
+        "operation": "runtime-proof",
+        "result_keys": [
+          "images"
+        ],
+        "timeout_seconds": 180
+      }
+    }
+  },
+  "hotfix": {
+    "ssh_aliases": [],
+    "transports": []
+  },
+  "providers": {
+    "dokploy": {
+      "bindings": {
+        "demo-application": {
+          "child_binding": "PROJECT_DOKPLOY_COMPOSE_ID",
+          "compose_path": "infra/dokploy/docker-compose.demo.yml",
+          "environment": "demo",
+          "environment_schema_path": "infra/dokploy/demo.keys.json",
+          "resource": "appletree-demo",
+          "probes": {
+            "base_url_env": "APPLETREE_DEMO_URL",
+            "health_path": "/",
+            "readiness_path": "/"
+          }
+        },
+        "pr-preview-application": {
+          "child_binding": "PROJECT_DOKPLOY_COMPOSE_ID",
+          "compose_path": "infra/dokploy/docker-compose.pr-preview.yml",
+          "environment": "pr-preview",
+          "environment_schema_path": "infra/dokploy/pr-preview.keys.json",
+          "resource": "appletree-preview",
+          "probes": {
+            "base_url_env": "APPLETREE_PREVIEW_URL",
+            "health_path": "/",
+            "readiness_path": "/"
+          }
+        },
+        "production-application": {
+          "child_binding": "PROJECT_DOKPLOY_COMPOSE_ID",
+          "compose_path": "infra/dokploy/docker-compose.production.yml",
+          "environment": "production",
+          "environment_schema_path": "infra/dokploy/production.keys.json",
+          "resource": "appletree",
+          "probes": {
+            "base_url_env": "APPLETREE_PRODUCTION_URL",
+            "health_path": "/",
+            "readiness_path": "/"
+          }
+        }
+      },
+      "project": "appletree"
+    }
+  },
+  "release_kinds": {
+    "application": {
+      "components": {
+        "web": {
+          "package": "ghcr.io/smarterworkerai/appletree-web"
+        }
+      },
+      "image_variables": {
+        "APPLETREE_IMAGE": "web"
+      },
+      "manifest_package": "ghcr.io/smarterworkerai/appletree-application-release",
+      "publication_pointers": [
+        "published"
+      ],
+      "schema": "appletree.application-release/v1"
+    }
+  },
+  "repository": {
+    "id": "smarterworkerai/appletree",
+    "protected_branches": [
+      "main",
+      "demo"
+    ]
+  },
+  "retention": {
+    "grace_hours": 48
+  },
+  "schema_version": "1.1.0",
+  "targets": {
+    "demo": {
+      "default": null,
+      "items": {
+        "demo-dokploy": {
+          "mode": "shadow",
+          "provider": "dokploy",
+          "provider_binding": "demo-application"
+        }
+      }
+    },
+    "pr-preview": {
+      "default": null,
+      "items": {
+        "pr-preview-dokploy": {
+          "mode": "shadow",
+          "provider": "dokploy",
+          "provider_binding": "pr-preview-application"
+        }
+      }
+    },
+    "production": {
+      "default": null,
+      "items": {
+        "production-dokploy": {
+          "mode": "shadow",
+          "provider": "dokploy",
+          "provider_binding": "production-application"
+        }
+      }
+    }
+  }
+}

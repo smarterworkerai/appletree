@@ -1,0 +1,6 @@
+services:
+  appletree:
+    image: ${APPLETREE_IMAGE:?APPLETREE_IMAGE must be an immutable digest}
+    restart: unless-stopped
+    expose:
+      - "3333"

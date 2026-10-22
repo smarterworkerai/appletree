@@ -1,49 +1,36 @@
 # appletree
 
-Three.js application that renders a stylized 3D apple tree.
+A Three.js scene with a stylized apple tree, served as a static application.
 
-## Local development
+## Development and validation
 
-```bash
-npm install
-npm run dev
-```
-
-The app is served on `http://localhost:3333`.
-
-## Production build
+Use the toolchain declared in `mise.toml`:
 
 ```bash
-npm run build
-npm run preview
+mise run adw:install
+mise exec -- npm run dev
+mise run adw:verify:full
 ```
 
-## Docker Compose
+The required graph builds the Vite application, checks source and delivery
+configuration, runs unit tests for the page/asset validator, and serves the
+compiled output for an HTTP smoke. It verifies the scene canvas, page title and
+all compiled script/style assets. The optional `adw:test:integration:full` builds
+and probes the actual container and runs only when explicitly requested.
 
-```bash
-docker compose up -d
-```
+## Delivery
 
-The Compose file pulls the published GHCR image and serves the static site on port `3333`.
+[Project guidance](.adw/ADW.md) describes the release lines and operator steps.
+The single `web` component has an immutable image and application manifest.
+Reviewed feature candidates advance to `demo`, then the same source advances to
+`main`, through `pz:release:promote`. Publication uses the canonical GitHub
+workflow and its exact quality producer; deployment uses the public tasks.
 
-## Dokploy / GitHub
+The environment definitions in `infra/dokploy/` reference an operator-owned
+`APPLETREE_IMAGE` digest. Existing Dokploy routing and resource names are
+preserved. The static app has no application secrets, database, storage or
+telephony. Provider credentials and routed probe origins stay in the private
+operator environment, and example files contain empty values.
 
-This repo is ready to push to GitHub and deploy from a Docker-aware platform.
-
-For Dokploy:
-
-```bash
-docker compose up -d
-```
-
-Dokploy can deploy this `docker-compose.yml` directly. By default it pulls `ghcr.io/smarterworkerai/appletree:latest`.
-
-The Compose service only exposes internal port `3333`. Configure the public domain and routing in the Dokploy UI instead of publishing a fixed host port in Compose.
-
-To pin a specific published image version, set `IMAGE_TAG` before deployment, for example:
-
-```bash
-IMAGE_TAG=sha-0251f90 docker compose up -d
-```
-
-Since the app is a static site served by Nginx, no database or persistent volume is required.
+No old registry mapping, pointer retirement or package deletion is part of this
+onboarding. The archive tag preserves the prior onboarding source.

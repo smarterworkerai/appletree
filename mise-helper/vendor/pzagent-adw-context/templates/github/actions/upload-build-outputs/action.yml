@@ -1,0 +1,17 @@
+name: Upload declared build components
+description: Upload verified component archives with the native GitHub artifact client
+inputs:
+  manifest:
+    description: Absolute path to the project hook's upload-manifest.json
+    required: true
+  source-sha:
+    description: Exact source SHA selected by the quality umbrella
+    required: true
+outputs:
+  artifacts:
+    description: Component to native artifact identity and inner archive checksum mapping
+  artifact-ids:
+    description: Comma-separated native artifact IDs for same-run download
+runs:
+  using: node24
+  main: runtime/index.cjs

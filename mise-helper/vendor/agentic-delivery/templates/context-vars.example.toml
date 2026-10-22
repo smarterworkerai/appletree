@@ -1,0 +1,7 @@
+# Context-owned, non-secret values synchronized as one versioned unit.
+# Use logical aliases and templates; never place credentials or raw key paths here.
+[vars]
+adw_context_id = "REPLACE_ME"
+adw_context_ref = "REPLACE_ME"
+adw_remote_host_alias = "REPLACE_ME"
+adw_environment_address_template = "REPLACE_ME"
