@@ -25,7 +25,9 @@ container integration runs only when requested. No billable test is needed.
 ## Existing provider resources
 
 The adapter binds the existing project and three Compose applications by logical
-name. Provisioning uses explicit `--adopt` and never grants deletion ownership.
+name. All three are declared active after canonical explicit adoption confirmed
+the existing project, environments and Compose apps without provider mutations.
+Adoption never grants deletion ownership.
 Keep private journals outside the checkout. Never recreate existing resources,
 rewrite their ownership, or change DNS/TLS as part of onboarding.
 

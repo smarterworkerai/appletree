@@ -105,36 +105,36 @@
           "compose_path": "infra/dokploy/docker-compose.demo.yml",
           "environment": "demo",
           "environment_schema_path": "infra/dokploy/demo.keys.json",
-          "resource": "appletree-demo",
           "probes": {
             "base_url_env": "APPLETREE_DEMO_URL",
             "health_path": "/",
             "readiness_path": "/"
-          }
+          },
+          "resource": "appletree-demo"
         },
         "pr-preview-application": {
           "child_binding": "PROJECT_DOKPLOY_COMPOSE_ID",
           "compose_path": "infra/dokploy/docker-compose.pr-preview.yml",
           "environment": "pr-preview",
           "environment_schema_path": "infra/dokploy/pr-preview.keys.json",
-          "resource": "appletree-preview",
           "probes": {
             "base_url_env": "APPLETREE_PREVIEW_URL",
             "health_path": "/",
             "readiness_path": "/"
-          }
+          },
+          "resource": "appletree-preview"
         },
         "production-application": {
           "child_binding": "PROJECT_DOKPLOY_COMPOSE_ID",
           "compose_path": "infra/dokploy/docker-compose.production.yml",
           "environment": "production",
           "environment_schema_path": "infra/dokploy/production.keys.json",
-          "resource": "appletree",
           "probes": {
             "base_url_env": "APPLETREE_PRODUCTION_URL",
             "health_path": "/",
             "readiness_path": "/"
-          }
+          },
+          "resource": "appletree"
         }
       },
       "project": "appletree"
@@ -170,30 +170,30 @@
   "schema_version": "1.1.0",
   "targets": {
     "demo": {
-      "default": null,
+      "default": "demo-dokploy",
       "items": {
         "demo-dokploy": {
-          "mode": "shadow",
+          "mode": "active",
           "provider": "dokploy",
           "provider_binding": "demo-application"
         }
       }
     },
     "pr-preview": {
-      "default": null,
+      "default": "pr-preview-dokploy",
       "items": {
         "pr-preview-dokploy": {
-          "mode": "shadow",
+          "mode": "active",
           "provider": "dokploy",
           "provider_binding": "pr-preview-application"
         }
       }
     },
     "production": {
-      "default": null,
+      "default": "production-dokploy",
       "items": {
         "production-dokploy": {
-          "mode": "shadow",
+          "mode": "active",
           "provider": "dokploy",
           "provider_binding": "production-application"
         }
