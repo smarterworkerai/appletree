@@ -555,6 +555,11 @@ def trusted_source(api, pull: Pull) -> None:
     changed=_changed_paths(api,pull)
     if not changed:
         return
+    # An unregistered workflow returns 404 rather than an empty run listing.
+    # Only explicit admission plus complete live default absence can skip it.
+    if greenfield.has_operator_admission() and greenfield.default_snapshot(api)['absent']:
+        if greenfield.trusted_decision(api, pull):
+            return
     state,decision=_controller_artifact_state(api,pull,changed)
     if state=='completed':
         if decision:

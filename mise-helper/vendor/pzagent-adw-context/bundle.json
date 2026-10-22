@@ -14,7 +14,7 @@
     },
     {
       "path": "migration-notes.md",
-      "sha256": "e423b385862196f0cef0404e8f94af38d958641a725661ccbe45abb479df1579"
+      "sha256": "5e826d432574540c4debec3f954dff319078af876aa361979ff53bf81c39ee29"
     },
     {
       "path": "modules/__init__.py",
@@ -82,7 +82,7 @@
     },
     {
       "path": "modules/ci/provenance.py",
-      "sha256": "6913645f24702086820fc1fe70a71bd8f2f8cc07f278abcc4b1c6c1ab2d678ba"
+      "sha256": "5747800cb8488a70c45a3ce8a882eca869960455020dc04f88434e3b833e9801"
     },
     {
       "path": "modules/ci/publication_proof.py",
@@ -354,7 +354,7 @@
     },
     {
       "path": "policy.md",
-      "sha256": "e48daffd60321654d9784c13b216e22438350c164844e6ee1dd5f994f6bf6675"
+      "sha256": "d4856d8add4a60d18abcf79e789b13ea85fbfe9cd6b25775b13e28da110e5e70"
     },
     {
       "path": "pzagent_context.py",
@@ -542,7 +542,7 @@
     },
     {
       "path": "templates/pzagent-context-lock.json",
-      "sha256": "28951aefea07178ef3d8052a599c91b0060d8e69e77badbf104816586e6a6e9f"
+      "sha256": "17b73c0eaeb98d24d9590b9d2e6c3f5adc24cb69b6bfcf9de00fa107e3306bd2"
     },
     {
       "path": "templates/repo-agents-snippet.md",
@@ -565,5 +565,5 @@
   "schema_version": "1.0.0",
   "stability": "experimental",
   "task_entrypoint": "tasks.toml",
-  "version": "0.15.2"
+  "version": "0.15.3"
 }

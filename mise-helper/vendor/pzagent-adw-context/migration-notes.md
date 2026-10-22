@@ -1,5 +1,27 @@
 # Migration notes
 
+## 0.15.3
+
+An explicitly admitted released operator now takes a fresh complete live default
+snapshot before consulting controller runs. When that snapshot proves the entire
+ADW root absent, it validates greenfield admission directly. GitHub returns 404
+for the unregistered workflow in this case; that response previously prevented
+the independent admission from being considered.
+
+There is no general 404-as-absence rule. Without an operator admission, controller
+lookups and their failures behave exactly as before, with zero extra greenfield
+reads. If the live default contains a controller or any ADW root, controller-first
+processing remains unchanged and a completed decision keeps priority. The merged
+seed bridge remains unchanged. Admission still checks published complete release
+bytes, PR/default/source identity and administrator denials, and rechecks those
+bindings before the existing non-forced ref write. CI remains quality evidence
+only. No trusted path or call-boundary pin is added or changed.
+
+Repin canonically to this release and obtain a new exact-head review before
+retrying first adoption with its published checksummed launcher. Failed attempts
+before the fix made no ref change; no reset or administrator enabled comment is
+needed. First publication must still finish before the next main merge.
+
 ## 0.15.2
 
 Live default-root inspection uses the canonical repository metadata endpoint;
