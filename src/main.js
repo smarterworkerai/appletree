@@ -1,5 +1,6 @@
 import './style.css';
 import * as THREE from 'three';
+import { createSunDisc, positionSunDisc } from './sky.js';
 
 const canvas = document.querySelector('#scene');
 
@@ -15,6 +16,11 @@ scene.fog = new THREE.Fog('#e8f4ff', 16, 38);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
 camera.position.set(7, 5, 9);
 camera.lookAt(0, 2.5, 0);
+
+const sunDisc = createSunDisc(THREE);
+camera.add(sunDisc);
+scene.add(camera);
+canvas.dataset.skyFeature = sunDisc.name;
 
 const ambientLight = new THREE.HemisphereLight('#fff7e6', '#5f7c59', 1.8);
 scene.add(ambientLight);
@@ -161,6 +167,7 @@ function resize() {
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+  positionSunDisc(sunDisc, camera);
 }
 
 window.addEventListener('resize', resize);

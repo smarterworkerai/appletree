@@ -1,6 +1,8 @@
 # appletree
 
 A Three.js scene with a stylized apple tree, served as a static application.
+A layered sun disc stays in camera space and follows the upper-right view as the
+viewport changes.
 
 ## Development and validation
 
@@ -17,7 +19,8 @@ mise run adw:verify:full
 ```
 
 The required graph builds the Vite application, checks source and delivery
-configuration, runs unit tests for the page/asset validator, and serves the
+configuration, runs unit tests for the page/asset validator and the actual Three.js
+sun scene, and serves the
 compiled output for an HTTP smoke. It verifies the scene canvas, page title and
 all compiled script/style assets. The optional `adw:test:integration:full` builds
 and probes the actual container and runs only when explicitly requested.

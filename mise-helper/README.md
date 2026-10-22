@@ -10,7 +10,7 @@ no implicit shell. Full verification remains context-owned.
 | `adw:build` | Vite compiles `src/` to `dist/`; release mode uses the bundled staged builder and sealed handover. |
 | `adw:lint` | Project documentation/source whitespace and empty examples. |
 | `adw:static-analysis` | Node syntax plus release recipe, pinned images and routing/key contracts. |
-| `adw:test:unit` | Page/asset validator rejection cases. |
+| `adw:test:unit` | Page/asset rejection cases, HTTP probe headers and the layered Three.js sun/resize contract. |
 | `adw:test:integration:fast` | HTTP serves the actual compiled page and every referenced module/style asset. |
 | `adw:test:integration:full` | Explicitly requested Docker runtime-image HTTP smoke with owned-resource cleanup. |
 | `adw:verify:minimal` | Install and build. |
