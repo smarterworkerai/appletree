@@ -1,5 +1,29 @@
 # Migration notes
 
+## 0.15.1
+
+Quality output provenance reads the Java/Node build-tool declarations from the
+source-bound `mise.toml` `[tools]` table. Node-only consumers probe and record
+only Node 22; Java-only consumers only Java 21; dual consumers retain the same
+full observed-version fingerprint. Missing, unsupported, malformed, empty or
+wrong-version declarations and unavailable declared tools refuse. Operator tools
+are outside this Java/Node build fingerprint. No environment or project hook can
+substitute a declaration.
+
+Kubernetes provisioning now receives only the selected context alias's declared
+pull/application keys. Other target and k3d-profile keys grant no provisioning
+access; cluster-only inputs remain excluded. Private-profile parents above the
+resolved root may be symlinks; the root and paths inside it still refuse links,
+including the nested operation journal path. Cleanup that confirms an already
+requested deletion is absent now persists `deleted: true`; planning remains
+read-only and interrupted cleanup never repeats that deletion.
+
+Trusted changes are limited to `pzagent_context.py`, `modules/quality_outputs.py`
+and four existing function-scope pins in `modules/ci/trusted_decisions.json`. Fixed subprocess argv,
+callsite hashes, validators, roots, classifications and the trusted-path list are
+unchanged. Source, producer, recipe, stage and payload integrity binding remains
+unchanged. Cold sandbox adoption and exact-head review precede release.
+
 ## 0.15.0
 
 - Replace public `pz:cluster:up` / `pz:cluster:teardown` with `pz:k3d:up` /

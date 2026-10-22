@@ -430,7 +430,7 @@
       "call_sha256": [
         "7bbec44574a789e151c9b646a68ad5153a6653b9ec2ab82e3ca40890c5a6e89f"
       ],
-      "scope_sha256": "fd723ef1bfe468c2d89ccf86ea8f92ec60cb4e708293e7a28ba62ea8ef628d88",
+      "scope_sha256": "7a3403b96f2821bf4c0c5325c4d539d280794b8815e7486ddf699cd1bee7f38b",
       "validator": "modules.quality_outputs:import_quality",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },
@@ -438,7 +438,7 @@
       "call_sha256": [
         "d66912e8487e0bad751632e023e46b2f606d56cfefb7a9116de8ec84b83d0c02"
       ],
-      "scope_sha256": "fd723ef1bfe468c2d89ccf86ea8f92ec60cb4e708293e7a28ba62ea8ef628d88",
+      "scope_sha256": "7a3403b96f2821bf4c0c5325c4d539d280794b8815e7486ddf699cd1bee7f38b",
       "validator": "modules.quality_outputs:import_quality",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },
@@ -447,7 +447,7 @@
         "191d9952ac8e6e42f03dfa2ec7a3afd106d6f35e170b33692b07ec091fab0006",
         "16a601cb8f9d8daa2002c08e49d5c6e0975e77769506041f4f7255c0146b17d5"
       ],
-      "scope_sha256": "9e8396b5ff637456ccb5d75d7e04ffa5111d9327e7466831826459107d33a25e",
+      "scope_sha256": "d301f11ab08f3a71e507806efcef27b97427cb09f79f4f7ca3a490da52ee6603",
       "validator": "modules.quality_outputs:import_quality",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },
@@ -455,7 +455,7 @@
       "call_sha256": [
         "8356bed0a16da4678ce2d53cea3c69a824f45645be8e47a10c462abe229b8017"
       ],
-      "scope_sha256": "9e8396b5ff637456ccb5d75d7e04ffa5111d9327e7466831826459107d33a25e",
+      "scope_sha256": "d301f11ab08f3a71e507806efcef27b97427cb09f79f4f7ca3a490da52ee6603",
       "validator": "modules.quality_outputs:import_quality",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },

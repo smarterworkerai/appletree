@@ -42,14 +42,35 @@ def cluster_seed() -> dict | None:
         raise ContractError('cluster_profile_seed_invalid') from exc
 
 
+def private_profile_path(root: Path, path: Path) -> Path:
+    """Resolve ancestors above the explicit root; never follow links inside it."""
+    if root.is_symlink():
+        raise ValueError('private root is linked')
+    anchor = root.resolve()
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        relative = path.relative_to(anchor)
+    if '..' in relative.parts:
+        raise ValueError('private path escapes root')
+    selected = anchor
+    for part in relative.parts:
+        selected = selected / part
+        if selected.is_symlink():
+            raise ValueError('private path is linked')
+    return selected
+
+
 def bootstrap_keys(profile_root: Path | None = None, parent: dict[str, str] | None = None) -> set[str]:
     """Discover only declared key names; never read or return their values."""
     source = os.environ if parent is None else parent
     raw = source.get('PZ_ADW_PROFILE_ROOT')
     root = profile_root or (Path(raw) if raw else None)
     keys = set(BOOTSTRAP)
-    path = root / 'k3d-clusters.json' if root is not None else None
     try:
+        if root is not None:
+            root = private_profile_path(root, root)
+        path = root / 'k3d-clusters.json' if root is not None else None
         if path is not None and (path.exists() or path.is_symlink()):
             if path.is_symlink() or path.stat().st_mode & 0o077 or path.stat().st_size > 65536:
                 raise ValueError()
@@ -90,9 +111,56 @@ def bootstrap_keys(profile_root: Path | None = None, parent: dict[str, str] | No
                                     or key in REGISTRY | CLOUDFLARE):
                                 raise ValueError()
                             keys.add(key)
-    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as exc:
         raise ContractError('cluster_profile_invalid') from exc
     return keys
+
+
+def kubernetes_bootstrap_keys(profile_root: Path | None, context_alias: str) -> set[str]:
+    """Grant only one target's declared pull/application input names."""
+    raw = os.environ.get('PZ_ADW_PROFILE_ROOT')
+    root = profile_root or (Path(raw) if raw else None)
+    if root is None:
+        return set()
+    try:
+        root = private_profile_path(root, root)
+        path = root / 'kubernetes-provisioning.json'
+        if not path.exists() and not path.is_symlink():
+            return set()
+        if (any(p.is_symlink() for p in (path, *path.parents)) or not path.is_file()
+                or path.stat().st_mode & 0o077 or path.stat().st_size > 65536):
+            raise ValueError()
+        data = json.loads(path.read_bytes())
+        if (set(data) != {'schema_version', 'targets'} or data['schema_version'] != '1.0.0'
+                or not isinstance(data['targets'], dict)):
+            raise ValueError()
+        selected = data['targets'][context_alias]
+        if not isinstance(selected, dict) or set(selected) - {'tls', 'image_pull', 'app_secrets'}:
+            raise ValueError()
+        keys = set()
+        for field, suffix in (('token_env', '_TOKEN'), ('username_env', '_USERNAME')):
+            key = selected.get('image_pull', {}).get(field)
+            if key is not None:
+                if (not isinstance(key, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key)
+                        or not key.endswith(suffix) or key in REGISTRY | CLOUDFLARE | CLUSTER_ONLY):
+                    raise ValueError()
+                keys.add(key)
+        for entries in selected.get('app_secrets', {}).values():
+            for fields in entries.values():
+                for source in fields.values():
+                    if not isinstance(source, dict):
+                        raise ValueError()
+                    key = source.get('env')
+                    if key is not None:
+                        if (set(source) != {'env'} or not isinstance(key, str)
+                                or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key)
+                                or not key.endswith(('_KEY', '_TOKEN', '_PASSWORD', '_SECRET'))
+                                or key in REGISTRY | CLOUDFLARE | CLUSTER_ONLY):
+                            raise ValueError()
+                        keys.add(key)
+        return keys
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as exc:
+        raise ContractError('kubernetes_provision_profile_invalid') from exc
 
 
 def dotenv(path: Path, *, required: bool = False) -> dict[str, str]:

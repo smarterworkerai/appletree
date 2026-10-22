@@ -132,8 +132,13 @@ def journal_path(repo: Path, profile: Path, operation: Path) -> Path:
     """IDs never live below a consumer checkout or its public evidence directory."""
     if profile is None:
         raise ContractError('provider_private_profile_required')
-    profile, repo, operation = profile.absolute(), repo.resolve(), operation.resolve()
-    if any(p.is_symlink() for p in (profile, *profile.parents)) or profile.resolve() == repo or repo in profile.resolve().parents:
+    from .operator_credentials import private_profile_path
+    try:
+        profile = private_profile_path(profile.absolute(), profile.absolute())
+    except (OSError, ValueError, RuntimeError):
+        raise ContractError('provider_private_profile_invalid') from None
+    repo, operation = repo.resolve(), operation.resolve()
+    if profile == repo or repo in profile.parents:
         raise ContractError('provider_private_profile_invalid')
     if profile.exists() and (not profile.is_dir() or profile.stat().st_mode & 0o077):
         raise ContractError('provider_private_profile_not_private')

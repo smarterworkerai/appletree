@@ -697,7 +697,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command.startswith('context-') or args.command == 'local-clean':
         return _main(args)
     from modules.execution import execution
-    from modules.operator_credentials import resolve, credentials, DOKPLOY, REGISTRY, SSH, KUBE, bootstrap_keys, CLOUDFLARE, CLUSTER_ONLY
+    from modules.operator_credentials import resolve, credentials, DOKPLOY, REGISTRY, SSH, KUBE, bootstrap_keys, kubernetes_bootstrap_keys, CLOUDFLARE, CLUSTER_ONLY
     from modules.operator_registry import authentication
     try:
         with ExitStack() as stack:
@@ -739,7 +739,8 @@ def _dispatch(args: argparse.Namespace) -> int:
                 if not selected:
                     raise ContractError('provider_target_unsupported')
                 if selected.get('provider') == 'kubernetes':
-                    allowed |= {key for key in bootstrap_keys(args.profile_root) - CLOUDFLARE - CLUSTER_ONLY
+                    binding = adapter['providers']['kubernetes']['bindings'][selected['provider_binding']]
+                    allowed |= {key for key in kubernetes_bootstrap_keys(args.profile_root, binding['context_alias']) - CLOUDFLARE - CLUSTER_ONLY
                                 if not key.endswith('_EMAIL')}
             if args.command in {'cluster-up', 'cluster-teardown'}:
                 allowed = KUBE

@@ -13,6 +13,7 @@ import secrets
 from ..common import ContractError, IDENTIFIER
 from ..cluster_bootstrap import Bootstrap, validate, facts, PULL_SECRET
 from ..operator_state import locked, read, write
+from ..operator_credentials import private_profile_path
 from .kubernetes import KubernetesProvider
 
 OPERATION = 'adw.pzagent.io/provision-operation'
@@ -24,15 +25,19 @@ def _hash(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
-def _private(path):
-    if (any(p.is_symlink() for p in (path, *path.parents)) or not path.is_file()
+def _private(path, *, root=None):
+    try:
+        path = private_profile_path(root or path.parent, path)
+    except (OSError, ValueError, RuntimeError):
+        raise ContractError('kubernetes_provision_profile_invalid') from None
+    if (path.is_symlink() or not path.is_file()
             or path.stat().st_mode & 0o077 or path.stat().st_size > 262144):
         raise ContractError('kubernetes_provision_profile_invalid')
     return read(path)
 
 
-def _state(path):
-    value = _private(path)
+def _state(path, *, root=None):
+    value = _private(path, root=root)
     if (set(value) != {'schema_version', 'workflow', 'selection', 'profile', 'operation_id', 'nonce', 'resources', 'phase'}
             or value['schema_version'] != '1.0.0' or value['workflow'] != 'kubernetes-provision'
             or not isinstance(value['operation_id'], str) or not re.fullmatch(r'kube-provision-[0-9a-f]{24}', value['operation_id'])
@@ -58,7 +63,7 @@ def _profile(root, provider, binding):
     alias, namespace = binding['context_alias'], binding['namespace']
     path = root / PROFILE_FILE
     if path.exists() or path.is_symlink():
-        data = _private(path)
+        data = _private(path, root=root)
         if (set(data) != {'schema_version', 'targets'} or data['schema_version'] != '1.0.0'
                 or not isinstance(data['targets'], dict) or alias not in data['targets']):
             raise ContractError('kubernetes_provision_profile_invalid')
@@ -258,7 +263,7 @@ def provision(repo, adapter, *, environment, target, profile_root, operation_dir
     if 'tls' in profile:
         _tls_ready(provider, profile['tls'])
     with locked(private.parent), locked(operation_dir):
-        state = _state(private) if private.exists() else {'schema_version': '1.0.0',
+        state = _state(private, root=profile_root) if private.exists() else {'schema_version': '1.0.0',
             'workflow': 'kubernetes-provision', 'selection': selection, 'profile': profile,
             'operation_id': 'kube-provision-' + secrets.token_hex(12), 'nonce': secrets.token_hex(16),
             'resources': {}, 'phase': 'planned'}
@@ -368,7 +373,7 @@ def deprovision(repo, adapter, *, profile_root, operation_dir, source_sha, plan=
     _operator()
     private = journal_path(repo, profile_root, operation_dir)
     with locked(private.parent), locked(operation_dir):
-        state = _state(private)
+        state = _state(private, root=profile_root)
         if state.get('workflow') != 'kubernetes-provision':
             raise ContractError('provider_operation_selection_changed')
         selected = state['selection']
@@ -388,6 +393,9 @@ def deprovision(repo, adapter, *, profile_root, operation_dir, source_sha, plan=
         for entry in candidates:
             value = bootstrap.observed(entry['kind'], entry['name'], entry['namespace'])
             if value is None:
+                if entry.get('delete_requested') and not entry.get('deleted') and not plan:
+                    entry['deleted'] = True
+                    save()
                 continue
             bootstrap.check(value)
             metadata = value['metadata']

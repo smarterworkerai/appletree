@@ -6,9 +6,11 @@ import hashlib
 import json
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 
 from modules import build_archive, build_outputs
 from modules.ci import build_artifacts
@@ -86,13 +88,40 @@ def producer(root: Path, sha: str, env: dict) -> dict:
     return result
 
 
-def tools() -> dict:
-    java = subprocess.run(['java', '-version'], capture_output=True, text=True, check=True)
-    node = subprocess.check_output(['node', '--version'], text=True).strip()
-    description = (java.stdout + java.stderr).strip()
-    if 'version "21.' not in description or not node.startswith('v22.'):
-        raise ContractError('quality outputs require the declared Java 21 and Node 22 toolchain')
-    return {'java': description, 'node': node}
+def tools(root: Path) -> dict:
+    failure = 'quality outputs require the declared Java 21 and Node 22 toolchain'
+    declaration = root / 'mise.toml'
+    try:
+        if declaration.is_symlink():
+            raise ContractError(failure)
+        selected = tomllib.loads(declaration.read_text()).get('tools')
+        if not isinstance(selected, dict):
+            raise ContractError(failure)
+        declared = {name: selected[name] for name in ('java', 'node') if name in selected}
+        if not declared or any(not isinstance(value, str) for value in declared.values()):
+            raise ContractError(failure)
+        if ('java' in declared and not re.fullmatch(r'(?:[A-Za-z][A-Za-z0-9_]*-)?21(?:[.][0-9A-Za-z+_.-]+)?', declared['java'])):
+            raise ContractError(failure)
+        if ('node' in declared and not re.fullmatch(r'22(?:[.]\d+){0,2}', declared['node'])):
+            raise ContractError(failure)
+    except (OSError, ValueError):
+        raise ContractError(failure) from None
+    result = {}
+    try:
+        if 'java' in declared:
+            java = subprocess.run(['java', '-version'], capture_output=True, text=True, check=True)
+            description = (java.stdout + java.stderr).strip()
+            if 'version "21.' not in description:
+                raise ContractError(failure)
+            result['java'] = description
+        if 'node' in declared:
+            node = subprocess.check_output(['node', '--version'], text=True).strip()
+            if not node.startswith('v22.'):
+                raise ContractError(failure)
+            result['node'] = node
+    except (OSError, subprocess.CalledProcessError):
+        raise ContractError(failure) from None
+    return result
 
 
 def validate_native_provenance(root: Path, workspace: Path, hook: dict, platform: str) -> None:
@@ -141,7 +170,7 @@ def export_quality(root: Path, workspace: Path, output: Path, env: dict, *, spli
              'platform': observed_platform, 'components': list(cfg['quality_exports']),
              'recipe_digest': hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest(), 'stages': {}}
     record = producer(root, sha, env)
-    record['tools'] = tools()
+    record['tools'] = tools(root)
     for component in cfg['quality_exports']:
         native = cfg['components'][component].get('native_provenance')
         if native is not None:
