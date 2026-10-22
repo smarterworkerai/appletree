@@ -54,7 +54,7 @@
         "timeout_seconds": 180
       },
       "adw:readiness": {
-        "command": "python3 mise-helper/site_hook.py",
+        "command": "mise-helper/site_hook.py",
         "operation": "readiness",
         "result_keys": [
           "status"

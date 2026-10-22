@@ -18,7 +18,11 @@ no implicit shell. Full verification remains context-owned.
 
 `site_hook.py` extends the bundled readiness hook: it retains request and target
 validation, then checks the routed page title, scene canvas and compiled assets.
-Private origins arrive only as the adapter-declared probe environment keys.
+The adapter command names the Python file directly; the bundled dispatcher selects
+the interpreter. The unit gate exercises that declaration against an HTTP page,
+missing assets and an undeclared target. Private origins arrive only as the
+adapter-declared probe environment keys, loaded from the private operator profile
+into the task environment without printing their values.
 The app has no runtime application secrets. `site_checks.py` also supplies the
 local compiled HTTP smoke; it never infers an operator route.
 
