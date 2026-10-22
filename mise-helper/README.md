@@ -7,7 +7,7 @@ no implicit shell. Full verification remains context-owned.
 | Task | Application behavior |
 | --- | --- |
 | `adw:install` | `npm ci` from the reviewed lockfile. |
-| `adw:build` | Vite compiles `src/` to `dist/`. |
+| `adw:build` | Vite compiles `src/` to `dist/`; release mode uses the bundled staged builder and sealed handover. |
 | `adw:lint` | Project documentation/source whitespace and empty examples. |
 | `adw:static-analysis` | Node syntax plus release recipe, pinned images and routing/key contracts. |
 | `adw:test:unit` | Page/asset validator rejection cases. |
@@ -23,6 +23,13 @@ the interpreter. The unit gate exercises that declaration against an HTTP page,
 missing assets and an undeclared target. Private origins arrive only as the
 adapter-declared probe environment keys, loaded from the private operator profile
 into the task environment without printing their values.
+When a proof-only CI run supplies no compiled artifact, publication selects a
+fresh canonical build. The `adw:build` release command invokes the bundled
+staged builder when `PZ_ADW_BUILD_DIR` is set, writing the source-bound
+`build.json` and verified stage exports consumed by `pz:release:package`.
+An ordinary Vite build remains the local quality command. A successful Vite
+build alone does not supply a release handover.
+
 The app has no runtime application secrets. `site_checks.py` also supplies the
 local compiled HTTP smoke; it never infers an operator route.
 

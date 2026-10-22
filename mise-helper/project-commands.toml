@@ -10,6 +10,7 @@ commands = [{argv = ["npm", "ci", "--no-fund"]}]
 [tasks."adw:build"]
 implemented = true
 commands = [{argv = ["npm", "run", "build"]}]
+release_commands = [{argv = ["python3", "mise-helper/vendor/pzagent-adw-context/modules/release_build.py", "build"]}]
 
 [tasks."adw:lint"]
 implemented = true

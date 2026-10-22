@@ -38,3 +38,8 @@ operator environment, and example files contain empty values.
 
 No old registry mapping, pointer retirement or package deletion is part of this
 onboarding. The archive tag preserves the prior onboarding source.
+
+Publication reuses compatible compiled CI output when available. A proof-only
+main-promotion run instead uses the canonical release build, which produces the
+verified handover before packaging the runtime image. Local development and
+quality builds continue to compile the Vite page without creating a release.
