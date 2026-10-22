@@ -5,7 +5,10 @@ A Three.js scene with a stylized apple tree, served as a static application.
 ## Development and validation
 
 Use the toolchain declared in `mise.toml`. Node builds the static app; pinned
-ORAS supports operator registry tasks, and Docker is an operator prerequisite:
+ORAS supports operator registry tasks, and Docker is an operator prerequisite.
+The committed `mise.lock` records tool downloads for CI. When changing tool
+pins in `mise.toml`, refresh the lock with `mise lock` and commit both files
+before hosted quality so installation leaves the checkout clean:
 
 ```bash
 mise run adw:install
