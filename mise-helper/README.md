@@ -30,6 +30,11 @@ staged builder when `PZ_ADW_BUILD_DIR` is set, writing the source-bound
 An ordinary Vite build remains the local quality command. A successful Vite
 build alone does not supply a release handover.
 
+Routed page and asset requests use the same public User-Agent and Accept headers
+as the bundled HTTP probe. They retain the origin, title, canvas, asset path,
+status, MIME and nonempty-body checks. The HTTP regression covers origins that
+reject anonymous/default client headers and still rejects missing assets.
+
 The app has no runtime application secrets. `site_checks.py` also supplies the
 local compiled HTTP smoke; it never infers an operator route.
 

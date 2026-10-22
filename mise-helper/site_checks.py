@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 from urllib.parse import unquote, urlsplit
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 import uuid
 
 
@@ -81,13 +81,15 @@ def check_remote(origin):
     if (parsed.scheme not in {'http', 'https'} or not parsed.hostname or parsed.username
             or parsed.password or parsed.query or parsed.fragment or parsed.path not in {'', '/'}):
         raise SiteError('site-origin-invalid')
+    # Match the bundled runtime HTTP probe; its headers are not exported as a helper.
+    headers = {'Accept': 'application/json', 'User-Agent': 'pzagent-health'}
     try:
-        with urlopen(origin.rstrip('/') + '/', timeout=15) as response:
+        with urlopen(Request(origin.rstrip('/') + '/', headers=headers), timeout=15) as response:
             if response.status != 200:
                 raise SiteError('site-document-unavailable')
             html = response.read(2_000_000).decode()
         for reference in assets(html):
-            with urlopen(origin.rstrip('/') + reference, timeout=15) as response:
+            with urlopen(Request(origin.rstrip('/') + reference, headers=headers), timeout=15) as response:
                 body = response.read(8_000_000)
                 content_type = response.headers.get_content_type()
                 if response.status != 200 or not body or content_type == 'text/html':

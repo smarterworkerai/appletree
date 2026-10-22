@@ -43,3 +43,6 @@ Publication reuses compatible compiled CI output when available. A proof-only
 main-promotion run instead uses the canonical release build, which produces the
 verified handover before packaging the runtime image. Local development and
 quality builds continue to compile the Vite page without creating a release.
+
+Routed readiness identifies page and asset requests consistently with the bundled
+probe, and verifies the page contract and actual compiled dependencies.
