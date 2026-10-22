@@ -58,6 +58,22 @@ def marked(existing: str, name: str, body: str) -> str:
     return existing[:begin] + block + existing[finish:]
 
 
+def tool_pins(args):
+    pins = {name: value for name, value in (('java', args.java), ('node', args.node)) if value is not None}
+    for declaration in getattr(args, 'tool', []) or []:
+        name, separator, version = declaration.partition('=')
+        if (not separator or name in pins or len(name) > 128
+                or not re.fullmatch(r'(?:[A-Za-z][A-Za-z0-9_.-]*:)?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*', name)
+                or any(part in ('.', '..') for part in name.split('/'))):
+            raise ContractError('project_init_tool_version_invalid')
+        pins[name] = version
+    for name, version in pins.items():
+        if (not isinstance(version, str) or len(version) > 128
+                or not re.fullmatch(r'(?:[A-Za-z][A-Za-z0-9_]*-)?[0-9]+(?:[.][0-9]+)*(?:[+][0-9A-Za-z._-]+)?', version)):
+            raise ContractError('project_init_tool_version_invalid')
+    return dict(sorted(pins.items()))
+
+
 def scaffold(repo: Path, args) -> dict[str, bytes]:
     bundle = validate_bundle(BUNDLE)
     generic = engine(repo)
@@ -92,14 +108,13 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
     files['mise-helper/tasks.toml'] = (templates / 'project-tasks.toml').read_text()
     files['mise-helper/project-commands.toml'] = (templates / 'project-commands.toml').read_text()
     files['mise-helper/README.md'] = (templates / 'project-helper-readme.md').read_text()
-    tools = ''
-    for name, version in (('java', args.java), ('node', args.node)):
-        if version:
-            if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){0,2}', version):
-                raise ContractError('project_init_tool_version_invalid')
-            tools += name + ' = ' + json.dumps(version) + '\n'
+    pins = tool_pins(args)
+    mise_pins = dict(pins)
     if args.provider == 'kubernetes':
-        tools += 'kubectl = "1.35.0"\nkustomize = "5.7.1"\nk3d = "5.8.3"\nhelm = "3.19.0"\n'
+        for name, version in (('kubectl', '1.35.0'), ('kustomize', '5.7.1'), ('k3d', '5.8.3'), ('helm', '3.19.0')):
+            mise_pins.setdefault(name, version)
+    tools = ''.join((name if re.fullmatch(r'[A-Za-z0-9_-]+', name) else json.dumps(name))
+                    + ' = ' + json.dumps(version) + '\n' for name, version in mise_pins.items())
     files['mise.toml'] = (templates / 'mise.toml').read_text().replace('2026.9.13', bundle['minimum_mise']).replace('2.2.0', generic.CONTRACT_VERSION).replace('# @TOOLS@', tools.rstrip())
     local = set(PROJECT_TASKS) | {'adw:verify:full'}
     context = {'adw:describe', 'adw:verify:full', 'adw:context:check', 'adw:context:sync', 'adw:local:clean'}
@@ -216,8 +231,9 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
         'platforms': ['linux/amd64'], 'kind_environments': {args.release_kind: args.environments},
         'components': {c: {'context': c, 'dockerfile': c + '/Dockerfile', 'stages': []} for c in args.components},
         'hooks': {'build': 'bundle:release_build'}})
-    files[directory + '/build-toolchain.json'] = document({'schema_version': '1.0.0',
-        'sources': {'java': 'mise.lock' if args.java else '', 'node': 'package.json engines' if args.node else ''}})
+    sources = {'java': 'mise.lock' if 'java' in pins else '', 'node': 'package.json engines' if 'node' in pins else ''}
+    sources.update({name: 'mise.toml [tools]' for name in pins if name not in ('java', 'node')})
+    files[directory + '/build-toolchain.json'] = document({'schema_version': '1.0.0', 'sources': sources})
     facts = (templates / 'project-adw.md').read_text().replace('smarterworkerai/<repo>', args.repository).replace('<Project>', slug)
     facts = facts.replace(
         f'The project directory is `{PROJECT_DIRECTORIES[0]}/`, or `{PROJECT_DIRECTORIES[1]}/` in existing projects.',
@@ -312,7 +328,7 @@ def initialize(repo: Path, args) -> dict:
             'next': ['Trust the generated mise.toml for normal use (mise trust mise.toml).',
                      'Implement the eight project tasks; full verification stays context-owned.',
                      'Fill Docker recipes, application probes and provider resources before enabling remote capabilities.',
-                     'Human: operator credentials, host preparation, repository secret and initial bootstrap decision.']}
+                     'Human: operator credentials, host preparation, registry access and explicit first-adoption operator opt-in.']}
 
 
 def refresh_manifest(repo: Path) -> dict:
@@ -353,6 +369,8 @@ def main(argv=None):
     parser.add_argument('--refresh-manifest', action='store_true', help='Refresh only the project task source checksum')
     parser.add_argument('--java')
     parser.add_argument('--node')
+    parser.add_argument('--tool', action='append', default=[], metavar='NAME=VERSION',
+                        help='Repeatable Mise tool pin, including backend-qualified names')
     parser.add_argument('--provider', choices=('dokploy', 'kubernetes'), default='dokploy')
     parser.add_argument('--dir', dest='directory', choices=PROJECT_DIRECTORIES, default=PROJECT_DIRECTORIES[0])
     parser.add_argument('--force', action='store_true')
@@ -362,7 +380,7 @@ def main(argv=None):
     try:
         if args.refresh_manifest:
             if any((args.repository, args.release_kind, args.components, args.environments, args.force,
-                    args.java, args.node, args.context_ref, args.generic_ref)):
+                    args.java, args.node, args.tool, args.context_ref, args.generic_ref)):
                 parser.error('manifest refresh cannot initialize a project')
             result = refresh_manifest(args.repo_root)
         else:

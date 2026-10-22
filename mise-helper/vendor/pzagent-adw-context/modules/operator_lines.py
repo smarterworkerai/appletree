@@ -4,6 +4,7 @@ import time
 from urllib.parse import quote
 
 from .ci.github_api import ApiError, GitHub
+from .ci import greenfield
 from .ci.publication_proof import destination_gate, pull_request_gate, with_transient_retry
 from .ci.quality_proof import ProofError
 from .common import ContractError, FULL_SHA
@@ -199,6 +200,7 @@ def _promote(repo, adapter, args):
             record['result_sha']=record['source_sha']
             record['phase']='requested'
             write(path,record)
+            greenfield.before_mutation(github, args.pr)
             api('PATCH',update_path,{'sha':record['source_sha'],'force':False})
             current=_operator_ref(prefix,args.line)
         elif record['phase']!='requested':
@@ -280,5 +282,8 @@ def change(repo, adapter, args):
     if args.line not in adapter['repository']['protected_branches']:
         raise ContractError('destination is not a declared release line')
     if getattr(args,'pr',None) is not None:
+        if getattr(args, 'greenfield', False):
+            with greenfield.operator_admission(repo, adapter, args):
+                return _promote(repo, adapter, args)
         return _promote(repo,adapter,args)
     return _rollback(repo,adapter,args)

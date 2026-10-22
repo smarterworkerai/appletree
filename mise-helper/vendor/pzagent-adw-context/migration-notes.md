@@ -1,5 +1,65 @@
 # Migration notes
 
+## 0.15.2
+
+Live default-root inspection uses the canonical repository metadata endpoint;
+failed reads still refuse and never prove absence.
+
+Initial adoption without a default-branch ADW root uses explicit operator-only
+greenfield admission. The released operator launcher verifies complete provider
+and generic release snapshots, all four workflow copies and the live absent
+default root before canonical promotion. First adoption needs operator opt-in,
+with no ENABLED comment; explicit administrator DISABLED still refuses. CI on an
+absent default produces quality evidence only; it grants no authority. Existing
+controller paths remain unchanged. Any controller or partial installation refuses
+greenfield mode; ordinary promotion cannot use a comment-only fallback when the
+default has no runtime. The live PR/default and explicit denials are rechecked at
+the ref-write boundary. Initial seed promotions precede publication/deployment;
+subsequent delivery uses the normal controller and publisher.
+
+The standalone `pzagent-greenfield` release asset runs outside every checkout
+with isolated Python, Mise and authenticated `gh`; no provider checkout or
+external Python package is needed. Download it with `SHA256SUMS` and verify its
+checksum first. Before loading runtime code it checks both released checksum
+rows/assets, its own bytes against the release source, and the complete runtime
+inventory, Git blobs and modes. Exact-head consumer JSON is passive input only.
+A fresh private operator installation invokes the same canonical task and uses
+a persistent repository/PR/line/head/base journal key. Provider 0.15.2+ release
+admission requires the launcher asset and both checksum rows; older provider and
+generic release checksum formats remain unchanged.
+
+Normal provenance follows the controller first, with no extra greenfield API
+reads. Greenfield validation is consulted only with explicit process admission
+or for a closed, merged PR whose controller is missing or unusable. Final
+controller decisions and typed refusals take precedence; seed denial checks
+cannot be skipped by a raw enabled comment.
+A raw ENABLED comment requires a present controller run. An installed repository
+whose controller never ran now refuses with `bootstrap_controller_missing`;
+fix or rerun the controller instead of relying on a comment alone.
+
+After main is seeded, a read-only proof bridge accepts only the closed, merged,
+same-repository seed PR while its FF result/head equals the live default SHA.
+Its immutable base must contain no trusted/ADW/vendor file, and executing runtime
+and templates must equal the installed default bytes and modes. Current admin
+denial still refuses. This grants no admission or write and expires when the
+default moves: complete initial publication before the next main merge.
+
+`modules.ci.greenfield` is a new trusted decision owner, appended to the existing
+trusted-path order. It binds one process-local admission to repository, PR, head,
+base and default SHA; CI data and serialized receipts cannot create that authority.
+The operator promotion wrapper and CLI add only the explicit admission boundary;
+normal publication, producer, quality and artifact integrity checks remain intact.
+
+Quality tool fingerprints now use one fixed, read-only Mise JSON listing for
+every source-declared tool, including Java, Node, Go, Rust, Python and
+backend-qualified tools. Installed/active status, exact declaration/source and
+resolved version components are validated; empty declarations, aliases/ranges,
+objects, missing tools or malformed/duplicate/oversized output refuse with
+`quality_toolchain_invalid`. Fingerprints contain sorted name-to-version values,
+never paths. Java/Node have no fixed major restriction. Old compiler-string
+archives are not reusable across this repin: a fresh hosted quality run is needed.
+The initializer adds repeatable `--tool NAME=VERSION`; `--java`/`--node` remain.
+
 ## 0.15.1
 
 Quality output provenance reads the Java/Node build-tool declarations from the

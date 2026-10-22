@@ -14,7 +14,7 @@
     },
     {
       "path": "migration-notes.md",
-      "sha256": "6b71102791e61fc39f4b6f62b30f03cc7911734a84d4b63a88ede41a9953085f"
+      "sha256": "e423b385862196f0cef0404e8f94af38d958641a725661ccbe45abb479df1579"
     },
     {
       "path": "modules/__init__.py",
@@ -66,7 +66,11 @@
     },
     {
       "path": "modules/ci/github_api.py",
-      "sha256": "7fab232e0ea334071704a2aaf381c30def8a198ea010f19d00a70ac4a9e0e503"
+      "sha256": "6c34a92f010da9ba7533268de89ba5dea6454d4c20af305e6e0ce1cf58f39de3"
+    },
+    {
+      "path": "modules/ci/greenfield.py",
+      "sha256": "3edae7f91c662859308f1fa37e33525e2f0a220c4ab206352224d0f38c66abcc"
     },
     {
       "path": "modules/ci/live_pr.py",
@@ -78,7 +82,7 @@
     },
     {
       "path": "modules/ci/provenance.py",
-      "sha256": "98cb548044eff699945127bc1a84d3835ad97f1ed2301e49da8686a9bf793f73"
+      "sha256": "6913645f24702086820fc1fe70a71bd8f2f8cc07f278abcc4b1c6c1ab2d678ba"
     },
     {
       "path": "modules/ci/publication_proof.py",
@@ -98,7 +102,7 @@
     },
     {
       "path": "modules/ci/trusted_decisions.json",
-      "sha256": "aa2c00262dca15ee889072021384670873910bf601bfd27fdf334b5e7624788f"
+      "sha256": "a1519a710fde3419b38c89e54eb77f19714d8bcb9a2c0525b3cc14894e8f73bc"
     },
     {
       "path": "modules/ci/workflow_drift.py",
@@ -202,7 +206,7 @@
     },
     {
       "path": "modules/operator_lines.py",
-      "sha256": "e2d31fbcb7fd2f960a0784470171d27826314073b0d07bca8a25eadd7111b345"
+      "sha256": "b36033f9b7bfdb98e6a1d32e913ea9c0d210352c674230b088a5139025b1f10c"
     },
     {
       "path": "modules/operator_publish.py",
@@ -246,7 +250,7 @@
     },
     {
       "path": "modules/project_init.py",
-      "sha256": "0ec37a090062d062072f7c6f0165d42edc5e1c0b499b5a8d194618019993499a"
+      "sha256": "1c8c33c6694ae355d40dcd40cbbe68fd6f122d30a99bb1b5884aafdeee1aaee3"
     },
     {
       "path": "modules/project_tasks.py",
@@ -290,7 +294,7 @@
     },
     {
       "path": "modules/quality_outputs.py",
-      "sha256": "467213861a50af000bb5b72114daf0aadfe4e84b230aee831f3fee7bb6775bd7"
+      "sha256": "e0418f45bde73f4b4fa796a03ce74418753a5f6024a6f155f2e957eb8e6d1469"
     },
     {
       "path": "modules/quality_tasks.py",
@@ -350,11 +354,11 @@
     },
     {
       "path": "policy.md",
-      "sha256": "e73325b61ca4d8d6874e84f4e97d6e8ab4c65168064c03a090e4b34a49430c32"
+      "sha256": "e48daffd60321654d9784c13b216e22438350c164844e6ee1dd5f994f6bf6675"
     },
     {
       "path": "pzagent_context.py",
-      "sha256": "b034c1ed882e7c8ad73cadb7bf8e515e1c527ec03697ef46365e9d13645e58ff"
+      "sha256": "9a6151ce1bd8b741b57ed648ae7f1c3fa73cc34f1fdd6eaed5488270cd2984db"
     },
     {
       "path": "schemas/bundle.schema.json",
@@ -466,7 +470,7 @@
     },
     {
       "path": "templates/github/ci.yml",
-      "sha256": "739a95444563afadd95f3f05c0d6eacfcac4239a35714c00bf25cb6b8ce686c7"
+      "sha256": "59bb7e4fcdacba83eb797bca2802d4676d63441e5fe82a36fd15ed42bbedb7df"
     },
     {
       "path": "templates/github/cleanup-retention.yml",
@@ -538,7 +542,7 @@
     },
     {
       "path": "templates/pzagent-context-lock.json",
-      "sha256": "57b6d990792db24117448461e2459172a7709ef8a6711cf0b45bd762960f86db"
+      "sha256": "28951aefea07178ef3d8052a599c91b0060d8e69e77badbf104816586e6a6e9f"
     },
     {
       "path": "templates/repo-agents-snippet.md",
@@ -561,5 +565,5 @@
   "schema_version": "1.0.0",
   "stability": "experimental",
   "task_entrypoint": "tasks.toml",
-  "version": "0.15.1"
+  "version": "0.15.2"
 }

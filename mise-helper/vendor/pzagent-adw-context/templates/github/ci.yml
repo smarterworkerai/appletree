@@ -30,14 +30,48 @@ jobs:
       - name: Continue when this event has no pull request
         if: github.event_name != 'pull_request'
         run: echo 'No PR trust-root decision is required for this event.'
-      - name: Check out only the trusted default branch controller
+      - name: Inspect the live default ADW root
+        id: default-root
         if: github.event_name == 'pull_request'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const {data: metadata} = await github.rest.repos.get({owner, repo});
+            const branch = metadata.default_branch;
+            if (typeof branch !== 'string' || !/^[A-Za-z0-9._/-]+$/.test(branch) ||
+                branch.split('/').some(part => !part || part === '.' || part === '..')) {
+              throw new Error('Invalid default branch');
+            }
+            const {data: ref} = await github.rest.git.getRef({owner, repo, ref: `heads/${branch}`});
+            const {data: commit} = await github.rest.git.getCommit({owner, repo, commit_sha: ref.object.sha});
+            const {data: tree} = await github.rest.git.getTree({owner, repo, tree_sha: commit.tree.sha, recursive: '1'});
+            if (tree.truncated !== false || !Array.isArray(tree.tree) || tree.tree.length > 10000 ||
+                tree.tree.some(entry => typeof entry.path !== 'string')) {
+              throw new Error('Incomplete default tree');
+            }
+            const projectDirectories = ['.adw', '.hermes'];
+            const present = tree.tree.some(({path}) =>
+              ['ci.yml', 'trust-root-bootstrap.yml', 'publish-release.yml', 'cleanup-retention.yml']
+                .some(name => path === `.github/workflows/${name}`) ||
+              path === 'mise-helper/vendor' || path.startsWith('mise-helper/vendor/') ||
+              projectDirectories.some(directory => path === directory || path.startsWith(directory + '/')));
+            core.setOutput('greenfield', String(!present));
+            core.setOutput('default_branch', branch);
+            if (!present) {
+              await core.summary.addHeading('First-adoption evidence only')
+                .addRaw('The live default has no ADW root. This CI run grants no promotion or publication authority. '
+                  + 'A released operator installation must verify the release anchors, explicit operator opt-in and any administrator denial.')
+                .write();
+            }
+      - name: Check out only the trusted default branch controller
+        if: github.event_name == 'pull_request' && steps.default-root.outputs.greenfield != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ steps.default-root.outputs.default_branch }}
           persist-credentials: false
       - name: Fail fast on a missing trust-root decision
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.default-root.outputs.greenfield != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}

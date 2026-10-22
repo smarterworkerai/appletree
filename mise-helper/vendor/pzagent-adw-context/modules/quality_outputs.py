@@ -74,6 +74,7 @@ def producer(root: Path, sha: str, env: dict) -> dict:
     actions = env.get('GITHUB_ACTIONS', '').lower() == 'true'
     simulation = bool(env.get('LAB_RUN')) or env.get('ACT', '').lower() == 'true'
     result = {'schema_version': '1.0.0', 'kind': 'simulation' if simulation else 'github-actions' if actions else 'human',
+              'toolchain_format': 'mise-resolved-v1',
               'source_sha': sha,
               'contract_sha256': digest(project_dir(root) / 'adw-task-manifest.json'),
               'context_sha256': digest(project_dir(root) / 'pzagent-context-lock.json')}
@@ -88,40 +89,83 @@ def producer(root: Path, sha: str, env: dict) -> dict:
     return result
 
 
-def tools(root: Path) -> dict:
-    failure = 'quality outputs require the declared Java 21 and Node 22 toolchain'
+TOOL_VERSION = re.compile(r'(?:(?P<vendor>[A-Za-z][A-Za-z0-9_]*-))?(?P<version>[0-9]+(?:[.][0-9]+)*)(?P<build>[+][0-9A-Za-z._-]+)?')
+
+
+def parsed_tool_version(value):
+    if not isinstance(value, str) or len(value) > 128:
+        raise ContractError('quality_toolchain_invalid')
+    parsed = TOOL_VERSION.fullmatch(value)
+    if not parsed:
+        raise ContractError('quality_toolchain_invalid')
+    return parsed
+
+
+def declared_tools(root: Path):
     declaration = root / 'mise.toml'
     try:
         if declaration.is_symlink():
-            raise ContractError(failure)
+            raise ContractError('quality_toolchain_invalid')
         selected = tomllib.loads(declaration.read_text()).get('tools')
-        if not isinstance(selected, dict):
-            raise ContractError(failure)
-        declared = {name: selected[name] for name in ('java', 'node') if name in selected}
-        if not declared or any(not isinstance(value, str) for value in declared.values()):
-            raise ContractError(failure)
-        if ('java' in declared and not re.fullmatch(r'(?:[A-Za-z][A-Za-z0-9_]*-)?21(?:[.][0-9A-Za-z+_.-]+)?', declared['java'])):
-            raise ContractError(failure)
-        if ('node' in declared and not re.fullmatch(r'22(?:[.]\d+){0,2}', declared['node'])):
-            raise ContractError(failure)
+        if not isinstance(selected, dict) or not 0 < len(selected) <= 128:
+            raise ContractError('quality_toolchain_invalid')
+        for name, version in selected.items():
+            if (not isinstance(name, str) or len(name) > 128
+                    or not re.fullmatch(r'(?:[A-Za-z][A-Za-z0-9_.-]*:)?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*', name)
+                    or any(part in ('.', '..') for part in name.split('/'))):
+                raise ContractError('quality_toolchain_invalid')
+            parsed_tool_version(version)
+        return selected
     except (OSError, ValueError):
-        raise ContractError(failure) from None
-    result = {}
+        raise ContractError('quality_toolchain_invalid') from None
+
+
+def match_tool_version(requested, observed):
+    """Shared source-pin matcher; data only, for producer and publisher alike."""
+    expected, actual = parsed_tool_version(requested), parsed_tool_version(observed)
+    pin = tuple(int(part) for part in expected['version'].split('.'))
+    version = tuple(int(part) for part in actual['version'].split('.'))
+    if ((expected['vendor'] or '') != (actual['vendor'] or '') or version[:len(pin)] != pin
+            or expected['build'] is not None and expected['build'] != actual['build']):
+        raise ContractError('quality_toolchain_invalid')
+
+
+def tools(root: Path) -> dict:
+    """Fingerprint source-declared, installed versions from Mise's JSON listing."""
+    failure = 'quality_toolchain_invalid'
+    selected = declared_tools(root)
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ContractError(failure)
+            result[key] = value
+        return result
     try:
-        if 'java' in declared:
-            java = subprocess.run(['java', '-version'], capture_output=True, text=True, check=True)
-            description = (java.stdout + java.stderr).strip()
-            if 'version "21.' not in description:
+        listing = subprocess.run(['mise', '--no-hooks', 'ls', '--current', '--json'],
+                                 cwd=root, capture_output=True, text=True, check=True, timeout=30)
+        if len(listing.stdout.encode()) > 65536:
+            raise ContractError(failure)
+        resolved = json.loads(listing.stdout, object_pairs_hook=unique)
+        if not isinstance(resolved, dict):
+            raise ContractError(failure)
+        result = {}
+        for name, requested in sorted(selected.items()):
+            records = resolved.get(name)
+            if not isinstance(records, list) or len(records) != 1 or not isinstance(records[0], dict):
                 raise ContractError(failure)
-            result['java'] = description
-        if 'node' in declared:
-            node = subprocess.check_output(['node', '--version'], text=True).strip()
-            if not node.startswith('v22.'):
+            record = records[0]
+            source = record.get('source')
+            if (record.get('installed') is not True or record.get('active') is not True
+                    or record.get('requested_version') != requested or not isinstance(source, dict)
+                    or source.get('type') != 'mise.toml' or source.get('path') != str((root / 'mise.toml').resolve())):
                 raise ContractError(failure)
-            result['node'] = node
-    except (OSError, subprocess.CalledProcessError):
+            observed = record.get('version')
+            match_tool_version(requested, observed)
+            result[name] = observed
+        return result
+    except (OSError, ValueError, subprocess.SubprocessError):
         raise ContractError(failure) from None
-    return result
 
 
 def validate_native_provenance(root: Path, workspace: Path, hook: dict, platform: str) -> None:
@@ -235,6 +279,18 @@ def export_quality(root: Path, workspace: Path, output: Path, env: dict, *, spli
     return output / ('upload-manifest.json' if split else 'build-output.tar.gz')
 
 
+def validate_recorded_tools(source: Path, record: dict):
+    """Validate imported versions as source-bound data; no publisher tool install."""
+    if not isinstance(record, dict) or record.get('toolchain_format') != 'mise-resolved-v1':
+        raise ContractError('quality_toolchain_invalid')
+    selected = declared_tools(source)
+    observed = record.get('tools')
+    if not isinstance(observed, dict) or set(observed) != set(selected):
+        raise ContractError('quality_toolchain_invalid')
+    for name, version in selected.items():
+        match_tool_version(version, observed[name])
+
+
 def import_quality(root: Path, archive: Path, source: Path, output: Path, sha: str,
                    components: list[str], env: dict, expected_producer=None, *, exact_components=False) -> dict:
     """The CI umbrella must obtain expected_producer from authorized run/artifact readback."""
@@ -246,6 +302,7 @@ def import_quality(root: Path, archive: Path, source: Path, output: Path, sha: s
         selected = Path(temporary) / 'bundle'
         build_archive.unpack(archive, selected)
         state = read(selected / 'build.json'); record = read(selected / 'producer.json')
+        validate_recorded_tools(source, record)
         if (not FULL_SHA.fullmatch(sha) or state['source_sha'] != sha or record['source_sha'] != sha
                 or state['source_digest'] != fingerprint(source)
                 or state['recipe_digest'] != hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()

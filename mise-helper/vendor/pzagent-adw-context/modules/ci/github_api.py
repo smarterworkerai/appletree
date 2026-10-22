@@ -52,6 +52,7 @@ SHA = r'[0-9a-f]{40}'
 NUM = r'[1-9][0-9]*'
 BRANCH = r'[A-Za-z0-9._/-]+'
 PATHS = tuple(re.compile('^' + s + '$') for s in (
+    r'',  # Live repository metadata, including the actual default branch.
     rf'pulls/{NUM}', rf'pulls/{NUM}/reviews', rf'pulls/{NUM}/commits',
     rf'commits/{SHA}', rf'git/commits/{SHA}', rf'git/trees/{SHA}\?recursive=1', rf'commits/{SHA}/pulls',
     rf'commits/{SHA}/check-runs', rf'check-runs/{NUM}',
@@ -92,7 +93,7 @@ class GitHub:
     def _fetch_live(self, path: str) -> Any:
         try:
             result = subprocess.run(['gh', 'api', '--method', 'GET',
-                                     f'repos/{self.repository}/{path}'],
+                                     f'repos/{self.repository}' + ('/' + path if path else '')],
                                     capture_output=True, text=True, timeout=15, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ApiError('lookup_failed') from None

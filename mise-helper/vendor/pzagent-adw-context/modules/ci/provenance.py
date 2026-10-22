@@ -13,6 +13,7 @@ import stat
 import zipfile
 from .github_api import project_files, ApiError
 from .quality_proof import ProofError, Pull
+from . import greenfield
 
 BOOTSTRAP_COMMAND = re.compile(r'^BOOTSTRAP_(ENABLED|DISABLED) ([0-9a-f]{64})$')
 
@@ -70,6 +71,7 @@ TRUSTED_PATHS = (
     'mise-helper/vendor/pzagent-adw-context/modules/ci/trusted_decisions.json',
     '.adw/adw-task-manifest.json',
     'mise-helper/vendor/pzagent-adw-context/modules/pointer_retirement.py',
+    'mise-helper/vendor/pzagent-adw-context/modules/ci/greenfield.py',
 )
 
 
@@ -558,11 +560,16 @@ def trusted_source(api, pull: Pull) -> None:
         if decision:
             return
         raise ProofError('bootstrap_required')
-    result=bootstrap_status(api,pull,allow_released_vendor=False,changed=changed)
-    if result['allowed']:
+    if greenfield.has_operator_admission() and greenfield.trusted_decision(api, pull):
         return
+    result=bootstrap_status(api,pull,allow_released_vendor=False,changed=changed)
     if result['status']=='disabled':
         raise ProofError('bootstrap_disabled')
+    if (state in ('absent','pending','fallback') and pull.state=='closed' and pull.merged
+            and greenfield.trusted_decision(api, pull)):
+        return
+    if result['allowed'] and state in ('pending','fallback','waiting'):
+        return
     # Nobody decided. Name what is missing: "an administrator must decide" (a visible run
     # whose artifact waits) differs from "the controller's decision cannot be read now"
     # (no run listed, or a run without a usable artifact), which operators retry.

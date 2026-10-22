@@ -207,6 +207,8 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument('--scope', choices=('runtime', 'release-line'), default='runtime')
         if name == 'release-promote':
             command.add_argument('--pr',type=int,required=True)
+            command.add_argument('--greenfield', action='store_true',
+                                 help='Released operator launcher only: admit an absent default ADW root')
             command.add_argument('--line',required=True)
             command.add_argument('--strategy',choices=('fast-forward',),default='fast-forward')
         elif name == 'release-rollback':

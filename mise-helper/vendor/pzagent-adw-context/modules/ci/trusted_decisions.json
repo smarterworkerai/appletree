@@ -36,7 +36,8 @@
     "modules.workflows_sync",
     "templates.github.actions.authorize-publication.authorize",
     "templates.github.actions.publish-immutable-release.publish",
-    "modules.pointer_retirement"
+    "modules.pointer_retirement",
+    "modules.ci.greenfield"
   ],
   "observations": {
     "modules.build_archive": {
@@ -275,9 +276,9 @@
   "call_boundaries": {
     "modules.ci.github_api:GitHub._fetch_live:subprocess.run": {
       "call_sha256": [
-        "8f95ae50a94fc0da458563342fdf329cd9001398867ba14b0633b9140a5f6a0c"
+        "7249aadee6ab30580e08fcaca404d9f661347c92206386f7729de4c07e1cd2cb"
       ],
-      "scope_sha256": "823fb7984bfcecaa4465a85816672d5256fd27135774ee4813c4dcc3ac90b90e",
+      "scope_sha256": "6568407c926767706b4925adc920ceea09c42958b314635666df92d786199db4",
       "validator": "modules.ci.provenance:trusted_source",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },
@@ -428,19 +429,11 @@
     },
     "modules.quality_outputs:tools:subprocess.run": {
       "call_sha256": [
-        "7bbec44574a789e151c9b646a68ad5153a6653b9ec2ab82e3ca40890c5a6e89f"
+        "13e87202e9939e1860527896e6e280f04245ee80f8e222e3299b3114d508cb74"
       ],
-      "scope_sha256": "7a3403b96f2821bf4c0c5325c4d539d280794b8815e7486ddf699cd1bee7f38b",
+      "scope_sha256": "f185f3295e3afadca35dd9a7f3968d435afa026910caabf6873379603564d3b2",
       "validator": "modules.quality_outputs:import_quality",
-      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
-    },
-    "modules.quality_outputs:tools:subprocess.check_output": {
-      "call_sha256": [
-        "d66912e8487e0bad751632e023e46b2f606d56cfefb7a9116de8ec84b83d0c02"
-      ],
-      "scope_sha256": "7a3403b96f2821bf4c0c5325c4d539d280794b8815e7486ddf699cd1bee7f38b",
-      "validator": "modules.quality_outputs:import_quality",
-      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+      "reason": "Fixed read-only Mise JSON listing only, at the consumer root with hooks disabled and a 30-second timeout. tools validates complete bounded JSON, source declaration, installed/active status and requested/resolved version binding; only content-safe resolved versions enter provenance."
     },
     "modules.quality_outputs:export_quality:subprocess.check_output": {
       "call_sha256": [
@@ -485,6 +478,14 @@
       "scope_sha256": "70d309ff38d1545e96ea9602e1951c684b1eca4b00c0fbf067baed35fa739f42",
       "validator": "templates.github.actions.publish-immutable-release.publish:digest",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.ci.greenfield:fetch:subprocess.run": {
+      "call_sha256": [
+        "1b3640734948a0a628237c862855d080c2793be6131e46ff2a5805ff88717f1b"
+      ],
+      "scope_sha256": "cd75067ac225e41d9b5acc1588429486132682cb13704f6925494134c32dd390",
+      "validator": "modules.ci.greenfield:released",
+      "reason": "Fixed-provider and fixed-generic GitHub Release GET transport only. released verifies published tag/snapshot identity, checksummed bounded archives, complete inventory and Git blob/mode equality; before_mutation rechecks the pinned release commit. CI output and transport success grant no admission."
     }
   },
   "historical_31_module_classification": {
