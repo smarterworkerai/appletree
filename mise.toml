@@ -10,6 +10,7 @@ adw_contract_version = "2.2.0"
 
 [tools]
 node = "22.22.0"
+"aqua:oras-project/oras" = "1.2.0"
 
 [task_config]
 includes = [

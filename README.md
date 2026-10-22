@@ -4,7 +4,8 @@ A Three.js scene with a stylized apple tree, served as a static application.
 
 ## Development and validation
 
-Use the toolchain declared in `mise.toml`:
+Use the toolchain declared in `mise.toml`. Node builds the static app; pinned
+ORAS supports operator registry tasks, and Docker is an operator prerequisite:
 
 ```bash
 mise run adw:install
