@@ -18,6 +18,7 @@ from typing import Any, Mapping
 from ..common import ContractError, ensure_contained
 from ..operator_credentials import bootstrap_keys, clean_environment
 from ..runtime_proof import parse_environment
+from ..operator_state import private_directory
 from . import DeploymentOperation, DeploymentState, ProviderConfiguration
 
 MAX_BYTES = 8 * 1024 * 1024
@@ -539,7 +540,7 @@ class KubernetesProvider:
                 identity['previous_sha256'] = hashlib.sha256(actual).hexdigest()
             if current is not None and actual != current.definition and not resumed:
                 raise ContractError('kubernetes_state_changed')
-            snapshot_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            private_directory(snapshot_path.parent)
             for path, content in ((snapshot_path, previous),
                                   (intent_path, json.dumps(identity, sort_keys=True).encode())):
                 if not path.exists():

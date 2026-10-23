@@ -15,8 +15,19 @@ OPERATION_ID = re.compile(r'^[a-z][a-z0-9-]{0,40}-[0-9]{8}-[0-9a-f]{12}$')
 REPOSITORY = re.compile(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')
 
 
+def private_directory(directory: Path) -> None:
+    """Create every missing directory 0700; mkdir(parents=True, mode=...) leaves the parents at the default mode."""
+    missing = []
+    for candidate in (directory, *directory.parents):
+        if candidate.exists() or candidate.is_symlink():
+            break
+        missing.append(candidate)
+    for candidate in reversed(missing):
+        candidate.mkdir(mode=0o700, exist_ok=True)
+
+
 def write(path: Path, value: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    private_directory(path.parent)
     if path.is_symlink():
         raise ContractError('operation state must not be a symlink')
     fd, temporary = tempfile.mkstemp(prefix='.result-', dir=path.parent)
@@ -102,7 +113,7 @@ def new_operation(repo: Path, kind: str = 'release') -> Path:
 
 @contextmanager
 def locked(directory: Path):
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    private_directory(directory)
     path = directory / '.lock'
     if path.is_symlink():
         raise ContractError('operation lock must not be a symlink')

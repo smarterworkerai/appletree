@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
-import re
 
 from .common import ContractError
 from .dokploy_lifecycle_api import Missing, RESOURCE_FIELDS, identifier, rows
@@ -14,27 +12,23 @@ from .operator_state import read, write
 PREFIX = 'adw-ancestor:v1:'
 
 
-def marker(repository: str, role: str, entry: dict, nonce: str) -> str:
-    value = {'repository': repository, 'role': role, 'id': entry['id'], 'name': entry['name'],
-             'parent': entry.get('parent'), 'nonce': nonce}
-    return PREFIX + json.dumps(value, sort_keys=True, separators=(',', ':'))
+def marker(repository: str, role: str, entry: dict, nonce: str, *, original='') -> str:
+    from .description_markers import render
+    return render(original, {'repository': repository, 'role': role, 'id': entry['id'],
+                             'name': entry['name'], 'parent': entry.get('parent')})
 
 
 def parse(description, repository: str, role: str, entry: dict) -> dict | None:
-    if not isinstance(description, str) or not description.startswith(PREFIX):
+    from .description_markers import parse as parse_line, reference
+    line = parse_line(description)
+    if line is None:
         return None
-    try:
-        value = json.loads(description[len(PREFIX):])
-        if (not isinstance(value, dict) or set(value) != {'repository', 'role', 'id', 'name', 'parent', 'nonce'}
-                or value['repository'] != repository or value['role'] != role
-                or any(value[key] != entry.get(key) for key in ('id', 'name', 'parent'))
-                or not isinstance(value['nonce'], str) or not re.fullmatch(r'[0-9a-f]{32}', value['nonce'])):
-            raise ValueError()
-        identifier(value['id'])
-        if value['parent'] is not None:
-            identifier(value['parent'])
-    except (ValueError, KeyError, TypeError):
-        raise ContractError('provider_ancestor_claim_conflict') from None
+    value = {'repository': repository, 'role': role, 'id': entry['id'],
+             'name': entry['name'], 'parent': entry.get('parent')}
+    if (line['repository'] != repository or line['role'] != role):
+        raise ContractError('provider_claim_foreign_marker')
+    if line['ref'] != reference(value):
+        raise ContractError('provider_ancestor_claim_conflict')
     return value
 
 
@@ -62,7 +56,7 @@ def reference(home, repository, role, entry, row, *, rebuild=False, allow_missin
     path = journal(home, repository, role, entry)
     expected = {'schema_version': '1.0.0', 'workflow': 'provider-ancestor-claim', 'marker': description}
     if path.exists():
-        if not path.is_file() or path.stat().st_mode & 0o077 or path.stat().st_size > 8192:
+        if not path.is_file() or path.stat().st_mode & 0o077 or path.stat().st_size > 262144:
             raise ContractError('provider_ancestor_claim_conflict')
         try:
             actual = read(path)
@@ -114,14 +108,15 @@ def verify(api, state):
 def _children(api, row, repository):
     children = [(field, child) for field in RESOURCE_FIELDS for child in rows(row.get(field))]
     for field, child in children:
-        from .provider_lifecycle import _parse_marker
-        description = child.get('description', '')
-        try:
-            operation = json.loads(description.split(':', 2)[2])['operation']
-            owned = _parse_marker(description, operation, 'compose') if field == 'compose' else None
-        except (ValueError, KeyError, TypeError, IndexError):
+        from .description_markers import verify_live
+        if field == 'compose':
+            detail = api.compose(identifier(child.get('composeId')))
+            if detail.get('environmentId') != row.get('environmentId'):
+                raise ContractError('provider_foreign_child_present')
+            owned = verify_live(detail.get('description', ''), repository, 'compose', detail)
+        else:
             owned = None
-        if not owned or owned['repository'] != repository:
+        if owned is None:
             raise ContractError('provider_foreign_child_present')
     return children
 

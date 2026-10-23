@@ -428,6 +428,12 @@ def _stage_consumer(
     (project_dir(staged) / MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     (project_dir(staged) / LOCK).write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n")
     shutil.copy2(_mise_file(repo), staged / _mise_file(repo).name)
+    tool_lock = repo / "mise.lock"
+    if tool_lock.exists() or tool_lock.is_symlink():
+        if (tool_lock.is_symlink() or not tool_lock.is_file()
+                or tool_lock.stat().st_size > MAX_TOOL_CONFIG_BYTES):
+            raise ContractError("mise.lock is unsafe")
+        shutil.copy2(tool_lock, staged / "mise.lock")
 
 
 def sync(

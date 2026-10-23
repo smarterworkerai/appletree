@@ -14,7 +14,7 @@
     },
     {
       "path": "migration-notes.md",
-      "sha256": "227db440df18e67d68bbd92095d0b213c5a098d153b1e9b88f11afc0b536dff8"
+      "sha256": "e08b1964ca4193f322019e7d19b660a382a8d9a5a1a2be82c89fe0297fac37f8"
     },
     {
       "path": "modules/__init__.py",
@@ -126,11 +126,15 @@
     },
     {
       "path": "modules/context_sync.py",
-      "sha256": "35914e5cd8bbbb3cbca63501ce4100d9c100d221a7a43dc6c3430d0450f6537c"
+      "sha256": "d72767e65fe17db421108c62e1c9ac1d7b40c3565676ba9b6d86aef43d19188c"
     },
     {
       "path": "modules/dependency_cache.py",
       "sha256": "b42af344a8b35758ef01cd5419e18c51b3496af1e00037c62741a8b7176a8cc0"
+    },
+    {
+      "path": "modules/description_markers.py",
+      "sha256": "c3793afc39315fc87229d554cc89e2d7720ae405aba21db0d8b717f510f0ea51"
     },
     {
       "path": "modules/docs_hygiene.py",
@@ -238,7 +242,7 @@
     },
     {
       "path": "modules/operator_state.py",
-      "sha256": "85f972dc15aa02e0631a968748c7b2311673c46112fe902f3b78a9814f78f63b"
+      "sha256": "6fc3c0ae26f1e22c2799f86e78dcc1cf34fc3ffea11ce650eda4b49eadec1972"
     },
     {
       "path": "modules/operator_workflows.py",
@@ -270,7 +274,7 @@
     },
     {
       "path": "modules/provider_ancestors.py",
-      "sha256": "9ea12162e14e6bcbfca393def084f398ffb20941c95c39fe470086b5404ba1d2"
+      "sha256": "5fa11b60ef019eaff39882f0d2ddc4a3e44fa3058c0de02651a8006d4b565e21"
     },
     {
       "path": "modules/provider_hooks.py",
@@ -278,7 +282,7 @@
     },
     {
       "path": "modules/provider_lifecycle.py",
-      "sha256": "2dec7f1370b00ca932d25c740fb6735677f0aa711fe9c88ebbcb0a7d1aee716d"
+      "sha256": "4e0762689def872826a5dd5983664461dcbcd6eaf06d20409abbae01dc256bf8"
     },
     {
       "path": "modules/providers/__init__.py",
@@ -286,7 +290,7 @@
     },
     {
       "path": "modules/providers/dokploy.py",
-      "sha256": "2a8d1c9ab1f9ef32f883b12e28fc0b032206f4d9bc7441760340ec05686cf434"
+      "sha256": "35e39aa1ef78f22effc8b1e27f9eeeb0e80374f5d33f56b98ffb2c630244eeea"
     },
     {
       "path": "modules/providers/dokploy_hooks.py",
@@ -294,7 +298,7 @@
     },
     {
       "path": "modules/providers/kubernetes.py",
-      "sha256": "5e382625c2f5560673c68f64419319f29e797bbfbfdf0f3a5276f5665a6acc43"
+      "sha256": "7211e30f25ec3a28ac89317489034b7d0c35103343f4f01fcf48348d942371b3"
     },
     {
       "path": "modules/providers/kubernetes_hooks.py",
@@ -366,7 +370,7 @@
     },
     {
       "path": "modules/target_pointers.py",
-      "sha256": "83105c227c5f45037f515d87f475bb7089bb933a79ab774fe5f12f0cc565740f"
+      "sha256": "76ecb8892bb1c82351ad65d97fe27e1e2379e97cd9593869209311e358fa9198"
     },
     {
       "path": "modules/task_evidence.py",
@@ -378,7 +382,7 @@
     },
     {
       "path": "policy.md",
-      "sha256": "5e50d61a6f70a5c2e9243e610ebc80b9fc98792ff8e63027a179c5382d13c494"
+      "sha256": "b653b63afb0daef274890578240cdb4a33103b69593811c83cd54017570c229d"
     },
     {
       "path": "pzagent_context.py",
@@ -566,7 +570,7 @@
     },
     {
       "path": "templates/pzagent-context-lock.json",
-      "sha256": "6dff8f16742bc39cb40296943f9a917837cf1b3c3031295ac5b6b71b2bfdff54"
+      "sha256": "477813ef83a81ea81e473431c0256f100c1af9031264bb6f9ac756cf3cdf99c0"
     },
     {
       "path": "templates/repo-agents-snippet.md",
@@ -589,5 +593,5 @@
   "schema_version": "1.0.0",
   "stability": "experimental",
   "task_entrypoint": "tasks.toml",
-  "version": "0.15.5"
+  "version": "0.15.7"
 }

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .common import ContractError, IDENTIFIER
+from .operator_state import private_directory
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 IMMUTABLE = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
@@ -55,7 +56,7 @@ def pointer_set(
 
 @contextmanager
 def _lock(path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    private_directory(path.parent)
     with path.open("a+b") as handle:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)

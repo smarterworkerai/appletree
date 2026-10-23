@@ -1,6 +1,6 @@
 # pzagent ADW runtime policy
 
-Package `0.15.5`. The runtime enforces capabilities, environments, logical targets, side-effect classes and approvals; this page lists only the rules an agent or operator must follow that code cannot enforce.
+Package `0.15.7`. The runtime enforces capabilities, environments, logical targets, side-effect classes and approvals; this page lists only the rules an agent or operator must follow that code cannot enforce.
 
 ## Ownership
 
@@ -85,13 +85,16 @@ Preserve the existing trusted-path order, non-empty ordered-subset rule, explici
 Dokploy provisioning uses `pz:provider:provision` and `pz:provider:deprovision`
 on the operator host only. Plans make no remote writes. The installed software
 version and typed lifecycle API contract must match before mutation. Private
-caches record created IDs outside the checkout. Server-side operation/nonce/role
-markers are the ownership authority, permitting cleanup from another operator
-machine with credentials. An owned ancestor retains scoped runtime identity for
-interrupted cleanup. Operator receipts contain a public operation ID, per-role
+caches record acknowledged IDs outside the checkout. Server descriptions keep
+human text and append one compact owner/role/ref line, derived from that object's
+live repository, role, ID, name and parent ID. No nonce or private payload is
+shown. An intact marked scope rebuilds into an empty operator home; its origin
+is conservatively claimed and data-bearing. Interrupted cleanup snapshots stay
+private. If the Compose is already absent and its runtime identity is lost,
+cleanup refuses rather than inventing a label or server. Operator receipts contain a public operation ID, per-role
 ownership, logical bindings, counts and hashes, and grant no CI authority.
 Read-only `--list` discovers marked operations without remote IDs or nonce.
-Explicit adoption never grants deletion. Cleanup uses only created IDs, refuses
+Explicit adoption never grants deletion. Cleanup uses only verified owned IDs, refuses
 foreign children and proves runtime absence independently of provider row
 deletion. Server registration, credentials, DNS and TLS remain separate scopes.
 

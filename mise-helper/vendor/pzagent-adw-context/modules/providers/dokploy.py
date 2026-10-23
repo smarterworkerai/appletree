@@ -20,6 +20,7 @@ from urllib.request import Request, urlopen
 
 from ..common import ContractError, IDENTIFIER, git_common_state
 from ..execution import human
+from ..operator_state import private_directory
 from . import DeploymentOperation, DeploymentState, ProviderConfiguration, DeploymentTerminalFailure
 
 @dataclass(frozen=True)
@@ -277,7 +278,7 @@ def validate_persistent_volume_compatibility(current:bytes,desired:bytes)->None:
 
 
 def _capture_compose(path:Path,current:bytes,desired:bytes)->bytes:
- path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+ private_directory(path.parent)
  if path.is_symlink():raise ContractError('Compose snapshot must not be a symlink')
  if path.exists():
   if not path.is_file():raise ContractError('Compose snapshot is not a regular file')

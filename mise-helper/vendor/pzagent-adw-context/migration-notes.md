@@ -1,5 +1,58 @@
 # Migration notes
 
+## 0.15.7
+
+- Context synchronization carries the consumer's exact existing `mise.lock`
+  into its temporary validation tree alongside `mise.toml`. Lock coverage is
+  checked before replacing any managed file. Missing, stale, linked, oversized
+  or malformed enforced locks still refuse; the real project lock is never
+  regenerated or changed by sync.
+- An installed 0.15.5 or 0.15.6 updater can report a missing lock only in its
+  incomplete stage even when the committed project lock is valid. Stop after
+  that refusal. Repair needs an explicit operator decision to invoke the same
+  canonical context-sync handler from the verified fixed release, outside the
+  broken installed updater. Integrity, source, branch and lock checks all remain
+  enforced. No temporary vendor edit or lock-check bypass is supported.
+- Correct the policy's Dokploy description to match the compact live-identity
+  ownership lines and private interrupted-cleanup snapshots introduced in 0.15.6.
+
+## 0.15.6
+
+- Private operation writes, locks and provider snapshots create every missing
+  directory at mode 0700, including the first repository in a new home. Existing
+  permissions are not silently changed.
+- Dokploy descriptions preserve human text and append one compact final line:
+  `adw:v1 owner=example/sample role=compose ref=0123456789ab`. The reference
+  recomputes from live repository, role, ID, name and parent ID only. No nonce,
+  JSON payload, identity store or archive input is needed for an empty-home
+  rebuild. Copied lines, recreated identities, foreign ownership, malformed
+  `adw:` lines, misplaced/whitespace/alternate-line-break variants and leftover
+  old JSON markers fail closed. The full human
+  description remains part of the examination hash.
+- New creates append their marker only after recording the acknowledged ID.
+  A lost create acknowledgement refuses with
+  `provider_create_acknowledgement_missing_requires_examine_adopt_claim`;
+  recovery uses explicit adoption, examination and approved claim from a fresh
+  home. A lost marker acknowledgement reconciles exact readback, without a
+  second append. No provisional ID-free marker is accepted.
+- Operation IDs deterministically bind repository, logical environment/target
+  and live Compose ID. Rebuilt origins are conservatively claimed/data-bearing.
+  Runtime identity after a disappeared Compose must come from surviving private
+  history; it is never invented. Empty ancestors rebuild read-only, while
+  cleanup retains normal guards. Existing journals and archived examinations
+  are never overwritten. No old-JSON migration helper is shipped: restoration
+  of original descriptions is a separately approved metadata-only operation,
+  followed by a fresh home, adoption, examination and exact-digest approval.
+- Stabilize examination hashes against reordered provider inventories:
+  environments sort by their identity, and child/domain inventories retain
+  every exact value and multiplicity without depending on API order. Actual
+  configuration and human-description drift still refuse. Stored approval
+  hashes are never silently rewritten; explicit read-only rebuild and a fresh
+  reviewed examination are required for older mismatched records.
+- The released greenfield launcher checks the private metadata directory's
+  parents, while allowing the source metadata it intentionally generated. Its
+  real outside-checkout guard still refuses a consumer checkout.
+
 ## 0.15.5
 
 - Opt-in `.adw/routed-content.json` selects declared logical targets and an

@@ -220,7 +220,7 @@
       "checksum": "sha256:3c38156ea3bb4d42453e31c394f5b3ce6d2158521c29e5a7fbfde67547bac099",
       "layer": "context",
       "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
-      "ref": "2ace9ba7df2b7f234fda0590fbfec688991d4e8d"
+      "ref": "17d576244638828cc79c0bce94c3740145d33827"
     },
     "generic": {
       "checksum": "sha256:2970eb7e5c3181972f3d46e243dd7f286c7e195b8336daa98af8be55f0d1c2ef",
