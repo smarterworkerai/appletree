@@ -121,7 +121,7 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
             mise_pins.setdefault(name, version)
     tools = ''.join((name if re.fullmatch(r'[A-Za-z0-9_-]+', name) else json.dumps(name))
                     + ' = ' + json.dumps(version) + '\n' for name, version in mise_pins.items())
-    files['mise.toml'] = (templates / 'mise.toml').read_text().replace('2026.9.13', bundle['minimum_mise']).replace('2.2.0', generic.CONTRACT_VERSION).replace('# @TOOLS@', tools.rstrip())
+    files['mise.toml'] = (templates / 'mise.toml').read_text().replace('2026.10.17', bundle['minimum_mise']).replace('2.2.0', generic.CONTRACT_VERSION).replace('# @TOOLS@', tools.rstrip())
     local = set(PROJECT_TASKS) | {'adw:verify:full'}
     context = {'adw:describe', 'adw:verify:full', 'adw:context:check', 'adw:context:sync', 'adw:local:clean'}
     manifest = {

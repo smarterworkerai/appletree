@@ -1,5 +1,23 @@
 # Migration notes
 
+## 0.15.9
+
+- The bundle's minimum mise rises from 2026.9.13 to **2026.10.17**: the
+  `minimum_mise` in `bundle.json` and the generated `mise.toml` `min_version`.
+  This is step 2 of the two-step floor change that 0.15.8 prepared.
+  - Operators need mise 2026.10.17 or newer locally, for example
+    `sudo apt install --only-upgrade mise` or the equivalent for their install.
+    `adw:context:check` refuses an older local mise ("mise version is
+    incompatible").
+  - Consumers must be on 0.15.8 first. An installed 0.15.7 or older updater
+    compares `minimum_mise` exactly with 2026.9.13 and refuses this bundle ("bundle
+    tool contract is incompatible"). From 0.15.8 the updater checks it as a floor.
+  - CI is unchanged: the `jdx/mise-action` pins stay at 2026.10.17.
+  - No trusted path changes. `modules/bundle.py` and the workflow templates are
+    byte-identical to 0.15.8, so the repin needs no `BOOTSTRAP_ENABLED`.
+  - Since 2026.10.17 reads `mise.lock` format 3, the local lock-format check
+    only matters for future formats.
+
 ## 0.15.8
 
 This release carries #144: the #141 greenfield candidate mode and proof tool,

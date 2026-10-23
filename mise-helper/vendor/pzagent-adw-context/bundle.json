@@ -14,7 +14,7 @@
     },
     {
       "path": "migration-notes.md",
-      "sha256": "ceddc749d016c1aab4d1ed87da5011514dda87db24497f523236f0f4fd508717"
+      "sha256": "44c3232f2829a50559fffc080f0c326e2bab708142fa6151aa285a3febcd7b97"
     },
     {
       "path": "modules/__init__.py",
@@ -266,7 +266,7 @@
     },
     {
       "path": "modules/project_init.py",
-      "sha256": "9819c049b9632d84e8f3afefdb715b906195f824f9b9e32cab9a4a8e71c55c8d"
+      "sha256": "71a159f111872ffa1df1d5193759a9fe4e91bd58b5bcd60430e2219e41c465bb"
     },
     {
       "path": "modules/project_tasks.py",
@@ -382,7 +382,7 @@
     },
     {
       "path": "policy.md",
-      "sha256": "d1721e18f11fabbb9bb5e0f96b4ffacf6d1de20a1dc5ee1a9d38ceaead595426"
+      "sha256": "71b7bd27e21fac9aaca48bb32d65b539d02195596228fdce0e25d19fc43d1fd2"
     },
     {
       "path": "pzagent_context.py",
@@ -518,7 +518,7 @@
     },
     {
       "path": "templates/mise.toml",
-      "sha256": "10d6d94d35e1b6d491dd534b46bec6833190ce1f7d4246d969b402e0709acace"
+      "sha256": "1815c30d80c2ab3bf70944abcdd3a89f0ae5111db59fd4ffb8d59f77ff86352c"
     },
     {
       "path": "templates/project-adw.md",
@@ -570,7 +570,7 @@
     },
     {
       "path": "templates/pzagent-context-lock.json",
-      "sha256": "a320f802cd0c87ebfc3c91f04f9e2561b31663f3663ab06933326dc2ccffc737"
+      "sha256": "02200c754c63f68aaf6907d904e2c5ac8fbbda853d19287bf2a9bb028ada26b0"
     },
     {
       "path": "templates/repo-agents-snippet.md",
@@ -579,7 +579,7 @@
   ],
   "generic_contract": ">=2.0.0,<3.0.0",
   "migration_notes": "migration-notes.md",
-  "minimum_mise": "2026.9.13",
+  "minimum_mise": "2026.10.17",
   "package": "pzagent-adw-context",
   "platforms": [
     "linux",
@@ -593,5 +593,5 @@
   "schema_version": "1.0.0",
   "stability": "experimental",
   "task_entrypoint": "tasks.toml",
-  "version": "0.15.8"
+  "version": "0.15.9"
 }
