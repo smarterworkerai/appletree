@@ -12,6 +12,10 @@ FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e591939
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
+ARG APPLICATION_SHA
+COPY mise-helper/write_release_marker.sh /usr/local/bin/write-release-marker.sh
+RUN APPLICATION_SHA="$APPLICATION_SHA" sh /usr/local/bin/write-release-marker.sh /usr/share/nginx/html
+
 EXPOSE 3333
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=6 \

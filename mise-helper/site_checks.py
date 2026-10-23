@@ -124,8 +124,9 @@ def container_smoke():
     owner = 'adw-appletree-' + uuid.uuid4().hex[:12]
     container = None
     try:
+        source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
         subprocess.run(['docker', 'build', '--label', 'com.smarterworkerai.adw.owner=' + owner,
-                        '-t', owner, '.'], check=True)
+                        '--build-arg', 'APPLICATION_SHA=' + source, '-t', owner, '.'], check=True)
         container = subprocess.check_output(['docker', 'run', '-d', '--rm', '--label',
                      'com.smarterworkerai.adw.owner=' + owner, '-p', '127.0.0.1::3333', owner], text=True).strip()
         port = subprocess.check_output(['docker', 'port', container, '3333/tcp'], text=True).strip().rsplit(':', 1)[1]

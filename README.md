@@ -49,3 +49,11 @@ quality builds continue to compile the Vite page without creating a release.
 
 Routed readiness identifies page and asset requests consistently with the bundled
 probe, and verifies the page contract and actual compiled dependencies.
+
+Delivery uses context v0.15.5. All three targets opt into routed source identity:
+the runtime image bakes the release recipe's selected source SHA into
+`/.well-known/adw-release.json`, served as JSON with `Cache-Control: no-store`.
+Deployment checks that marker before advancing pointers; status compares it
+with the current manifest source. A wrong SHA or missing marker refuses even
+when container digest parity passes. The marker contains no credentials or
+operator input. Local page builds and the scene remain unchanged.
