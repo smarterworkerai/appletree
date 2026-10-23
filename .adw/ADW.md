@@ -29,9 +29,15 @@ name. All three are declared active after canonical explicit adoption confirmed
 the existing project, environments and Compose apps without provider mutations.
 Adoption never grants deletion ownership.
 Keep private journals in the operator home. Existing resources are re-adopted
-without mutation after the v0.15.5 repin, then examined and claimed only after
+without mutation after a context repin, then examined and claimed only after
 approval of the exact report. The claim changes description markers and private
 journals only. Never recreate resources or change DNS/TLS as part of onboarding.
+
+Shared Dokploy project ownership is recorded once for the repository. Other
+targets reference that claim; environment and Compose claims stay scoped to
+each target. Private Dokploy journals can be rebuilt from intact live ownership
+markers without provider writes. Every new claim still requires a fresh
+examination and approval of its exact digest.
 
 Actual routed origins are private operator inputs named `APPLETREE_PREVIEW_URL`,
 `APPLETREE_DEMO_URL` and `APPLETREE_PRODUCTION_URL`. They are not application
