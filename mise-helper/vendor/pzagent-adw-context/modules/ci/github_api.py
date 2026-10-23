@@ -15,7 +15,33 @@ from ..common import project_paths
 
 
 class ApiError(ValueError):
-    pass
+    def __init__(self, reason: str, *, detail: str | None = None):
+        self.detail = lookup_detail(detail)
+        super().__init__(reason)
+
+
+def lookup_detail(value: object) -> str | None:
+    """Only fixed diagnostic classes may cross a proof/output boundary."""
+    return value if isinstance(value, str) and re.fullmatch(
+        r'http_[1-5][0-9]{2}|timeout|os_error|malformed', value) else None
+
+
+def response_parts(value: str) -> tuple[str, int | None]:
+    """Separate gh --include headers without retaining headers or response bodies."""
+    status = None
+    remaining = value
+    consumed = 0
+    for _ in range(8):
+        if not remaining.startswith('HTTP/'):
+            return remaining, status
+        headers, separator, body = remaining.partition('\n\n')
+        consumed += len(headers.encode('utf-8'))
+        match = re.match(r'HTTP/\S+ ([1-5][0-9]{2})(?:[^\n]*)\n?', headers)
+        if not separator or not match or consumed > 16384:
+            raise ApiError('response_malformed', detail='malformed')
+        status = int(match[1])
+        remaining = body
+    raise ApiError('response_malformed', detail='malformed')
 
 
 def project_files(api, ref: str, *names: str) -> dict[str, tuple[str, bytes]]:
@@ -93,21 +119,34 @@ class GitHub:
     def _fetch_live(self, path: str) -> Any:
         try:
             result = subprocess.run(['gh', 'api', '--method', 'GET',
+                                     '--include',
                                      f'repos/{self.repository}' + ('/' + path if path else '')],
                                     capture_output=True, text=True, timeout=15, check=False)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise ApiError('lookup_failed') from None
-        if result.returncode:
+        except subprocess.TimeoutExpired:
+            raise ApiError('lookup_failed', detail='timeout') from None
+        except OSError:
+            raise ApiError('lookup_failed', detail='os_error') from None
+        payload, status = response_parts(result.stdout)
+        if result.returncode or (status is not None and status >= 400):
+            if status is None:
+                match = re.search(r'\bHTTP ([1-5][0-9]{2})\b', result.stderr, re.IGNORECASE)
+                status = int(match[1]) if match else None
+            detail = f'http_{status}' if status is not None else 'os_error'
+            if status is not None and 200 <= status < 300:
+                try:
+                    json.loads(payload)
+                except json.JSONDecodeError:
+                    detail = 'malformed'
             if (path.startswith('contents/')
-                    and re.search(r'\bHTTP 404\b', result.stderr, re.IGNORECASE)):
-                raise ApiError('content_absent')
-            raise ApiError('lookup_failed')
-        if len(result.stdout.encode('utf-8')) > MAX_BYTES:
+                    and status == 404):
+                raise ApiError('content_absent', detail=detail)
+            raise ApiError('lookup_failed', detail=detail)
+        if len(payload.encode('utf-8')) > MAX_BYTES:
             raise ApiError('response_too_large')
         try:
-            return json.loads(result.stdout)
+            return json.loads(payload)
         except json.JSONDecodeError:
-            raise ApiError('response_malformed') from None
+            raise ApiError('response_malformed', detail='malformed') from None
 
     def list(self, path: str, *, limit: int = 300) -> list[dict]:
         if path not in {'pulls',} and not re.fullmatch(rf'pulls/{NUM}/reviews|pulls/{NUM}/commits|issues/{NUM}/comments|commits/{SHA}/pulls', path):

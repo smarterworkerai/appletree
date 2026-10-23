@@ -13,7 +13,7 @@ from .execution import human
 from .providers import bind, binding_for
 from .operator_github import api, pages
 from .operator_registry import read_manifest
-from .operator_state import locked, new_operation, read, write
+from .operator_state import journals, locked, new_operation, read, write
 from .release_manifest import release_kind, validate
 from .retention import Version, candidates
 
@@ -34,14 +34,21 @@ def _walk_values(value):
 
 
 def _active_operation_roots(repo, kind_name, versions):
-    """Protect immutable objects named by resumable publication/deployment journals."""
-    handover = repo / 'handover'
-    if not handover.exists():
+    """Protect immutable objects named by resumable publication/deployment journals,
+    both legacy handover/ ones and those in the operator home."""
+    bases = [repo / 'handover']
+    if (project_dir(repo) / 'pzagent-adapter.json').exists():
+        bases.append(journals(repo))
+    bases = [base for base in bases if base.exists()]
+    if not bases:
         return set()
+    if any(base.is_symlink() for base in bases):
+        raise ContractError('active operation journal is unsafe')
     known = {version.identifier: version for version in versions}
     packages = {identifier.split('@', 1)[0] for identifier in known}
     roots, count = set(), 0
-    for directory, children, files in os.walk(handover, followlinks=False):
+    walks = (entry for base in bases for entry in os.walk(base, followlinks=False))
+    for directory, children, files in walks:
         current = Path(directory)
         children[:] = sorted(name for name in children if not (current / name).is_symlink())
         for name in sorted(set(files) & {'operation.json', 'deployment.json'}):

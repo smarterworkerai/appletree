@@ -7,11 +7,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..common import FULL_SHA
+from .github_api import lookup_detail
 
 
 class ProofError(ValueError):
-    def __init__(self, reason: str):
+    def __init__(self, reason: str, *, detail: str | None = None):
         self.reason = reason
+        self.detail = lookup_detail(detail)
         super().__init__(reason)
 
 

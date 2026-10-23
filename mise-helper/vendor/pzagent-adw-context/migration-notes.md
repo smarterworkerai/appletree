@@ -1,5 +1,126 @@
 # Migration notes
 
+## 0.15.5
+
+- Opt-in `.adw/routed-content.json` selects declared logical targets and an
+  existing probe environment key. The app serves a baked JSON `source_sha`
+  marker; deploy verification checks it against the artifact source before
+  promoting pointers, and status checks the current manifest source. The
+  response must be HTTP 200, JSON and at most 4 KiB. Same-origin redirects only;
+  no declaration reports `disabled`. This is operational evidence, not CI authority.
+- Bundled HTTP probes now use the same bounded, same-origin transport as the
+  public helper. Configure the final HTTPS origin directly: HTTP-to-HTTPS
+  redirects are cross-origin and refuse.
+- Successful sandbox CI, including the one allowed ghost rerun, requires
+  `trust-root-gate` and `required-quality` exactly once with `success`.
+  Unrelated conditional jobs may settle as skipped or neutral.
+
+- Independent review fixes: an explicit operator home selects resumptions in
+  that same home; linked or non-private workflow state refuses, receipt-only
+  directories are not open workflows, and legacy IDs explain how to finish
+  with the previous release. Examine and claim serialize on the stable
+  ownership journal and across targets. Stable configuration hashes bind the
+  examination before and during claim, without storing Environment values.
+  Interrupted claims accept only the approved original
+  description or the exact intended marker, including lost acknowledgements;
+  later observations preserve the original approved private report.
+- Kubernetes journal rebuild and identity annotation negotiate
+  `PartialObjectMetadata` for both GET and PATCH through a target-scoped private
+  kubectl Unix proxy. No full-object fallback or `kubectl annotate` is used.
+  Annotation patches test UID, resourceVersion, operation and nonce, then read
+  metadata back; Secret data is never requested. A server that cannot provide
+  metadata-only responses refuses.
+- Project hooks can import `fetch` from the vendored `modules/http_probe.py`:
+  the bundled probe identity (`PROBE_HEADERS`, `User-Agent: pzagent-health`),
+  bounded timeout and body, same-origin redirects only. Replace hand-written
+  urllib probes whose default agent a routed origin may refuse.
+- `adw:context:check` refuses a release kind whose implemented `adw:build`
+  declares neither `release_commands` nor the bundled `release_build.py`
+  producer, since publication would have no `PZ_ADW_BUILD_DIR` handover. Add
+  `release_commands`; onboarding now rehearses a release-mode build and
+  `pz:release:package` before the first PR.
+  An unimplemented declared build refuses. Legacy direct task declarations
+  without a command file report an explicit skip; empty tool pins or a disabled
+  lockfile likewise report a visible lock-check skip.
+- Declared probe base URLs load from `<home>/profile/probes.json` (private
+  file, exact allow-list of the adapter's probe keys; an explicit environment
+  value wins; values are never printed), so operator deploys no longer need them
+  exported by hand.
+- `mise.lock` is enforced: with `lockfile = true` and tool pins,
+  `adw:context:check` refuses a missing lock or one that does not cover every
+  `[tools]` pin. `pz:project:init` runs `mise lock` for uncovered pins and
+  commits nothing. Existing consumers: run `mise lock` and commit `mise.lock`.
+- Adopted Dokploy resources can be taken into full ownership:
+  `pz:provider:examine` reports adopted and claimable roles, ancestor marker previews and existing claim references,
+  the runtime scope and an examination digest (original descriptions stay
+  private); `pz:provider:claim --approve-examination-digest` writes only
+  description markers under a new `claim-<id>` operation, reads them back and
+  records `claimed` ownership. Projects and environments are claimed once at resource level (stable marker
+  and private ancestor journal); later targets verify and reference that claim.
+  Cleanup retains claimed siblings, refuses foreign children and deletes ancestors
+  only when empty. An interrupted last-child deletion resumes idempotently. Deprovisioning claimed
+  data-bearing Compose scope requires `--confirm-data-loss --backup-reference`.
+- `pz:provider:journal:rebuild` rebuilds or verifies ownership journals
+  read-only (Dokploy from server markers by `--operation`, Kubernetes from object
+  metadata by environment/target); `--write` persists a missing journal.
+  Kubernetes provisioning annotates created objects with repository,
+  environment and target; `--annotate-identity --write` adds them to objects
+  created earlier while their ownership journal is present.
+- One operator home: `--profile-root`, `PZ_ADW_PROFILE_ROOT` or the XDG default,
+  with `profile/`, `journals/` and `releases/<version>/`. Ownership journals are
+  keyed by repository/environment/target and found by operation ID; completed
+  decommissions are archived so a target can be provisioned again.
+- Operations are addressed by ID: `--operation <id>` replaces `--operation-dir`
+  and `--deprovision-operation` replaces `--deprovision-operation-dir` (removed;
+  both refuse with guidance). Workflow status/resume select the single open
+  operation, optionally scoped by environment/target/line/PR. Workflow operation journals move from the gitignored `handover/`
+  to `<home>/journals/<owner>/<repo>/<operation-id>/`; release retention
+  protects in-flight operations in both places. Finish or resume operations in
+  flight with the previous release before upgrading; `--operation` refuses an ID
+  found only in `handover/`.
+- Moving: no migration command. Move or regenerate profile files into
+  `<home>/profile/`, rebuild ownership journals of created/claimed resources,
+  re-adopt adopted ones (zero mutations) and claim them; old journals and
+  `~/.local/share/adw-handover/` remain as an archive. Kubernetes PoC objects
+  created before identity annotations are re-provisioned after the release
+  (deprovision, provision, redeploy) instead of copying journals;
+  `--annotate-identity` applies only to objects whose journal is present at the
+  new key.
+
+## 0.15.4
+
+Project tasks can opt into language-neutral dependency caches using
+`dependency_cache = true`. This enables only the supplied cache root and explicit
+`cache_env` bindings; it adds no Maven/npm variables or flags. Existing
+`maven_cache` behavior and workspace choices are preserved. Declare language
+lockfiles, tools and credential-free cache paths as described in the provider
+dependency-cache guide. Caches remain optimization only, never quality evidence.
+
+Read-only GitHub failures now carry a separate bounded diagnostic class through
+destination/prior-association proof errors. HTTP status, timeout, operating-system
+and malformed-response classes disclose no body or header values. Destination
+proof uses the existing bounded transient read-only retry and reuses one exact-SHA
+association observation within the same proof; it adds no persistent cache.
+Identity, binding, checksum, administrator-denial and contract checks remain
+authoritative. The reviewed GitHub GET process-call and function-scope pins are
+updated for HTTP-header observation; routes, methods and read limits stay closed.
+The trusted path list, its order, release/admission checks and workflow templates
+are unchanged. Sandbox proof now waits for consistent completed run/job metadata
+within its existing deadline before accepting outcomes; it never infers success
+from contradictory metadata or retries an uncertain mutation.
+
+Adapter loading rejects interpreter-prefixed file commands. Context checks
+resolve every declared hook executable without running it or contacting a
+provider. Use a Python file path directly; the dispatcher supplies the interpreter.
+The generic task-contract check stays provider-neutral. Run both checks during
+onboarding, before remote work.
+
+Download released archives, launcher and checksums once beneath the private
+operator release directory outside every checkout, reusing versioned assets and
+verifying checksums on every use. With Mise lockfile generation enabled, generate
+and commit `mise.lock` before quality/export. Repin canonically and obtain a new
+exact-head review. No runtime deployment or ownership migration is part of repin.
+
 ## 0.15.3
 
 An explicitly admitted released operator now takes a fresh complete live default

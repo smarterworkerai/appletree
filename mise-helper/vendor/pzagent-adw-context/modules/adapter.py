@@ -80,6 +80,8 @@ def _validate_hook_command(command: Any) -> None:
     if command.startswith('bundle:'):
         require_provider(command.removeprefix('bundle:'))
     else:
+        if re.match(r'^(?:python(?:[0-9]+(?:\.[0-9]+)*)?|node|bash|sh|env)\s+', command):
+            raise ContractError('hook command must name a file without an interpreter prefix')
         safe_relative_path(command)
 
 

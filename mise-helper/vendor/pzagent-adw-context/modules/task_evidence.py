@@ -40,8 +40,8 @@ def record_operator(directory: Path, result: dict[str, Any]) -> Path:
     """Value-free pz receipt, never a generic ADW quality or CI authorization proof."""
     from .operator_state import write
     identifier = run_id()
-    if result.get('task') not in {'pz:provider:provision', 'pz:provider:deprovision',
-                                   'pz:release:pointers:retire', 'pz:release:pointers:orphans'}:
+    if result.get('task') not in {'pz:provider:provision', 'pz:provider:deprovision', 'pz:provider:examine',
+                                   'pz:provider:claim', 'pz:release:pointers:retire', 'pz:release:pointers:orphans'}:
         raise ContractError('operator evidence task invalid')
     value = {'schema_version': '1.0.0', 'workflow': 'operator-receipt',
              'run_id': identifier, **result}

@@ -11,6 +11,7 @@ from .common import ContractError
 from .operator_registry import inspect
 from .oras_registry import DIGEST, OrasRegistry
 from .release_manifest import DIGEST_REF, image_variables, release_kind
+from .routed_content import declaration as content_declaration, verify as verify_content
 
 
 def read(repo: Path, adapter: dict, environment: str, target: str, provider,
@@ -77,6 +78,14 @@ def read(repo: Path, adapter: dict, environment: str, target: str, provider,
                 return result | {'reason': 'release_manifest_current_differs'}
             if not runtime_manifest:
                 return result | {'reason': 'release_runtime_manifest_differs'}
+            if content_declaration(repo, adapter, target) is not None:
+                try:
+                    result['routed_content'] = verify_content(repo, adapter, target, manifest['source_sha'],
+                                                              environ=provider.probe('adw:deploy:status'))
+                except ContractError:
+                    return result | {'reason': 'routed_content_identity_unproven'}
+            else:
+                result['routed_content'] = {'status': 'disabled'}
             # Detect a concurrent pointer update rather than reporting stale parity.
             current = registry.resolve(kind['manifest_package'] + ':' +
                                        kind['pointer_tags']['current'].format(target=target))

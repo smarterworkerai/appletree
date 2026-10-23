@@ -18,7 +18,29 @@ Use `isolated_workspace = "maven"` for a disposable source snapshot or `"none"` 
 
 Operator credential keys (`DOKPLOY`, `REGISTRY`, `SSH`, `KUBE`, `BOOTSTRAP`), SSH-agent handles, registry auth-config paths and approval handles are removed from inherited command environments by default. No exception is needed for the example or ordinary build/test tasks. A task that legitimately needs one inherited key must name it in `inherit_env = ["REGISTRY_TOKEN"]` and provide a short `inherit_env_reason` describing the authorized purpose without its value. These options are permitted only on that task, never in defaults; wildcards are refused. Undeclared operator bindings in `env`, command `env` or `cache_env` are refused. Declared TLS/pull bootstrap keys (including ACME email and registry username) always refuse project inheritance or explicit environment bindings. This scopes inherited environment data; it does not grant permission for an external operation or sandbox third-party programs' filesystem access.
 
-Task options: `env` and `unset_env` (key names or trailing `*` prefixes), `reports` and optional `report_prefix` (relative glob patterns copied to `ADW_TEST_REPORT_DIR` even after a failure), `maven_cache` (optional dependency/result cache options), `cache_env` (optional cache-path bindings), and `release_commands` (install/build commands selected when `PZ_ADW_BUILD_DIR` is set). Cache keys remain owned by the existing cache module. Project-specific preparation can be the first command in a task.
+Task options: `env` and `unset_env` (key names or trailing `*` prefixes), `reports` and optional `report_prefix` (relative glob patterns copied to `ADW_TEST_REPORT_DIR` even after a failure), `dependency_cache` (neutral cache-path enablement), `maven_cache` (implies dependency caching and retains Maven/npm variables and Maven flags), `cache_env` (optional cache-path bindings), and `release_commands` (install/build commands selected when `PZ_ADW_BUILD_DIR` is set). Cache keys remain owned by the existing cache module. Project-specific preparation can be the first command in a task.
+
+For non-Maven tasks, set `dependency_cache = true` and choose explicit bindings:
+
+| Project | `cache_env` example | Matching cache group paths |
+| --- | --- | --- |
+| Go | `GOMODCACHE = "{dependency_cache}/go/modules"`, `GOCACHE = "{dependency_cache}/go/build"` | `go/modules`, `go/build` |
+| Rust | `CARGO_HOME = "{dependency_cache}/cargo/home"`, `CARGO_TARGET_DIR = "{dependency_cache}/cargo/target"` | `cargo/home/registry`, `cargo/home/git`, `cargo/target` |
+| Python | `PIP_CACHE_DIR = "{dependency_cache}/python/pip"`, `UV_CACHE_DIR = "{dependency_cache}/python/uv"` | `python/pip`, `python/uv` |
+
+Bind these on each task that needs the cache. Without a supplied cache root, or without either cache switch, bindings stay unbound. The neutral switch adds no Maven/npm environment or flags; existing Maven declarations keep their behavior. The provider's `docs/dependency-caches.md` contains complete project-command and `.adw/adw-cache.json` examples for all three ecosystems. Keep credential files out of cached paths. Cache hits never replace quality evidence.
+
+Project hooks that make their own HTTP checks should use the bundled probe transport, so routed origins see the same client identity as the bundled health/readiness probes (some origins refuse urllib's default `Python-urllib` agent with 403):
+
+```python
+import sys
+sys.path.insert(0, 'mise-helper/vendor/pzagent-adw-context')
+from modules.http_probe import ProbeError, fetch
+
+response = fetch(base_url + '/ready')  # status, content_type, body (bytes)
+```
+
+`fetch` sends `PROBE_HEADERS` (`Accept: application/json`, `User-Agent: pzagent-health`), bounds the timeout (default 15 s, at most 60 s) and body size (default 64 KiB, at most 1 MiB), follows only same-origin redirects (scheme, host and port; an `http` to `https` redirect is cross-origin) and returns HTTP error statuses instead of raising. Refusals raise `ProbeError` with a value-free reason.
 
 Command options: `argv`, `cwd` (`workspace` or `repository`), `env`, `stdout_file` (workspace-relative log), and `workspace_pattern` (one regex capture for a workspace reported by a local orchestration script). Substitutions are literal `{workspace}`, `{repository}`, `{command_workspace}`, `{task}`, and, when enabled, `{dependency_cache}`. Other braces are preserved.
 

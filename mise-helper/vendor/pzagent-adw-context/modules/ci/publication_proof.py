@@ -47,6 +47,16 @@ def is_transient(exc: BaseException) -> bool:
         reason=str(exc)
     else:
         return False
+    if (reason.endswith(('_invalid', '_mismatch'))
+            or any(part in reason for part in ('identity', 'checksum', 'binding', 'denial', 'disabled'))):
+        return False
+    if (reason in {'lookup_failed', 'response_malformed'}
+            or reason.startswith(('destination_association_', 'destination_candidate_', 'prior_'))):
+        detail = getattr(exc, 'detail', None)
+        if isinstance(detail, str) and detail.startswith('http_') and not detail.startswith('http_5'):
+            return False
+        if detail == 'malformed':
+            return True
     return (reason in TRANSIENT_REASONS or reason.startswith(TRANSIENT_PREFIXES)
             or reason.endswith(TRANSIENT_SUFFIX))
 
@@ -71,8 +81,8 @@ def with_transient_retry(call, *, ceiling: int = TRANSIENT_RETRY_SECONDS,
 def _candidate_lookup_error(exc: ApiError) -> ProofError:
     reason=str(exc)
     if reason in {'response_too_large','response_malformed','pagination_limit'}:
-        return ProofError(f'destination_candidate_{reason}')
-    return ProofError('destination_candidate_lookup_failed')
+        return ProofError(f'destination_candidate_{reason}', detail=exc.detail)
+    return ProofError('destination_candidate_lookup_failed', detail=exc.detail)
 
 
 def destination_gate(api: GitHub, *, source_sha: str, adapter: dict,
@@ -103,8 +113,8 @@ def destination_gate(api: GitHub, *, source_sha: str, adapter: dict,
         except ApiError as exc:
             reason=str(exc)
             if reason in {'response_too_large','pagination_limit','association_lookup_failed'}:
-                raise ProofError(f'destination_association_{reason}') from None
-            raise ProofError('destination_association_lookup_failed') from None
+                raise ProofError(f'destination_association_{reason}', detail=exc.detail) from None
+            raise ProofError('destination_association_lookup_failed', detail=exc.detail) from None
     candidates=[]
     for branch in targets:
         if api.get(f'git/ref/heads/{branch}')['object']['sha']!=source_sha:
@@ -167,7 +177,7 @@ def destination_gate(api: GitHub, *, source_sha: str, adapter: dict,
                 if gate.kind=='proof':
                     if {'source':pr.source_branch,'target':branch} not in adapter['delivery']['promotion_pairs']:
                         continue
-                    parent=prior_gate(api,pr,rev)
+                    parent=prior_gate(api,pr,rev,associated=associated if pr_number is None else None)
                     current=replace(gate,parent_run_id=parent.run_id,parent_attempt=parent.attempt)
                 proof=prove_destination(pr,rev,[current],target=branch,parent=parent)
                 if proof['run_id']==gate.run_id and proof['attempt']==gate.attempt:

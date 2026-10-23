@@ -128,6 +128,99 @@ def _check_generic_engine(repo: Path, manifest: dict[str, Any]) -> None:
         raise ContractError("vendored generic ADW engine version differs from the manifest contract")
 
 
+MAX_TOOL_CONFIG_BYTES = 1_048_576
+
+
+def _private_toml(path: Path, label: str) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_TOOL_CONFIG_BYTES:
+        raise ContractError(label + " is unsafe")
+    try:
+        value = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise ContractError(label + " is malformed") from exc
+    return value
+
+
+def _pinned_versions(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict) and isinstance(value.get("version"), str):
+        return [value["version"]]
+    if isinstance(value, list):
+        return [version for item in value for version in _pinned_versions(item)]
+    raise ContractError("mise.toml tool pin is malformed")
+
+
+def tool_lock_gaps(repo: Path) -> list[str] | None:
+    """Pins of a lockfile-enabled mise.toml that mise.lock does not cover; None when not enforced.
+
+    Parses the lock only; never invokes mise.
+    """
+    config_path = repo / "mise.toml"
+    if not config_path.exists():
+        return None
+    config = _private_toml(config_path, "mise.toml")
+    if (config.get("settings") or {}).get("lockfile") is not True:
+        return None
+    tools = config.get("tools") or {}
+    if not isinstance(tools, dict):
+        raise ContractError("mise.toml tools are malformed")
+    pins = {(name, version) for name, value in tools.items() for version in _pinned_versions(value)}
+    if not pins:
+        return None
+    lock_path = repo / "mise.lock"
+    if not lock_path.exists() and not lock_path.is_symlink():
+        return sorted(name + "@" + version for name, version in pins)
+    locked = _private_toml(lock_path, "mise.lock").get("tools")
+    if not isinstance(locked, dict):
+        locked = {}
+
+    def covered(name: str, version: str) -> bool:
+        entries = locked.get(name)
+        entries = entries if isinstance(entries, list) else [entries]
+        return any(isinstance(entry, dict) and (
+            entry.get("version") == version
+            or version in (entry.get("specifiers") if isinstance(entry.get("specifiers"), list) else ()))
+            for entry in entries)
+
+    return sorted(name + "@" + version for name, version in pins if not covered(name, version))
+
+
+def check_tool_lock(repo: Path) -> dict:
+    gaps = tool_lock_gaps(repo)
+    if gaps:
+        lock = repo / "mise.lock"
+        state = "missing" if not lock.exists() else "does not cover " + ", ".join(gaps)
+        raise ContractError("mise.lock " + state + "; run `mise lock` and commit mise.lock")
+    return {'status': 'skipped', 'reason': 'lockfile_disabled_or_no_tool_pins'} if gaps is None else {'status': 'passed'}
+
+
+RELEASE_BUILD = "mise-helper/vendor/pzagent-adw-context/modules/release_build.py"
+
+
+def check_release_handover(repo: Path, adapter: dict[str, Any]) -> dict:
+    """Release kinds need an adw:build that hands outputs to pz:release:package via PZ_ADW_BUILD_DIR."""
+    kinds = sorted(name for name, kind in (adapter.get("release_kinds") or {}).items()
+                   if isinstance(kind, dict) and kind.get("components"))
+    commands_path = repo / "mise-helper/project-commands.toml"
+    if not kinds:
+        return {'status': 'skipped', 'reason': 'no_release_components'}
+    if not commands_path.exists() and not commands_path.is_symlink():
+        return {'status': 'skipped', 'reason': 'legacy_project_tasks_without_command_file'}
+    declared = _private_toml(commands_path, "project-commands.toml")
+    task = (declared.get("tasks") or {}).get("adw:build")
+    if not isinstance(task, dict) or task.get("implemented") is not True:
+        raise ContractError('release build handover requires an implemented adw:build')
+    if task.get("release_commands"):
+        return {'status': 'passed'}
+    commands = task.get("commands") if isinstance(task.get("commands"), list) else []
+    if any(isinstance(command, dict) and isinstance(command.get("argv"), list) and RELEASE_BUILD in command["argv"]
+           for command in commands):
+        return {'status': 'passed'}
+    raise ContractError("release kind " + ", ".join(kinds) + " has no release build handover: adw:build declares"
+                        " neither release_commands nor the bundled release_build.py producer for PZ_ADW_BUILD_DIR")
+
+
 def check_consumer(
     repo: Path,
     *,
@@ -210,6 +303,16 @@ def check_consumer(
     _check_generic_engine(repo, manifest)
     check_precedence(repo)
     check_context_task_overrides(repo)
+    tool_lock = check_tool_lock(repo)
+    handover = {'status': 'skipped', 'reason': 'no_project_adapter'}
+
+    adapter_path = project_dir(repo) / 'pzagent-adapter.json'
+    if adapter_path.exists():
+        from .adapter import load as load_adapter
+        from .hooks import check_commands
+        adapter = load_adapter(adapter_path)
+        check_commands(repo, adapter)
+        handover = check_release_handover(repo, adapter)
 
     verdict = "local-development" if candidate is not None else "current"
     warning = None
@@ -230,6 +333,8 @@ def check_consumer(
         "version": bundle["version"],
         "source_ref": source["ref"],
         "bundle_sha256": descriptor_checksum,
+        "tool_lock": tool_lock,
+        "release_handover": handover,
     }
 
 

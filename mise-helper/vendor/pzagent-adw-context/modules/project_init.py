@@ -16,7 +16,7 @@ if __package__ in {None, ''}:
 from modules.adapter import expand as validate_adapter
 from modules.bundle import validate_bundle
 from modules.common import ContractError, FULL_SHA, IDENTIFIER, PROJECT_DIRECTORIES, ensure_contained, load_json, project_dir
-from modules.context_sync import check_context_task_overrides
+from modules.context_sync import check_context_task_overrides, tool_lock_gaps
 from modules.project_tasks import PROJECT_TASKS, ProjectParser, environment as command_environment
 from modules.quality_tasks import engine
 
@@ -250,6 +250,16 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
     return {name: text.encode('utf-8') if isinstance(text, str) else text for name, text in files.items()}
 
 
+def lock_tools(repo: Path) -> None:
+    """Resolve the declared tool pins into mise.lock; the operator reviews and commits it."""
+    with tempfile.TemporaryDirectory(prefix='pz-project-lock-') as raw:
+        lock_env = command_environment({}, {})
+        lock_env.update(MISE_TRUSTED_CONFIG_PATHS=str(repo), MISE_STATE_DIR=raw)
+        locked = subprocess.run(['mise', 'lock'], cwd=repo, env=lock_env, capture_output=True, text=True)
+    if locked.returncode:
+        raise ContractError('project_init_tool_lock_failed')
+
+
 def initialize(repo: Path, args) -> dict:
     repo = repo.resolve()
     if args.provider not in {'dokploy', 'kubernetes'}:
@@ -301,6 +311,12 @@ def initialize(repo: Path, args) -> dict:
                 os.replace(temporary, path)
             finally:
                 Path(temporary).unlink(missing_ok=True)
+        if tool_lock_gaps(repo):
+            snapshots.setdefault('mise.lock', (repo / 'mise.lock').read_bytes() if (repo / 'mise.lock').is_file() else None)
+            lock_tools(repo)
+            changed.append('mise.lock')
+            if tool_lock_gaps(repo):
+                raise ContractError('project_init_tool_lock_incomplete')
         generic = engine(repo)
         # Describe validates the generated manifest against the installed generic ABI.
         described = generic.describe(repo)
@@ -311,7 +327,9 @@ def initialize(repo: Path, args) -> dict:
             check_env = command_environment({}, {})
             check_env.update(MISE_TRUSTED_CONFIG_PATHS=str(repo), MISE_STATE_DIR=raw,
                              MISE_AUTO_INSTALL='false')
-            for task in ('adw:check', 'adw:context:check'):
+            # The generated build is deliberately unimplemented. context:check
+            # requires its release producer and runs after the project fills the stubs.
+            for task in ('adw:check',):
                 checked = subprocess.run(['mise', 'run', task], cwd=repo, env=check_env,
                                          capture_output=True, text=True)
                 if checked.returncode:
@@ -327,6 +345,7 @@ def initialize(repo: Path, args) -> dict:
     return {'status': 'ok', 'changed': sorted(changed), 'project_directory': args.directory,
             'next': ['Trust the generated mise.toml for normal use (mise trust mise.toml).',
                      'Implement the eight project tasks; full verification stays context-owned.',
+                     'Run adw:context:check after implementing the release build handover.',
                      'Fill Docker recipes, application probes and provider resources before enabling remote capabilities.',
                      'Human: operator credentials, host preparation, registry access and explicit first-adoption operator opt-in.']}
 

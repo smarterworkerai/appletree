@@ -28,6 +28,7 @@ from modules.remote_config import config_apply, config_plan, config_pull
 from modules.remote_probe import run as run_probe
 from modules.remote_deploy import deploy
 from modules.hotfix import apply as apply_hotfix, restore as restore_hotfix
+from modules.operator_state import new_operation
 from modules.remote_validation import run_e2e, validate_deployment
 
 
@@ -138,20 +139,33 @@ def parser() -> argparse.ArgumentParser:
     restore.add_argument("--approval-file", type=Path, required=True)
     restore.add_argument("--profile-root", type=Path, required=True)
     restore.add_argument("--artifact", type=Path, required=True)
-    for name in ('provider-provision', 'provider-deprovision'):
+    for name in ('provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
+                 'provider-journal-rebuild'):
         lifecycle = sub.add_parser(name)
         lifecycle.add_argument('--repo-root', type=Path, default=Path('.'))
         lifecycle.add_argument('--profile-root', type=Path)
-        lifecycle.add_argument('--operation-dir', type=Path, required=name == 'provider-provision')
-        lifecycle.add_argument('--plan', action='store_true')
-        if name == 'provider-provision':
+        if name in {'provider-provision', 'provider-deprovision'}:
+            lifecycle.add_argument('--plan', action='store_true')
+        if name in {'provider-provision', 'provider-examine', 'provider-claim'}:
             lifecycle.add_argument('environment')
             lifecycle.add_argument('--target')
+        if name == 'provider-provision':
             lifecycle.add_argument('--adopt', action='store_true')
             lifecycle.add_argument('--server-name-env', help='Environment key naming an existing registered server')
-        else:
+        elif name == 'provider-deprovision':
             lifecycle.add_argument('--operation', dest='operation_id')
             lifecycle.add_argument('--list', dest='list_operations', action='store_true')
+            lifecycle.add_argument('--confirm-data-loss', action='store_true')
+            lifecycle.add_argument('--backup-reference')
+        elif name == 'provider-claim':
+            lifecycle.add_argument('--approve-examination-digest', required=True)
+        elif name == 'provider-journal-rebuild':
+            lifecycle.add_argument('environment', nargs='?')
+            lifecycle.add_argument('--target')
+            lifecycle.add_argument('--operation', dest='operation_id', help='Dokploy: the ownership operation ID')
+            lifecycle.add_argument('--write', action='store_true', help='Write a missing journal / apply annotations')
+            lifecycle.add_argument('--annotate-identity', action='store_true',
+                                   help='Kubernetes: add missing identity annotations to journal-owned objects')
     for name in ('release-pointers-retire', 'release-pointers-orphans'):
         pointers = sub.add_parser(name)
         pointers.add_argument('--repo-root', type=Path, default=Path('.'))
@@ -159,8 +173,9 @@ def parser() -> argparse.ArgumentParser:
         if name == 'release-pointers-retire':
             pointers.add_argument('--target', required=True)
             pointers.add_argument('--profile-root', type=Path)
-            pointers.add_argument('--operation-dir', type=Path, required=True)
-            pointers.add_argument('--deprovision-operation-dir', type=Path, required=True)
+            pointers.add_argument('--operation', dest='operation_id', help='Resume this retirement operation')
+            pointers.add_argument('--deprovision-operation', required=True,
+                                  help='Operation ID of the completed provider deprovision')
             pointers.add_argument('--apply', action='store_true')
             pointers.add_argument('--approve-operation-digest')
     handover = sub.add_parser('release-pointers-handover')
@@ -170,14 +185,14 @@ def parser() -> argparse.ArgumentParser:
     handover.add_argument('--kind')
     handover.add_argument('--replace', action='store_true')
     handover.add_argument('--plan', action='store_true')
-    handover.add_argument('--operation-dir', type=Path, required=True)
+    handover.add_argument('--operation', dest='operation_id', help='Resume this handover operation')
     handover.add_argument('--approval-file', type=Path)
     for name in ('cluster-up', 'cluster-teardown'):
         cluster = sub.add_parser(name)
         cluster.add_argument('cluster_alias')
         cluster.add_argument('--repo-root', type=Path, default=Path('.'))
         cluster.add_argument('--profile-root', type=Path)
-        cluster.add_argument('--operation-dir', type=Path, required=True)
+        cluster.add_argument('--operation', dest='operation_id', help='Resume this cluster operation')
         cluster.add_argument('--plan', action='store_true')
     operator_commands = ('release-inspect', 'workflow-deploy-existing', 'workflow-status', 'workflow-resume', 'release-rollback',
                          'release-package', 'release-publish', 'workflow-publish', 'workflow-publish-deploy',
@@ -188,10 +203,11 @@ def parser() -> argparse.ArgumentParser:
         command.set_defaults(kind=None, scope='runtime', line=None, strategy=None, pr=None,
             apply=False, grace_hours=None, reconcile_pointers=False, on_failure='stop',
             platform='linux/amd64', build_dir=None, package_dir=None, environment=None,
-            target=None, ref=None, release_ref=None, operation_dir=None, sync_config=False,
+            target=None, ref=None, release_ref=None, operation_dir=None, operation_id=None, sync_config=False,
             config_ref=None, verify=False, profile_root=None, detail=None,
             authorization_file=None, publication_pointer=None,
             expected_pointer_digest=None)
+        command.add_argument('--profile-root', type=Path)
         if name in {'release-inspect', 'workflow-deploy-existing', 'release-rollback',
                     'release-package', 'workflow-publish', 'workflow-publish-deploy', 'release-retention'}:
             command.add_argument('--kind', required=name != 'release-rollback')
@@ -202,7 +218,8 @@ def parser() -> argparse.ArgumentParser:
         elif name in {'release-promote', 'release-rollback', 'workflow-publish', 'workflow-publish-deploy'}:
             command.add_argument('--ref', required=name not in {'release-promote','release-rollback'})
         if name not in {'release-inspect', 'release-package', 'release-publish'}:
-            command.add_argument('--operation-dir', type=Path, required=name in {'workflow-status', 'workflow-resume'})
+            command.add_argument('--operation', dest='operation_id',
+                                 help='Operation ID; workflow status/resume select the single open one when omitted')
         if name == 'release-rollback':
             command.add_argument('--scope', choices=('runtime', 'release-line'), default='runtime')
         if name == 'release-promote':
@@ -226,8 +243,11 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument('--config-ref')
         if name == 'workflow-resume':
             command.add_argument('--reconcile-pointers', action='store_true')
-        if name in {'workflow-deploy-existing', 'workflow-publish-deploy', 'release-rollback', 'workflow-resume', 'release-retention'}:
-            command.add_argument('--profile-root', type=Path)
+        if name in {'workflow-status', 'workflow-resume'}:
+            command.add_argument('--environment')
+            command.add_argument('--target')
+            command.add_argument('--line')
+            command.add_argument('--pr', type=int)
         if name in {'workflow-publish', 'workflow-publish-deploy'}:
             command.add_argument('--platform', default='linux/amd64')
         if name == 'release-prove-merged-branch':
@@ -271,7 +291,7 @@ def parser() -> argparse.ArgumentParser:
             choice = command.add_mutually_exclusive_group()
             choice.add_argument('--ref')
             choice.add_argument('--release-ref')
-            command.add_argument('--operation-dir', type=Path)
+            command.add_argument('--operation', dest='operation_id')
     check.add_argument('--development', action='store_true')
     return root
 
@@ -328,46 +348,69 @@ def _main(args: argparse.Namespace) -> int:
             if args.command == 'release-pointers-orphans':
                 result = orphans(repo, adapter, args.kind)
             else:
-                profile = args.profile_root or (Path(os.environ['PZ_ADW_PROFILE_ROOT']) if os.environ.get('PZ_ADW_PROFILE_ROOT') else None)
+                args.operation_dir = args.operation_dir or new_operation(repo, 'retire')
                 result = retire(repo, adapter, kind_name=args.kind, target=args.target,
-                    profile_root=profile, operation_dir=args.operation_dir,
-                    deprovision_operation_dir=args.deprovision_operation_dir, apply=args.apply,
+                    profile_root=args.profile_root, operation_dir=args.operation_dir,
+                    deprovision_operation=args.deprovision_operation, apply=args.apply,
                     approve_operation_digest=args.approve_operation_digest)
                 from modules.task_evidence import record_operator
                 record_operator(args.operation_dir, result)
-        elif args.command in {'provider-provision', 'provider-deprovision'}:
-            from modules.provider_lifecycle import provision, deprovision, list_operations
+        elif args.command in {'provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
+                              'provider-journal-rebuild'}:
+            from modules import provider_lifecycle as lifecycle
             repo = args.repo_root.resolve()
-            profile = args.profile_root or (Path(os.environ['PZ_ADW_PROFILE_ROOT']) if os.environ.get('PZ_ADW_PROFILE_ROOT') else None)
+            profile = args.profile_root
             adapter = load_adapter(project_dir(repo) / 'pzagent-adapter.json')
             if args.command == 'provider-provision':
-                result = provision(repo, adapter, environment=args.environment, target=args.target,
-                    profile_root=profile, operation_dir=args.operation_dir, adopt=args.adopt,
+                result = lifecycle.provision(repo, adapter, environment=args.environment, target=args.target,
+                    profile_root=profile, operation_dir=new_operation(repo, 'provision'), adopt=args.adopt,
                     plan=args.plan, server_name_env=args.server_name_env)
+            elif args.command == 'provider-examine':
+                result = lifecycle.examine(repo, adapter, environment=args.environment, target=args.target,
+                    profile_root=profile, operation_dir=new_operation(repo, 'examine'))
+            elif args.command == 'provider-claim':
+                result = lifecycle.claim(repo, adapter, environment=args.environment, target=args.target,
+                    profile_root=profile, operation_dir=new_operation(repo, 'claim'),
+                    approve_examination_digest=args.approve_examination_digest)
+            elif args.command == 'provider-journal-rebuild':
+                group = adapter['targets'].get(args.environment or '', {})
+                declaration = group.get('items', {}).get(args.target or group.get('default'), {})
+                if declaration.get('provider') == 'kubernetes':
+                    from modules.providers import kubernetes_lifecycle as kube
+                    if args.operation_id:
+                        raise UsageError('Kubernetes journals are selected by environment and --target')
+                    result = (kube.annotate_identity(repo, adapter, environment=args.environment, target=args.target,
+                                                     profile_root=profile, plan=not args.write)
+                              if args.annotate_identity else
+                              kube.rebuild_journal(repo, adapter, environment=args.environment, target=args.target,
+                                                   profile_root=profile, write_journal=args.write))
+                else:
+                    if args.annotate_identity or not args.operation_id:
+                        raise UsageError('Dokploy journals are rebuilt by --operation <id>')
+                    result = lifecycle.rebuild_journal(repo, adapter, operation_id=args.operation_id,
+                                                       profile_root=profile, write_journal=args.write)
             elif args.list_operations:
-                if args.operation_id or args.operation_dir or args.plan:
+                if args.operation_id or args.plan:
                     raise ContractError('provider_list_selection_invalid')
-                result = list_operations(adapter, profile_root=profile)
+                result = lifecycle.list_operations(adapter, profile_root=profile)
             else:
-                if args.operation_dir is None:
-                    if not args.operation_id or not IDENTIFIER.fullmatch(args.operation_id):
-                        raise ContractError('provider_operation_id_required')
-                    args.operation_dir = repo / 'handover' / (args.operation_id + '-cleanup')
-                result = deprovision(repo, adapter, profile_root=profile,
-                    operation_dir=args.operation_dir, operation_id=args.operation_id, plan=args.plan)
+                if not args.operation_id or not IDENTIFIER.fullmatch(args.operation_id):
+                    raise ContractError('provider_operation_id_required')
+                result = lifecycle.deprovision(repo, adapter, profile_root=profile,
+                    operation_dir=new_operation(repo, 'deprovision'), operation_id=args.operation_id, plan=args.plan,
+                    confirm_data_loss=args.confirm_data_loss, backup_reference=args.backup_reference)
         elif args.command == 'release-pointers-handover':
             from modules.pointer_handover import handover
             repo = args.repo_root.resolve()
+            args.operation_dir = args.operation_dir or new_operation(repo, 'handover')
             result = handover(repo, load_adapter(project_dir(repo) / 'pzagent-adapter.json'),
                 source=args.source_target, destination=args.destination_target,
                 kind_name=args.kind, replace=args.replace, operation_dir=args.operation_dir,
                 approval_path=args.approval_file, plan=args.plan)
         elif args.command in {'cluster-up', 'cluster-teardown'}:
             from modules.cluster_lifecycle import manage
-            profile = args.profile_root or (Path(os.environ['PZ_ADW_PROFILE_ROOT']) if os.environ.get('PZ_ADW_PROFILE_ROOT') else None)
-            if profile is None:
-                raise ContractError('cluster_profile_required')
-            result = manage(profile_root=profile, alias=args.cluster_alias,
+            args.operation_dir = args.operation_dir or new_operation(args.repo_root.resolve(), 'k3d')
+            result = manage(profile_root=args.profile_root, alias=args.cluster_alias,
                 action=args.command.removeprefix('cluster-'), operation_dir=args.operation_dir, plan=args.plan)
         elif args.command in {'release-package', 'release-publish', 'workflow-publish', 'workflow-publish-deploy'}:
             from modules import operator_publish
@@ -420,8 +463,6 @@ def _main(args: argparse.Namespace) -> int:
                 raise UsageError('--config-ref requires --sync-config')
             adapter = load_adapter(project_dir(repo) / 'pzagent-adapter.json')
             if args.command == 'workflow-status':
-                if not args.operation_dir:
-                    raise UsageError('--operation-dir is required')
                 result = read(args.operation_dir / 'operation.json')
             elif args.command == 'release-inspect':
                 if not args.ref and not args.release_ref:
@@ -437,8 +478,6 @@ def _main(args: argparse.Namespace) -> int:
                 else:
                     result = selected
             elif args.command == 'workflow-resume':
-                if not args.operation_dir:
-                    raise UsageError('--operation-dir is required')
                 record = read(args.operation_dir / 'operation.json')
                 if record.get('workflow') in {'publish', 'publish-deploy'}:
                     from modules.operator_publish import workflow
@@ -509,7 +548,7 @@ def _main(args: argparse.Namespace) -> int:
         elif args.command == "deploy-apply":
             from modules.operator_sources import resolve
             from modules.operator_registry import inspect
-            from modules.operator_state import new_operation, write, locked
+            from modules.operator_state import write, locked
             repo = args.repo_root.resolve()
             adapter = load_adapter(project_dir(repo) / 'pzagent-adapter.json')
             selected = None
@@ -521,14 +560,14 @@ def _main(args: argparse.Namespace) -> int:
                                    release_reference=args.release_ref)
                 if not selected['available']:
                     raise ContractError('selected release is incomplete; publish the chosen revision first')
-                args.operation_dir = args.operation_dir or new_operation(repo)
+                args.operation_dir = args.operation_dir or new_operation(repo, 'deploy-apply')
                 args.release_manifest = args.operation_dir / 'manifest.json'
                 args.release_kind = args.kind
                 args.release_source_sha = selected['source_sha']
                 args.manifest_reference = selected['release_reference']
             if not all((args.release_kind, args.release_source_sha, args.release_manifest, args.manifest_reference)):
                 raise UsageError('complete release inputs are required')
-            args.operation_dir = args.operation_dir or new_operation(repo)
+            args.operation_dir = args.operation_dir or new_operation(repo, 'deploy-apply')
             with locked(args.operation_dir):
                 if selected is not None:
                     write(args.release_manifest, selected['manifest'])
@@ -612,7 +651,47 @@ class _Tee(io.TextIOBase):
         self.stream.flush()
 
 
+REMOVED_FLAGS = {'--operation-dir': '--operation <id>', '--deprovision-operation-dir': '--deprovision-operation <id>'}
+OPERATION_COMMANDS = {'release-pointers-retire', 'release-pointers-handover', 'cluster-up', 'cluster-teardown',
+                      'workflow-deploy-existing', 'workflow-status', 'workflow-resume', 'release-rollback',
+                      'workflow-publish', 'workflow-publish-deploy', 'release-promote', 'release-retention', 'deploy-apply'}
+
+
+def _operator_paths(args: argparse.Namespace) -> None:
+    """One operator home for every command; operations are addressed by ID, never by path."""
+    from modules.operator_state import operator_home, operation_path, operation_root
+    explicit = getattr(args, 'profile_root', None)
+    if hasattr(args, 'profile_root') and (explicit is not None or os.environ.get('PZ_ADW_PROFILE_ROOT')
+                                          or args.execution_mode == 'human'):
+        args.operator_home = operator_home(explicit)
+        args.profile_root = args.operator_home / 'profile'
+    if args.command not in OPERATION_COMMANDS:
+        return
+    repo = args.repo_root.resolve()
+    if getattr(args, 'operation_id', None):
+        args.operation_dir = operation_path(repo, args.operation_id, getattr(args, 'operator_home', None))
+        if args.command in {'workflow-status', 'workflow-resume'} and not (args.operation_dir / 'operation.json').is_file():
+            raise ContractError('operator_home_operation_unknown')
+        if args.command in {'workflow-status', 'workflow-resume'}:
+            from modules.operator_home import select_operation
+            select_operation(operation_root(repo, getattr(args, 'operator_home', None)), operation=args.operation_id,
+                environment=args.environment, target=args.target, line=args.line, pr_number=args.pr)
+    elif args.command in {'workflow-status', 'workflow-resume'}:
+        from modules.operator_home import select_operation
+        home = getattr(args, 'operator_home', None)
+        args.operation_dir = operation_path(repo, select_operation(operation_root(repo, home),
+            environment=args.environment, target=args.target, line=args.line, pr_number=args.pr), home)
+    else:
+        args.operation_dir = None
+
+
 def main(argv: list[str] | None = None) -> int:
+    supplied = sys.argv[1:] if argv is None else argv
+    for flag, replacement in REMOVED_FLAGS.items():
+        if any(item == flag or item.startswith(flag + '=') for item in supplied):
+            print(json_result(status='unsupported', reason=flag + ' was removed; operations live in the operator home'
+                              ' and are selected with ' + replacement))
+            return EXIT_USAGE
     args = parser().parse_args(argv)
     if args.command in {'quality-export', 'quality-import', 'quality-verify', 'quality-leaves', 'context-describe'}:
         from modules.quality_tasks import dispatch
@@ -704,7 +783,8 @@ def _dispatch(args: argparse.Namespace) -> int:
     try:
         with ExitStack() as stack:
             stack.enter_context(execution(args.execution_mode))
-            if args.command in {'provider-provision', 'provider-deprovision', 'release-pointers-retire'} and args.execution_mode != 'human':
+            if args.command in {'provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
+                                'provider-journal-rebuild', 'release-pointers-retire'} and args.execution_mode != 'human':
                 raise ContractError('provider_lifecycle_operator_only')
             if args.command.startswith('workflow-') and args.execution_mode != 'human':
                 raise ContractError('local workflow commands require human mode; CI composes its own jobs')
@@ -717,7 +797,16 @@ def _dispatch(args: argparse.Namespace) -> int:
                 check_consumer(args.repo_root.resolve(),
                                development=args.execution_mode == 'human' or local_simulation,
                                simulation=local_simulation)
+            _operator_paths(args)
             values = {} if args.command == 'workflow-status' else resolve(args.repo_root.resolve(), env_file=args.env_file, mode=args.execution_mode, profile_root=getattr(args, 'profile_root', None))
+            if getattr(args, 'operator_home', None) is not None and args.command != 'workflow-status':
+                # Child processes and provider modules read the profile directory, not the home.
+                values['PZ_ADW_PROFILE_ROOT'] = str(args.profile_root)
+            adapter_path = project_dir(args.repo_root.resolve()) / 'pzagent-adapter.json'
+            if args.execution_mode == 'human' and getattr(args, 'profile_root', None) is not None and adapter_path.is_file():
+                # Declared probe base URLs only; an explicit environment value wins.
+                from modules.probe_profile import probe_environment
+                stack.enter_context(probe_environment(load_adapter(adapter_path), args.profile_root))
             registry_commands = {'deploy-apply', 'release-inspect', 'workflow-deploy-existing', 'workflow-resume', 'release-rollback',
                                  'release-publish', 'workflow-publish', 'workflow-publish-deploy', 'release-retention',
                                  'release-pointers-handover', 'release-pointers-retire', 'release-pointers-orphans'}

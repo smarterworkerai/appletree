@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import copy
 
 from .common import ContractError, IDENTIFIER, ensure_contained
 from .dokploy_lifecycle_api import API, HTTP, Missing, RESOURCE_FIELDS, identifier, one_named, rows
@@ -24,13 +25,17 @@ MARKER = 'adw-provision:v1:'
 def _marker(state, role):
     selection = state['selection']
     parents = ('project', 'environment') if role == 'compose' else (('project',) if role == 'environment' else ())
-    return MARKER + json.dumps({'operation': state['operation_id'], 'nonce': state['nonce'],
+    value = {'operation': state['operation_id'], 'nonce': state['nonce'],
         'repository': selection['repository'], 'environment': selection['environment'],
         'target': selection['target'], 'role': role,
         'parents': {name: state['resources'][name]['created'] for name in parents},
         'runtime': state['resources'].get(role, {}).get('pending_runtime_scope',
-                   state['resources'].get(role, {}).get('runtime_scope'))},
-        sort_keys=True, separators=(',', ':'))
+                   state['resources'].get(role, {}).get('runtime_scope'))}
+    ancestors = {name: entry['ancestor_claim'] for name, entry in state['resources'].items()
+                 if name in ('project', 'environment') and entry.get('ancestor_claim')}
+    if role == 'compose' and ancestors:
+        value['ancestors'] = ancestors
+    return MARKER + json.dumps(value, sort_keys=True, separators=(',', ':'))
 
 
 def _parse_marker(description, operation, role):
@@ -44,7 +49,7 @@ def _parse_marker(description, operation, role):
         return None
     if not isinstance(value, dict) or value.get('operation') != operation:
         return None
-    if (set(value) != {'operation', 'nonce', 'repository', 'environment', 'target', 'role', 'parents', 'runtime'}
+    if (set(value) - {'ancestors'} != {'operation', 'nonce', 'repository', 'environment', 'target', 'role', 'parents', 'runtime'}
             or value['role'] != role or not isinstance(value['nonce'], str)
             or not re.fullmatch(r'[0-9a-f]{32}', value['nonce'])
             or any(not isinstance(value[k], str) or not IDENTIFIER.fullmatch(value[k]) for k in ('environment', 'target'))
@@ -52,6 +57,10 @@ def _parse_marker(description, operation, role):
             or not isinstance(value['parents'], dict)
             or set(value['parents']) != ({'project', 'environment'} if role == 'compose' else ({'project'} if role == 'environment' else set()))
             or any(not isinstance(v, bool) for v in value['parents'].values())):
+        raise ContractError('provider_ownership_marker_invalid')
+    if 'ancestors' in value and (role != 'compose' or not isinstance(value['ancestors'], dict)
+            or not value['ancestors'] or set(value['ancestors']) - {'project', 'environment'}
+            or any(not isinstance(v, str) or len(v) > 4096 for v in value['ancestors'].values())):
         raise ContractError('provider_ownership_marker_invalid')
     if value['runtime'] is not None:
         _validate_runtime_scope(value['runtime'])
@@ -77,21 +86,31 @@ def _validate_runtime_scope(value):
     identifier(compose['server_id'])
 
 
-def _retain_runtime_scope(api, state, save):
-    """Keep the runtime label/server on an owned ancestor before child deletion."""
+def _runtime_anchor(state):
+    """The owned ancestor that retains the runtime scope, with the validated snapshot."""
     resources = state['resources']
     if 'compose' not in resources or not resources['compose']['created']:
-        return 0
+        return None, None
     role = next((name for name in ('project', 'environment')
                  if resources.get(name, {}).get('created') and not resources[name].get('is_default')), None)
     if role is None and resources.get('project', {}).get('created'):
         role = 'project'
     if role is None:
-        return 0  # Adopted ancestors are never modified.
+        return None, None  # Adopted ancestors are never modified.
     snapshot = {name: {key: value for key, value in resources[name].items()
-                      if key not in {'deleted', 'runtime_scope', 'pending_runtime_scope'}}
+                      if key not in {'deleted', 'runtime_scope', 'pending_runtime_scope',
+                                     'origin', 'data_bearing', 'claimed_description_sha256', 'ancestor_claim'}}
                 for name in ('environment', 'compose')}
     _validate_runtime_scope(snapshot)
+    return role, snapshot
+
+
+def _retain_runtime_scope(api, state, save):
+    """Keep the runtime label/server on an owned ancestor before child deletion."""
+    resources = state['resources']
+    role, snapshot = _runtime_anchor(state)
+    if role is None:
+        return 0
     entry = resources[role]
     if entry.get('runtime_scope') == snapshot:
         return 0
@@ -128,26 +147,81 @@ def _operator():
     run_id()  # Fail before any access, rather than after a completed mutation.
 
 
-def journal_path(repo: Path, profile: Path, operation: Path) -> Path:
+def _private_home(repo: Path, profile: Path) -> Path:
     """IDs never live below a consumer checkout or its public evidence directory."""
     if profile is None:
         raise ContractError('provider_private_profile_required')
     from .operator_credentials import private_profile_path
+    from .operator_state import operator_home
+    home = operator_home(Path(profile))
     try:
-        profile = private_profile_path(profile.absolute(), profile.absolute())
+        home = private_profile_path(home.absolute(), home.absolute())
     except (OSError, ValueError, RuntimeError):
         raise ContractError('provider_private_profile_invalid') from None
-    repo, operation = repo.resolve(), operation.resolve()
-    if profile == repo or repo in profile.parents:
+    checkout = repo.resolve()
+    if home == checkout or checkout in home.parents:
         raise ContractError('provider_private_profile_invalid')
-    if profile.exists() and (not profile.is_dir() or profile.stat().st_mode & 0o077):
+    if home.exists() and (not home.is_dir() or home.stat().st_mode & 0o077):
         raise ContractError('provider_private_profile_not_private')
-    profile.mkdir(mode=0o700, parents=True, exist_ok=True)
-    key = _hash({'repository_path': str(repo), 'operation_path': str(operation)})
-    path = profile / 'provider-operations' / key / 'operation.json'
-    if any(p.is_symlink() for p in (path, path.parent, path.parent.parent)):
+    home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return home
+
+
+def ownership_path(repo: Path, profile: Path, repository: str, environment: str, target: str) -> Path:
+    """One ownership journal per repository/environment/target, independent of local paths."""
+    from .operator_home import ownership_journal
+    home = _private_home(repo, profile)
+    path = ownership_journal(home, repository, environment, target)
+    current = home
+    for part in path.relative_to(home).parts[:-1]:
+        current = current / part
+        if current.is_symlink() or (current.exists() and (not current.is_dir() or current.stat().st_mode & 0o077)):
+            raise ContractError('provider_private_profile_invalid')
+        current.mkdir(mode=0o700, exist_ok=True)
+    if path.is_symlink():
         raise ContractError('provider_private_profile_invalid')
     return path
+
+
+def find_ownership(repo: Path, profile: Path, repository: str, operation: str) -> Path | None:
+    """Locate a current or archived ownership journal by its operation ID."""
+    if not isinstance(operation, str) or not IDENTIFIER.fullmatch(operation):
+        raise ContractError('provider_operation_id_required')
+    from .operator_home import repository_dir
+    base = _private_home(repo, profile) / 'journals' / repository_dir(repository) / 'ownership'
+    if base.is_symlink() or not base.is_dir():
+        return None
+    matches = []
+    for entry in sorted(base.iterdir()):
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        archive = entry / 'archive'
+        for path in [entry / 'operation.json', *((sorted(archive.glob('*.json')) if archive.is_dir() and not archive.is_symlink() else []))]:
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                value = json.loads(path.read_bytes())
+            except (OSError, ValueError):
+                raise ContractError('provider_private_journal_invalid') from None
+            if isinstance(value, dict) and value.get('operation_id') == operation:
+                matches.append(path)
+    if len(matches) > 1:
+        raise ContractError('provider_ownership_journal_collision')
+    return matches[0] if matches else None
+
+
+def archive_ownership(path: Path, operation: str) -> None:
+    """A completed decommission leaves the stable key free for a new operation."""
+    if not isinstance(operation, str) or not IDENTIFIER.fullmatch(operation):
+        raise ContractError('provider_private_journal_invalid')
+    archive = path.parent / 'archive'
+    if archive.is_symlink():
+        raise ContractError('provider_private_profile_invalid')
+    archive.mkdir(mode=0o700, exist_ok=True)
+    target = archive / (operation + '.json')
+    if target.exists() or target.is_symlink():
+        raise ContractError('provider_ownership_journal_collision')
+    os.replace(path, target)
 
 
 def _binding(adapter, environment, target):
@@ -179,7 +253,7 @@ def _load(path):
         raise ContractError('provider_private_journal_invalid')
     value = read(path)
     required = {'schema_version', 'workflow', 'selection', 'nonce', 'operation_id', 'phase', 'resources', 'intents', 'server_id'}
-    if (set(value) - (required | {'decommission'}) or not required <= set(value)
+    if (set(value) - (required | {'decommission', 'claim'}) or not required <= set(value)
             or value['workflow'] != 'provider-provision' or not re.fullmatch(r'[0-9a-f]{32}', value.get('nonce', ''))
             or not isinstance(value['operation_id'], str) or not IDENTIFIER.fullmatch(value['operation_id'])
             or not isinstance(value['resources'], dict) or not isinstance(value['intents'], dict)):
@@ -187,11 +261,15 @@ def _load(path):
     return value
 
 
+def _origin(entry):
+    return entry.get('origin', 'claimed' if entry.get('ancestor_claim') else ('created' if entry['created'] else 'adopted'))
+
+
 def _receipt(operation, state_path, state, *, phase, task, source, mutations, actions=(), **extra):
     selection = state['selection']
     result = {'status': 'ok', 'phase': phase, 'task': task, 'source_sha': source,
               'operation': state['operation_id'],
-              'ownership': {role: 'created' if entry['created'] else 'adopted' for role, entry in state['resources'].items()},
+              'ownership': {role: _origin(entry) for role, entry in state['resources'].items()},
               'environment': selection['environment'], 'target': selection['target'],
               'binding': selection['binding'], 'runtime_activated': False,
               'mutations_requested': mutations, 'actions': list(actions),
@@ -250,6 +328,8 @@ def _identity(role, row, entry, marker):
         raise ContractError('provider_resource_ownership_changed')
     if role == 'compose' and (row.get('appName') != entry['app_name'] or row.get('serverId') != entry['server_id']):
         raise ContractError('provider_runtime_scope_changed')
+    if entry.get('ancestor_claim') and row.get('description') != entry['ancestor_claim']:
+        raise ContractError('provider_ancestor_claim_conflict')
 
 
 def _server(api, selector_key):
@@ -351,13 +431,17 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
     image_keys = _image_slot_keys(repo, adapter, binding)
     if server_name_env is not None and not ENV_KEY.fullmatch(server_name_env):
         raise ContractError('provider_server_selector_invalid')
-    private = journal_path(repo, profile_root, operation_dir)
+    private = ownership_path(repo, profile_root, adapter['repository']['id'], environment, target)
     selection = {'repository': adapter['repository']['id'], 'environment': environment, 'target': target,
                  'binding': binding, 'adopt': adopt, 'server_name_env': server_name_env}
     api = _client(profile_root, api)
     api.validate()
-    with locked(private.parent), locked(operation_dir):
-        state = _load(private) if private.exists() else {
+    with locked(private.parent.parent), locked(private.parent), locked(operation_dir):
+        previous = _load(private) if private.exists() else None
+        if previous is not None and previous.get('decommission', {}).get('phase') == 'complete':
+            archive_ownership(private, previous['operation_id'])
+            previous = None
+        state = previous or {
             'schema_version': '1.0.0', 'workflow': 'provider-provision', 'selection': selection,
             'operation_id': 'provision-' + secrets.token_hex(16),
             'nonce': secrets.token_hex(16), 'phase': 'planned', 'resources': {}, 'intents': {}, 'server_id': None}
@@ -404,6 +488,16 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
                 return existing
             intent = state['intents'].get(role)
             if existing is not None:
+                if role in ('project', 'environment'):
+                    from .provider_ancestors import reference
+                    entry = _entry(role, existing, created=False, parent=parent)
+                    shared = reference(_private_home(repo, profile_root), selection['repository'], role, entry, existing)
+                    if shared:
+                        entry['ancestor_claim'] = shared
+                        resources[role] = entry
+                        save()
+                        actions.append('reference-ancestor-claim')
+                        return existing
                 created = intent == 'create-requested' and existing.get('description') == marker
                 if not created and not adopt and not plan:
                     raise ContractError('provider_adoption_requires_explicit_flag')
@@ -506,6 +600,8 @@ def _empty_environment(api, entry, owned_compose=None):
 
 
 def _cleanup_scope(api, state):
+    from .provider_ancestors import verify
+    verify(api, state)
     resources = state['resources']
     compose = resources.get('compose')
     for role, entry in resources.items():
@@ -652,6 +748,14 @@ def _discover_operation(api, adapter, operation, previous=None):
             created='environment' in found or default_owned, parent=project['projectId'])
     if compose is not None:
         resources['compose'] = _entry('compose', compose, created=True, parent=environment['environmentId'])
+    for role, description in markers.get('compose', {}).get('ancestors', {}).items():
+        from .provider_ancestors import parse
+        entry = resources.get(role)
+        row = project if role == 'project' else environment
+        if (entry is None or row is None or row.get('description') != description
+                or parse(description, context['repository'], role, entry) is None):
+            raise ContractError('provider_ancestor_claim_conflict')
+        entry['ancestor_claim'] = description
     if snapshot is not None:
         if snapshot['environment']['parent'] != project['projectId']:
             raise ContractError('provider_runtime_marker_changed')
@@ -668,6 +772,14 @@ def _discover_operation(api, adapter, operation, previous=None):
             raise ContractError('provider_resource_identity_changed')
     selection = {'repository': context['repository'], 'environment': context['environment'], 'target': target,
                  'binding': binding, 'adopt': any(not row['created'] for row in resources.values()), 'server_name_env': None}
+    if operation.startswith('claim-'):
+        # A fresh machine cannot know what the examination saw: claimed scope is
+        # conservatively treated as data-bearing until a journal says otherwise.
+        for role, entry in resources.items():
+            if entry['created']:
+                entry['origin'] = 'claimed'
+                if role == 'compose':
+                    entry['data_bearing'] = True
     state = {'schema_version': '1.0.0', 'workflow': 'provider-provision', 'selection': selection,
              'operation_id': operation, 'nonce': context['nonce'], 'phase': 'complete', 'resources': resources,
              'intents': {}, 'server_id': resources.get('compose', {}).get('server_id')}
@@ -679,7 +791,12 @@ def _discover_operation(api, adapter, operation, previous=None):
             old = previous['resources'].get(role)
             if old and any(old.get(k) != entry.get(k) for k in ('id', 'created', 'parent', 'app_name', 'server_id')):
                 raise ContractError('provider_resource_identity_changed')
+        for role, entry in resources.items():
+            old = previous['resources'].get(role, {})
+            entry.update({k: old[k] for k in ('origin', 'data_bearing', 'claimed_description_sha256') if k in old})
         state['resources'] = {**previous['resources'], **resources}
+        if 'claim' in previous:
+            state['claim'] = previous['claim']
         state['selection'] = previous['selection']
         state['server_id'] = previous['server_id'] or state['server_id']
         if 'decommission' in previous:
@@ -687,26 +804,337 @@ def _discover_operation(api, adapter, operation, previous=None):
     return state
 
 
+def rebuild_journal(repo: Path, adapter: dict, *, operation_id: str, profile_root: Path,
+                    write_journal=False, api=None) -> dict:
+    """Read-only reconstruction or verification of a Dokploy journal from server markers.
+
+    Only created (or claimed) resources carry markers; adopted ones never grant
+    anything. An existing journal is verified and never overwritten; a missing one
+    is written only on explicit request. No provider write is made.
+    """
+    _operator()
+    if not isinstance(operation_id, str) or not IDENTIFIER.fullmatch(operation_id):
+        raise ContractError('provider_operation_id_required')
+    repository = adapter['repository']['id']
+    found = find_ownership(repo, profile_root, repository, operation_id)
+    api = _client(profile_root, api)
+    api.validate()
+    if found is None:
+        discovered = _discover_operation(api, adapter, operation_id)
+        private = ownership_path(repo, profile_root, repository, discovered['selection']['environment'],
+                                 discovered['selection']['target'])
+        if private.exists() or private.is_symlink():
+            raise ContractError('provider_ownership_journal_conflict')
+    else:
+        private = found
+    with locked(private.parent.parent), locked(private.parent):
+        previous = _load(private) if private.exists() or private.is_symlink() else None
+        if previous is not None and previous['operation_id'] != operation_id:
+            raise ContractError('provider_operation_selection_changed')
+        state = _discover_operation(api, adapter, operation_id, previous)
+        from .provider_ancestors import reference
+        for role in ('project', 'environment'):
+            entry = state['resources'].get(role, {})
+            if entry.get('ancestor_claim'):
+                row = _get_resource(api, role, entry)
+                if row is not None:
+                    reference(_private_home(repo, profile_root), repository, role, entry, row,
+                              rebuild=write_journal, allow_missing=not write_journal)
+        if state['selection']['repository'] != repository:
+            raise ContractError('provider_operation_repository_changed')
+        if previous is not None:
+            phase, written = 'verified', False
+        elif write_journal:
+            write(private, state)
+            _load(private)
+            phase, written = 'rebuilt', True
+        else:
+            phase, written = 'planned', False
+    selection = state['selection']
+    return {'status': 'ok', 'task': 'pz:provider:journal-rebuild', 'provider': 'dokploy', 'phase': phase,
+            'operation': operation_id, 'environment': selection['environment'], 'target': selection['target'],
+            'ownership': {role: _origin(entry) for role, entry in state['resources'].items()},
+            'journal_written': written, 'mutations_requested': 0}
+
+
+CLAIM_ROLES = ('project', 'default_environment', 'environment', 'compose')
+BACKUP_REFERENCE = re.compile(r'^[A-Za-z0-9._:/@#+-]{1,200}$')
+
+
+def _description_sha(row):
+    description = row.get('description')
+    return hashlib.sha256((description if isinstance(description, str) else '').encode()).hexdigest()
+
+
+def _configuration_sha(row):
+    """Bind runtime/configuration observations without persisting values or volatile status timestamps."""
+    keys = {'projectId', 'environmentId', 'composeId', 'name', 'isDefault', 'appName', 'serverId',
+            'sourceType', 'composeFile', 'env', 'domains', 'environments', *RESOURCE_FIELDS}
+    def stable(value):
+        if isinstance(value, dict):
+            return {key: child if key == 'domains' else stable(child) for key, child in value.items() if key in keys}
+        if isinstance(value, list):
+            return [stable(child) for child in value]
+        return value
+    return _hash(stable(row))
+
+
+def _claim_identity(state, role, row, entry):
+    """An interrupted marker write may leave only the approved description or its exact marker."""
+    marker = entry.get('ancestor_claim') or _marker(state, role)
+    pending = state.get('claim') or {}
+    approved_configuration = pending.get('configuration_sha256', {}).get(role)
+    if approved_configuration is not None and _configuration_sha(row) != approved_configuration:
+        raise ContractError('provider_claim_examination_changed')
+    unmarked = (pending.get('phase') == 'marking' and (entry['created'] or entry.get('ancestor_claim'))
+                and (not entry.get('is_default') or entry.get('ancestor_claim')) and role not in pending.get('marked', []))
+    if unmarked:
+        original = pending.get('description_sha256', {}).get(role)
+        if row.get('description') != marker and _description_sha(row) != original:
+            raise ContractError('provider_claim_examination_changed')
+        marker = row.get('description')
+    checked = dict(entry)
+    if unmarked:
+        checked.pop('ancestor_claim', None)
+    _identity(role, row, checked, marker)
+
+
+def _has_children(api, environment_id, owned_compose=None):
+    current = api.environment(environment_id)
+    return any(field != 'compose' or child.get('composeId') != owned_compose
+               for field in RESOURCE_FIELDS for child in rows(current.get(field)))
+
+
+def _examine_state(repo, adapter, environment, target, profile_root, operation_dir, api):
+    """Live, read-only examination of one adopted target; returns (state, private, public, private report)."""
+    target, binding = _binding(adapter, environment, target)
+    private = ownership_path(repo, profile_root, adapter['repository']['id'], environment, target)
+    if not private.exists():
+        raise ContractError('provider_claim_journal_required')
+    state = _load(private)
+    selection = state['selection']
+    if (selection['repository'] != adapter['repository']['id'] or selection['environment'] != environment
+            or selection['target'] != target or selection['binding'] != binding):
+        raise ContractError('provider_operation_selection_changed')
+    if state['phase'] != 'complete' or state.get('decommission'):
+        raise ContractError('provider_claim_operation_not_active')
+    resources = copy.deepcopy(state['resources'])
+    pending = state.get('claim') or {}
+    project_id = resources['project']['id']
+    environments = api.environments(project_id)
+    defaults = [env for env in environments if env.get('isDefault') is True and env.get('name') == 'production']
+    rows, identities = {}, {}
+    ancestor_previews, ancestor_references = {}, {}
+    for role in CLAIM_ROLES:
+        entry = resources.get(role)
+        if entry is None:
+            continue
+        row = _get_resource(api, role, entry)
+        if row is None:
+            raise ContractError('provider_claim_resource_absent')
+        _claim_identity(state, role, row, entry)
+        if role in ('project', 'environment') and not entry['created']:
+            from .provider_ancestors import reference, marker as ancestor_marker
+            creating = pending.get('phase') == 'marking' and role in pending.get('roles', [])
+            existing = (None if creating else reference(_private_home(repo, profile_root),
+                                                       selection['repository'], role, entry, row))
+            if existing:
+                entry['ancestor_claim'] = existing
+                ancestor_references[role] = existing
+            else:
+                ancestor_previews[role] = (entry.get('ancestor_claim') if creating else None) or ancestor_marker(
+                    selection['repository'], role, entry, _hash({'nonce': state['nonce'], 'role': role, 'id': entry['id']})[:32])
+        if not entry['created'] and isinstance(row.get('description'), str) and row['description'].startswith(MARKER):
+            raise ContractError('provider_claim_foreign_marker')
+        rows[role] = row
+        identities[role] = {k: entry.get(k) for k in ('id', 'name', 'parent', 'is_default', 'app_name', 'server_id')
+                            if k in entry} | {'description_sha256': _description_sha(row),
+                                              'configuration_sha256': _configuration_sha(row)}
+    adopted = [role for role in CLAIM_ROLES if role in resources and not resources[role]['created']
+               and not resources[role].get('ancestor_claim')]
+    if not adopted and not pending:
+        raise ContractError('provider_claim_nothing_adopted')
+    environment_entry = resources.get('environment')
+    others = [env for env in environments if environment_entry is None or env['environmentId'] != environment_entry['id']]
+    shared_project = (len(defaults) != 1
+                      or any(not env.get('isDefault') or _has_children(api, env['environmentId']) for env in others))
+    compose = resources.get('compose')
+    shared_environment = environment_entry is not None and _has_children(
+        api, environment_entry['id'], compose['id'] if compose else None)
+    runtime = {'containers': None, 'data_bearing': None, 'domains': None}
+    if compose is not None:
+        detail = api.compose(compose['id'])
+        runtime['containers'] = len(api.containers(compose['app_name'], compose['server_id']))
+        definition = detail.get('composeFile')
+        if isinstance(definition, str) and detail.get('sourceType') == 'raw':
+            runtime['data_bearing'] = bool(re.search(r'(?m)^\s*volumes\s*:', definition))
+        if isinstance(detail.get('domains'), list):
+            runtime['domains'] = len(detail['domains'])
+    claimable = [role for role in adopted if role != 'default_environment']
+    public = {'adopted_roles': adopted, 'claimable_roles': claimable, 'retained_shared_roles': [],
+              'shared_project': shared_project, 'shared_environment': shared_environment,
+              'ancestor_marker_previews': {role: 'sha256:' + hashlib.sha256(marker.encode()).hexdigest()
+                                           for role, marker in ancestor_previews.items()},
+              'ancestor_claim_references': {role: 'sha256:' + hashlib.sha256(marker.encode()).hexdigest()
+                                             for role, marker in ancestor_references.items()},
+              'backup_status': 'not_verified', 'external_dependencies': 'operator_review_required',
+              'runtime': runtime, 'descriptions_present': {role: isinstance(rows[role].get('description'), str)
+                                                          and bool(rows[role]['description']) for role in rows}}
+    public['examination_digest'] = 'sha256:' + _hash({'operation': state['operation_id'], 'nonce': state['nonce'],
+                                                      'resources': identities, **public})
+    report = {'schema_version': '1.0.0', 'workflow': 'provider-claim-examination', **public,
+              'identities': identities, 'descriptions': {role: rows[role].get('description') for role in adopted},
+              'ancestor_marker_previews_private': ancestor_previews, 'ancestor_references_private': ancestor_references}
+    return state, private, public, report
+
+
+def examine(repo: Path, adapter: dict, *, environment: str, target: str | None, profile_root: Path,
+            operation_dir: Path, api=None) -> dict:
+    """Read-only claim examination; the private report keeps original descriptions."""
+    _operator()
+    source = prove_source(repo, adapter)
+    api = _client(profile_root, api)
+    api.validate()
+    selected, _ = _binding(adapter, environment, target)
+    private = ownership_path(repo, profile_root, adapter['repository']['id'], environment, selected)
+    with locked(private.parent.parent), locked(private.parent):
+        state, private, public, report = _examine_state(repo, adapter, environment, target, profile_root, operation_dir, api)
+        filename = 'claim-observation.json' if state.get('claim') else 'claim-examination.json'
+        write(private.parent / filename, report)
+    return _receipt(operation_dir, private, state, phase='examined', task='pz:provider:examine', source=source,
+                    mutations=0, **public)
+
+
+def claim(repo: Path, adapter: dict, *, environment: str, target: str | None, profile_root: Path,
+          operation_dir: Path, approve_examination_digest: str, api=None) -> dict:
+    """Take ownership of examined, approved adopted resources: metadata only, with readback."""
+    _operator()
+    source = prove_source(repo, adapter)
+    api = _client(profile_root, api)
+    api.validate()
+    selected, _ = _binding(adapter, environment, target)
+    private = ownership_path(repo, profile_root, adapter['repository']['id'], environment, selected)
+    with locked(private.parent.parent), locked(private.parent), locked(operation_dir):
+        state, private, public, report = _examine_state(repo, adapter, environment, target, profile_root, operation_dir, api)
+        pending = state.get('claim')
+        if pending is None and public['examination_digest'] != approve_examination_digest:
+            raise ContractError('provider_claim_examination_changed')
+        if pending is not None and pending.get('approved_digest') != approve_examination_digest:
+            raise ContractError('provider_claim_examination_changed')
+        if pending is not None and pending['phase'] == 'complete':
+            return _receipt(operation_dir, private, state, phase='claimed', task='pz:provider:claim', source=source,
+                            mutations=0, claimed_roles=pending['roles'])
+        save = lambda: write(private, state)
+        resources = state['resources']
+        if pending is None:
+            if not public['claimable_roles']:
+                raise ContractError('provider_claim_nothing_claimable')
+            write(private.parent / 'claim-examination.json', report)
+            pending = state['claim'] = {'phase': 'marking', 'approved_digest': approve_examination_digest,
+                                        'previous_operation_id': state['operation_id'],
+                                        'roles': public['claimable_roles'], 'requested': [], 'marked': [],
+                                        'configuration_sha256': {role: identity['configuration_sha256']
+                                                                 for role, identity in report['identities'].items()},
+                                        'description_sha256': {role: identity['description_sha256']
+                                                               for role, identity in report['identities'].items()}}
+            state['operation_id'] = 'claim-' + secrets.token_hex(16)
+            if 'default_environment' in pending['roles'] and 'default_environment' not in resources:
+                project_id = resources['project']['id']
+                default = next(env for env in api.environments(project_id)
+                               if env.get('isDefault') is True and env.get('name') == 'production')
+                resources['default_environment'] = _entry('default_environment', default, created=False, parent=project_id)
+            for role in pending['roles']:
+                resources[role].update(created=role == 'compose', origin='claimed',
+                                       claimed_description_sha256=report['identities'][role]['description_sha256'])
+                if role in ('project', 'environment'):
+                    resources[role]['ancestor_claim'] = report['ancestor_marker_previews_private'][role]
+            for role, marker in report['ancestor_references_private'].items():
+                resources[role]['ancestor_claim'] = marker
+            if 'compose' in pending['roles']:
+                resources['compose']['data_bearing'] = public['runtime']['data_bearing'] is not False
+            anchor, snapshot = _runtime_anchor(state)
+            if anchor is not None:
+                # The claim markers carry the runtime scope, as created ancestors do.
+                resources[anchor]['runtime_scope'] = snapshot
+            save()
+        mutations = 0
+        # Every owned role (claimed, or created earlier) is re-marked with the claim
+        # operation, top-down, so server markers stay one consistent operation.
+        for role in ('project', 'environment', 'compose'):
+            entry = resources.get(role)
+            if (not entry or (not entry['created'] and role not in pending['roles'])
+                    or (entry.get('is_default') and not entry.get('ancestor_claim')) or role in pending['marked']):
+                continue
+            marker = entry.get('ancestor_claim') or _marker(state, role)
+            current = _get_resource(api, role, entry)
+            if current is None:
+                raise ContractError('provider_claim_resource_absent')
+            _claim_identity(state, role, current, entry)
+            if current.get('description') != marker:
+                key = {'project': 'projectId', 'environment': 'environmentId', 'compose': 'composeId'}[role]
+                payload = {key: entry['id'], 'description': marker}
+                if role != 'compose':
+                    payload['name'] = entry['name']
+                if role not in pending['requested']:
+                    pending['requested'].append(role)
+                save()
+                api.post(role + '.update', payload)
+                mutations += 1
+                current = _get_resource(api, role, entry)
+                if current is None:
+                    raise ContractError('provider_claim_resource_absent')
+            _identity(role, current, entry, marker)
+            if entry.get('ancestor_claim'):
+                from .provider_ancestors import record
+                record(_private_home(repo, profile_root), state['selection']['repository'], role, entry, marker)
+            pending['marked'].append(role)
+            save()
+        pending['phase'] = 'complete'
+        save()
+        return _receipt(operation_dir, private, state, phase='claimed', task='pz:provider:claim', source=source,
+                        mutations=mutations, claimed_roles=pending['roles'],
+                        retained_shared_roles=public['retained_shared_roles'])
+
+
+def _data_loss_guard(state, confirm_data_loss, backup_reference):
+    """Claimed data-bearing scope needs an explicit confirmation and a backup reference."""
+    compose = state['resources'].get('compose', {})
+    claimed = compose.get('created') and (compose.get('origin') == 'claimed' or state['operation_id'].startswith('claim-'))
+    if not claimed or compose.get('data_bearing') is False:
+        return False
+    if (confirm_data_loss is not True or not isinstance(backup_reference, str)
+            or not BACKUP_REFERENCE.fullmatch(backup_reference)):
+        raise ContractError('provider_claimed_data_requires_confirmation')
+    return True
+
+
 def deprovision(repo: Path, adapter: dict, *, profile_root: Path, operation_dir: Path,
-                operation_id=None, plan=False, api=None) -> dict:
+                operation_id=None, plan=False, api=None, confirm_data_loss=False, backup_reference=None) -> dict:
     _operator()
     source = prove_source(repo, adapter)
     if profile_root is None:
-        profile_root = Path(os.environ.get('XDG_STATE_HOME', str(Path.home() / '.local/state'))) / 'pzagent-adw-context'
-    private = journal_path(repo, profile_root, operation_dir)
-    if private.exists() and read(private).get('workflow') == 'kubernetes-provision':
+        from .operator_state import operator_home
+        profile_root = operator_home() / 'profile'
+    if not isinstance(operation_id, str) or not IDENTIFIER.fullmatch(operation_id):
+        raise ContractError('provider_operation_id_required')
+    repository = adapter['repository']['id']
+    private = find_ownership(repo, profile_root, repository, operation_id)
+    if private is not None and read(private).get('workflow') == 'kubernetes-provision':
         from .providers.kubernetes_lifecycle import deprovision as deprovision_kubernetes
-        if operation_id is not None and operation_id != read(private).get('operation_id'):
-            raise ContractError('provider_operation_selection_changed')
-        return deprovision_kubernetes(repo, adapter, profile_root=profile_root,
+        return deprovision_kubernetes(repo, adapter, private=private, profile_root=profile_root,
                                      operation_dir=operation_dir, plan=plan, source_sha=source)
     api = _client(profile_root, api)
     api.validate()
-    with locked(private.parent), locked(operation_dir):
+    if private is None:
+        # Fresh machine: server markers name the selection, which names the stable journal.
+        discovered = _discover_operation(api, adapter, operation_id)
+        private = ownership_path(repo, profile_root, repository, discovered['selection']['environment'],
+                                 discovered['selection']['target'])
+        if private.exists() or private.is_symlink():
+            raise ContractError('provider_ownership_journal_conflict')
+    with locked(private.parent.parent), locked(private.parent), locked(operation_dir):
         previous = _load(private) if private.exists() else None
-        operation = operation_id or (previous['operation_id'] if previous else None)
-        if not isinstance(operation, str) or not IDENTIFIER.fullmatch(operation):
-            raise ContractError('provider_operation_id_required')
+        operation = operation_id
         if previous and previous['operation_id'] != operation:
             raise ContractError('provider_operation_selection_changed')
         state = _discover_operation(api, adapter, operation, previous)
@@ -715,9 +1143,17 @@ def deprovision(repo: Path, adapter: dict, *, profile_root: Path, operation_dir:
         _cleanup_scope(api, state)
         write(private, state)
         if plan:
+            compose = state['resources'].get('compose', {})
+            required = bool(compose.get('created') and compose.get('data_bearing') is not False
+                            and (compose.get('origin') == 'claimed' or state['operation_id'].startswith('claim-')))
             return _receipt(operation_dir, private, state, phase='deprovision-planned',
-                            task='pz:provider:deprovision', source=source, mutations=0)
+                            task='pz:provider:deprovision', source=source, mutations=0,
+                            data_loss_confirmation_required=required)
+        confirmed = _data_loss_guard(state, confirm_data_loss, backup_reference)
         cleanup = state.setdefault('decommission', {'phase': 'deleting', 'requested': [], 'deleted': []})
+        if confirmed:
+            cleanup['data_loss_backup_reference'] = backup_reference
+            write(private, state)
         mutations = _retain_runtime_scope(api, state, lambda: write(private, state))
         for role in ('compose', 'environment', 'project'):
             entry = state['resources'].get(role)
@@ -742,6 +1178,8 @@ def deprovision(repo: Path, adapter: dict, *, profile_root: Path, operation_dir:
                 cleanup['deleted'].append(role)
                 entry['deleted'] = True
                 write(private, state)
+        from .provider_ancestors import cleanup as cleanup_ancestors
+        mutations += cleanup_ancestors(api, state, lambda: write(private, state), _private_home(repo, profile_root))
         for role in ('environment', 'default_environment'):
             default = state['resources'].get(role)
             if default and default['created'] and default.get('is_default'):
@@ -756,5 +1194,6 @@ def deprovision(repo: Path, adapter: dict, *, profile_root: Path, operation_dir:
         return _receipt(operation_dir, private, state, phase='deprovisioned',
                         task='pz:provider:deprovision', source=source, mutations=mutations,
                         adopted_resources_preserved=sum(not row['created'] for row in state['resources'].values()),
+                        data_loss_confirmed=confirmed,
                         owned_runtime_absent=observation is not None and observation['resource'] is None and not observation['containers'],
                         retirement_offered=observation is not None and observation['resource'] is None and not observation['containers'])

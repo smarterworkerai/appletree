@@ -12,6 +12,7 @@ from .execution import human
 from .operator_state import write as write_state,read as read_state
 from .oras_registry import OrasRegistry
 from .target_pointers import pointer_set,promote,reconcile
+from .routed_content import declaration as content_declaration, verify as verify_content
 def _release_updates(adapter:dict,release_kind_name:str,manifest_path:Path,control_source_sha:str,artifact_source_sha:str|None=None)->dict[str,str]:
  artifact_source_sha=artifact_source_sha or control_source_sha
  if not FULL_SHA.fullmatch(control_source_sha) or not FULL_SHA.fullmatch(artifact_source_sha):raise ContractError('control or artifact source SHA is invalid')
@@ -71,6 +72,7 @@ def deploy(repo:Path,adapter:dict,*,environment:str,requested_target:str|None,
  target=group['items'][name]
  if target['mode']!='active':raise ContractError('target mode or provider is unsupported')
  require_provider(target['provider'])
+ content_declaration(repo,adapter,name)
  approve(approval_path,source_sha=source,capability=capability,environment=environment,target=name)
  updates=_release_updates(adapter,release_kind,manifest_path,source,release_source_sha)
  kind=adapter['release_kinds'][release_kind];tags=kind['pointer_tags']
@@ -221,6 +223,7 @@ def deploy(repo:Path,adapter:dict,*,environment:str,requested_target:str|None,
                 observed_images=provider.readback())
   proof=_wait_runtime_proof(repo,adapter,environment,name,expected_images,provider_env,
                            'operator-release' if human() else 'normal-release')
+  content=verify_content(repo,adapter,name,release_source_sha,environ=provider_env)
   save('runtime-confirmed')
  except Exception:
   # Human invocation stops with durable progress; no implicit redeploy/restore.
@@ -261,7 +264,7 @@ def deploy(repo:Path,adapter:dict,*,environment:str,requested_target:str|None,
  result={'status':'ok','source_sha':source,'artifact_source_sha':release_source_sha,
          'environment':environment,'target':name,'release_kind':identity['release_kind'],
          'manifest_reference':manifest_reference,'deployment_id':state.get('deployment_id'),
-         'pointers_promoted':needs_pointer_update,'runtime_proof':proof['result']}
+         'pointers_promoted':needs_pointer_update,'runtime_proof':proof['result'],'routed_content':content}
  if state.get('previous_runtime')=='empty':
   result.update(previous_runtime='empty',previous_release_reference=state.get('previous_release_reference'),
                 empty_runtime_proof=state['empty_runtime_proof'])

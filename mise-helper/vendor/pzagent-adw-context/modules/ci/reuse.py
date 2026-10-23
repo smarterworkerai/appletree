@@ -25,7 +25,7 @@ def _lookup_error(stage: str, exc: ApiError) -> ProofError:
     safe={'response_too_large','response_malformed','pagination_limit',
           'check_inventory_incomplete','association_lookup_failed'}
     return ProofError(f'prior_{stage}_{reason}' if reason in safe
-                      else f'prior_{stage}_lookup_failed')
+                      else f'prior_{stage}_lookup_failed', detail=exc.detail)
 
 
 def _executed_pr_numbers(api, current: Pull) -> set[int]:
@@ -70,11 +70,12 @@ def _executed_pr_numbers(api, current: Pull) -> set[int]:
     return numbers
 
 
-def prior_gate(api, current: Pull, rev: Revision):
+def prior_gate(api, current: Pull, rev: Revision, *, associated: list[dict] | None = None):
     if not rev.ff or rev.merge_tree!=rev.source_tree:
         raise ProofError('merge_tree_requires_branch_sync')
     try:
-        associated=api.associated_pulls(current.head_sha)
+        if associated is None:
+            associated=api.associated_pulls(current.head_sha)
     except ApiError as exc:
         raise _lookup_error('association',exc) from None
     numbers:set[int]=set()

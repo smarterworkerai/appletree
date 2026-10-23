@@ -28,7 +28,8 @@ PROJECT_TASKS = ('adw:install', 'adw:build', 'adw:lint', 'adw:static-analysis',
                  'adw:test:unit', 'adw:test:integration:fast',
                  'adw:test:integration:full', 'adw:verify:minimal')
 TASK_OPTIONS = {'implemented', 'commands', 'release_commands', 'isolated_workspace',
-                'env', 'unset_env', 'inherit_env', 'inherit_env_reason', 'reports', 'report_prefix', 'maven_cache', 'cache_env'}
+                'env', 'unset_env', 'inherit_env', 'inherit_env_reason', 'reports', 'report_prefix',
+                'dependency_cache', 'maven_cache', 'cache_env'}
 COMMAND_OPTIONS = {'argv', 'cwd', 'env', 'stdout_file', 'workspace_pattern'}
 ENV_KEY = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 OPERATOR_ENV = KEYS | {
@@ -98,6 +99,7 @@ def load(repo: Path) -> dict:
                 or not _strings(task.get('inherit_env', []))
                 or not _strings(task.get('reports', []))
                 or not isinstance(task.get('report_prefix', ''), str)
+                or not isinstance(task.get('dependency_cache', False), bool)
                 or not isinstance(task.get('maven_cache', False), bool)):
             raise ContractError('project_commands_invalid')
         inherited = inheritance(task)
@@ -227,14 +229,21 @@ def environment(task: dict, context: dict[str, str]) -> dict:
     return env
 
 
-def _maven_cache(repo: Path, env: dict, context: dict) -> list[str]:
-    options = []
+def _dependency_cache(repo: Path, env: dict, context: dict) -> Path | None:
     if env.get('ADW_DEPENDENCY_CACHE_ROOT'):
         from modules.dependency_cache import cache_root
         cache = cache_root(repo, Path(env['ADW_DEPENDENCY_CACHE_ROOT']))
         cache.mkdir(parents=True, exist_ok=True)
-        env.update(MAVEN_USER_HOME=str(cache / 'maven-user'), npm_config_cache=str(cache / 'npm'))
         context['dependency_cache'] = str(cache)
+        return cache
+    return None
+
+
+def _maven_cache(repo: Path, env: dict, context: dict) -> list[str]:
+    options = []
+    cache = _dependency_cache(repo, env, context)
+    if cache is not None:
+        env.update(MAVEN_USER_HOME=str(cache / 'maven-user'), npm_config_cache=str(cache / 'npm'))
         options += ['--strict-checksums', '-Dmaven.repo.local=' + str(cache / 'maven')]
     if env.get('ADW_BUILD_CACHE_ROOT'):
         options += ['-Dmaven.build.cache.location=' + str(Path(env['ADW_BUILD_CACHE_ROOT']) / 'maven')]
@@ -253,6 +262,8 @@ def execute(repo: Path, name: str, config: dict):
             if name == 'adw:verify:minimal':
                 env['ADW_SHARED_WORKSPACE'] = str(selected)
             maven_options = _maven_cache(repo, env, context) if task.get('maven_cache') else []
+            if task.get('dependency_cache') and not task.get('maven_cache'):
+                _dependency_cache(repo, env, context)
             if 'dependency_cache' in context:
                 for key, value in task.get('cache_env', {}).items():
                     env.setdefault(key, bindings({key: value}, task, context)[key])

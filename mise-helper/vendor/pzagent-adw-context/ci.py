@@ -12,7 +12,7 @@ from modules.common import ContractError
 from modules.ci.contract import contract_ref
 from modules.ci.ci_only import require_ci_only
 from modules.ci.evidence import job_evidence
-from modules.ci.github_api import ApiError, GitHub, project_files
+from modules.ci.github_api import ApiError, GitHub, lookup_detail, project_files
 from modules.ci.live_pr import read_pr
 from modules.ci.policy import classify
 from modules.ci.publication_proof import destination_gate, with_transient_retry
@@ -125,8 +125,11 @@ def trust_root_request(repository: str, number: int, wait_seconds: int = 300):
     return trust_root_gate(api,_bootstrap_pull(api,repository,number),wait_seconds=wait_seconds)
 
 
-def _blocked(reason):
-    print(json.dumps({'status':'blocked','reason':reason},sort_keys=True))
+def _blocked(reason, detail=None):
+    result={'status':'blocked','reason':reason}
+    if lookup_detail(detail):
+        result['detail']=lookup_detail(detail)
+    print(json.dumps(result,sort_keys=True))
     return 21
 
 
@@ -211,7 +214,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command!='classify':
         try:
             if args.command=='proof-destination':
-                print(json.dumps(destination_request(args.repository,args.target,args.expected_sha,args.adapter),sort_keys=True))
+                result=with_transient_retry(
+                    lambda:destination_request(args.repository,args.target,args.expected_sha,args.adapter),
+                    sleep=time.sleep)
+                print(json.dumps(result,sort_keys=True))
                 return 0
             api,pr,rev,adapter=live_request(args.repository,args.pr,args.expected_sha,args.adapter)
             if args.command=='proof-pr':
@@ -230,7 +236,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(result,sort_keys=True))
             return 0
         except (ProofError,ApiError,ContractError,OSError,KeyError,TypeError,ValueError) as exc:
-            return _blocked(exc.reason if isinstance(exc,ProofError) else 'readback_invalid')
+            return _blocked(exc.reason if isinstance(exc,ProofError) else 'readback_invalid',
+                            getattr(exc,'detail',None))
     try:
         if args.adapter:
             adapter=load_adapter(args.adapter)

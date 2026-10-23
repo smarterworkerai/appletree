@@ -7,9 +7,7 @@ from pathlib import Path
 import re
 import sys
 from typing import Any
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
 
 if __package__ in {None, ''}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -17,6 +15,7 @@ if __package__ in {None, ''}:
 
 from .common import project_dir, ensure_contained, ContractError
 from .hooks import HookFailure
+from .http_probe import ProbeError, fetch
 from .release_manifest import DIGEST_REF, image_variables
 
 
@@ -34,13 +33,11 @@ def http_probe(binding: dict, operation: str) -> bool:
             or parts.password or parts.query or parts.fragment or parts.path not in {'', '/'}):
         blocked('runtime-probe-base-url-invalid')
     reason = 'runtime-' + operation + '-endpoint-failed'
-    request = Request(base.rstrip('/') + probes[operation + '_path'],
-                      headers={'Accept': 'application/json', 'User-Agent': 'pzagent-health'})
     try:
-        with urlopen(request, timeout=15) as response:
-            if response.status < 200 or response.status >= 400:
-                blocked(reason)
-    except (HTTPError, URLError, TimeoutError):
+        response = fetch(base.rstrip('/') + probes[operation + '_path'])
+        if not 200 <= response.status < 300:
+            blocked(reason)
+    except ProbeError:
         blocked(reason)
     return True
 

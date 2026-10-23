@@ -172,6 +172,19 @@ def _argv(repo: Path, adapter: dict[str, Any], capability: str) -> tuple[list[st
     return argv, operation
 
 
+def check_commands(repo: Path, adapter: dict[str, Any]) -> None:
+    """Resolve every declared hook without launching it or accessing a provider."""
+    import shutil
+    declared = []
+    for capability in adapter['hooks']['operations']:
+        argv, _ = _argv(repo, adapter, capability)
+        declared.append(argv)
+    for argv in declared:
+        executable = argv[0] if '/' in argv[0] else shutil.which(argv[0])
+        if not executable or not os.access(executable, os.X_OK):
+            raise ContractError('hook executable is unavailable or not executable')
+
+
 def _redact_stderr(raw: str) -> str:
     # Project hooks may invoke provider CLIs whose progress/error output can
     # contain credentials, private endpoints, resource IDs, or payload values.

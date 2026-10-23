@@ -20,7 +20,7 @@ from .execution import human
 from .operator_github import api, pages
 from .operator_registry import oras, read_manifest
 from .operator_retention import _active_operation_roots
-from .operator_state import locked, read, write
+from .operator_state import OPERATION_ID, REPOSITORY, locked, operator_home, read, write
 from .oras_registry import OrasRegistry
 from .release_manifest import release_kind, validate
 from .retention import Version, candidates
@@ -50,21 +50,66 @@ def _operator():
         raise ContractError('pointer_retirement_run_id_invalid')
 
 
-def _private(repo, profile, operation):
+def _home(repo, profile):
+    """The operator home of `profile`; never a link, never inside the checkout."""
     if profile is None:
         raise ContractError('pointer_retirement_private_profile_required')
-    profile = profile.absolute()
-    if (any(p.is_symlink() for p in (profile, *profile.parents))
-            or profile.resolve() == repo.resolve() or repo.resolve() in profile.resolve().parents
-            or (profile.exists() and (not profile.is_dir() or profile.stat().st_mode & 0o077))):
+    home = operator_home(Path(profile)).absolute()
+    if (any(p.is_symlink() for p in (home, *home.parents))
+            or home.resolve() == repo.resolve() or repo.resolve() in home.resolve().parents
+            or (home.exists() and (not home.is_dir() or home.stat().st_mode & 0o077))):
         raise ContractError('pointer_retirement_private_profile_invalid')
-    profile.mkdir(parents=True, exist_ok=True, mode=0o700)
-    key = hashlib.sha256(_bytes({'repository_path': str(repo.resolve()),
-                                'operation_path': str(operation.resolve())})).hexdigest()
-    path = profile / 'provider-operations' / key / 'operation.json'
-    if any(p.is_symlink() for p in (path, path.parent, path.parent.parent)):
-        raise ContractError('pointer_retirement_private_profile_invalid')
+    home.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return home
+
+
+def _repository(adapter):
+    repository = adapter['repository']['id']
+    if (not isinstance(repository, str) or not REPOSITORY.fullmatch(repository)
+            or any(part in ('.', '..') for part in repository.split('/'))):
+        raise ContractError('pointer_retirement_repository_invalid')
+    return repository
+
+
+def _private(repo, adapter, profile, operation):
+    """This retirement operation's private plan, keyed by its operation ID."""
+    if not OPERATION_ID.fullmatch(operation.name):
+        raise ContractError('pointer_retirement_operation_invalid')
+    home = _home(repo, profile)
+    path = home / 'journals' / _repository(adapter) / 'retirement' / operation.name / 'operation.json'
+    current = home
+    for part in path.relative_to(home).parts[:-1]:
+        current = current / part
+        if current.is_symlink() or (current.exists() and (not current.is_dir() or current.stat().st_mode & 0o077)):
+            raise ContractError('pointer_retirement_private_profile_invalid')
+        current.mkdir(mode=0o700, exist_ok=True)
     return path
+
+
+def _decommission(repo, adapter, profile, operation):
+    """The decommissioned ownership journal with this operation ID (current or archived)."""
+    if not isinstance(operation, str) or not IDENTIFIER.fullmatch(operation):
+        raise ContractError('pointer_retirement_decommission_unproven')
+    base = _home(repo, profile) / 'journals' / _repository(adapter) / 'ownership'
+    matches = []
+    if base.is_dir() and not base.is_symlink():
+        for entry in sorted(base.iterdir()):
+            if entry.is_symlink() or not entry.is_dir():
+                continue
+            archive = entry / 'archive'
+            paths = [entry / 'operation.json'] + (sorted(archive.glob('*.json')) if archive.is_dir() and not archive.is_symlink() else [])
+            for path in paths:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                try:
+                    value = _read_private(path)
+                except (OSError, ValueError):
+                    raise ContractError('pointer_retirement_private_journal_invalid') from None
+                if isinstance(value, dict) and value.get('operation_id') == operation:
+                    matches.append(path)
+    if len(matches) != 1:
+        raise ContractError('pointer_retirement_decommission_unproven')
+    return matches[0]
 
 
 def _read_private(path):
@@ -82,7 +127,7 @@ def _rows(value):
 
 def absence(repo, adapter, profile, operation, target, provider=None):
     """Independently validate ownership scope and fresh raw provider absence."""
-    state = _read_private(_private(repo, profile, operation))
+    state = _read_private(_decommission(repo, adapter, profile, operation))
     selection = state.get('selection', {})
     binding = selection.get('binding', {})
     if (state.get('workflow') != 'provider-provision' or state.get('phase') != 'complete'
@@ -287,20 +332,20 @@ def _reconcile_deleted(plan, registry, private):
 
 
 def retire(repo, adapter, *, kind_name, target, profile_root, operation_dir,
-           deprovision_operation_dir, apply=False, approve_operation_digest=None,
+           deprovision_operation, apply=False, approve_operation_digest=None,
            provider=None, registry=None):
     _operator()
     if not isinstance(target, str) or not IDENTIFIER.fullmatch(target):
         raise ContractError('pointer_retirement_target_invalid')
     kind = release_kind(adapter, kind_name)
     _, packages = _packages(adapter, kind)
-    private = _private(repo, profile_root, operation_dir)
-    decommission = _private(repo, profile_root, deprovision_operation_dir)
+    private = _private(repo, adapter, profile_root, operation_dir)
+    decommission = _decommission(repo, adapter, profile_root, deprovision_operation)
     if private == decommission:
         raise ContractError('pointer_retirement_requires_separate_operation')
     registry = registry or OrasRegistry()
     with locked(private.parent), locked(decommission.parent):
-        proof = absence(repo, adapter, profile_root, deprovision_operation_dir, target, provider)
+        proof = absence(repo, adapter, profile_root, deprovision_operation, target, provider)
         selection = {'repository': adapter['repository']['id'], 'kind': kind_name,
                      'target': target, 'decommission_sha256': proof, 'packages': packages,
                      'pointer_tags': kind['pointer_tags']}
@@ -371,7 +416,7 @@ def retire(repo, adapter, *, kind_name, target, profile_root, operation_dir,
                     raise ContractError('pointer_retirement_pointer_readback_invalid')
                 if tag_ref not in plan['moved']:
                     plan['moved'].append(tag_ref); write(private, plan)
-            absence(repo, adapter, profile_root, deprovision_operation_dir, target, provider)
+            absence(repo, adapter, profile_root, deprovision_operation, target, provider)
             _check_positions(plan, registry)
             versions, roots, locations = inventory(repo, adapter, kind_name, plan)
             eligible = candidates(versions, roots, now=float('inf'), grace_hours=1)

@@ -39,7 +39,7 @@ def adw(repo: Path, task: str, arguments: list[str]) -> dict:
 
 
 def deploy_existing(repo: Path, adapter: dict, args) -> dict:
-    directory = args.operation_dir or new_operation(repo)
+    directory = args.operation_dir or new_operation(repo, 'deploy')
     directory = directory.resolve()
     with locked(directory):
         path = directory / 'operation.json'
@@ -96,8 +96,12 @@ def deploy_existing(repo: Path, adapter: dict, args) -> dict:
             recovery = ['--reconcile-pointers'] if getattr(args, 'reconcile_pointers', False) else []
             config_restore = (['--restore-compose', str(directory / 'previous-compose.yml')]
                               if record['sync_config'] else [])
+            if 'deploy_operation' not in record:
+                # The nested deployment is its own addressable operation, recorded before it starts.
+                record['deploy_operation'] = new_operation(repo, 'deploy-apply').name
+                write(path, record)
             run('deploy', 'adw:deploy:apply', ['--kind', record['kind'],
-                '--release-ref', record['release_reference'], '--operation-dir', str(directory / 'deploy'),
+                '--release-ref', record['release_reference'], '--operation', record['deploy_operation'],
                 '--on-failure', record.get('on_failure', 'stop'), *config_restore, *recovery])
             if record['verify']:
                 run('validate', 'adw:validate-deployment', [])

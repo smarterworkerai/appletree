@@ -15,10 +15,31 @@ from ..cluster_bootstrap import Bootstrap, validate, facts, PULL_SECRET
 from ..operator_state import locked, read, write
 from ..operator_credentials import private_profile_path
 from .kubernetes import KubernetesProvider
+from .kubernetes_metadata import metadata_api
 
 OPERATION = 'adw.pzagent.io/provision-operation'
 NONCE = 'adw.pzagent.io/provision-nonce'
+IDENTITY = {'repository': 'adw.pzagent.io/repository', 'environment': 'adw.pzagent.io/environment',
+            'target': 'adw.pzagent.io/target'}
 PROFILE_FILE = 'kubernetes-provisioning.json'
+
+
+def ownership_annotations(state):
+    """Self-describing ownership: operation, nonce and the selection it belongs to."""
+    selection = state['selection']
+    return {OPERATION: state['operation_id'], NONCE: state['nonce'],
+            **{key: selection[name] for name, key in IDENTITY.items()}}
+
+
+def owned_by(annotations, state, *, require_identity=False):
+    """Legacy objects may lack identity annotations; present ones must all match."""
+    expected = ownership_annotations(state)
+    if annotations.get(OPERATION) != expected[OPERATION] or annotations.get(NONCE) != expected[NONCE]:
+        return False
+    present = [key for key in IDENTITY.values() if key in annotations]
+    if (require_identity or present) and any(annotations.get(key) != expected[key] for key in IDENTITY.values()):
+        return False
+    return True
 
 
 def _hash(value):
@@ -82,16 +103,19 @@ def _profile(root, provider, binding):
 
 
 class TargetBootstrap(Bootstrap):
-    def __init__(self, provider, profile, digest, values, state, save, plan=False):
+    def __init__(self, provider, profile, digest, values, state, save, plan=False, metadata=None):
         self.provider, self.profile, self.digest = provider, profile, digest
         self.state, self.save, self.plan = state, save, plan
         self.mutations = 0
+        self.metadata = metadata
         super().__init__(self, values)
 
     def kube(self, arguments, **kw):
         return self.provider._run(arguments, **kw)
 
     def observed(self, kind, name, namespace):
+        if self.metadata is not None:
+            return self.metadata.get(kind, name, namespace)
         args = ['get', kind, name, '--ignore-not-found', '-o',
                 'jsonpath={.metadata}{"\\n"}{.type}']
         if namespace:
@@ -124,9 +148,7 @@ class TargetBootstrap(Bootstrap):
         key = '|'.join((kind, namespace or '', name))
         entry = self.state['resources'].get(key)
         if entry and entry['created']:
-            annotations = value['metadata'].get('annotations', {})
-            if (annotations.get(OPERATION) != self.state['operation_id']
-                    or annotations.get(NONCE) != self.state['nonce']
+            if (not owned_by(value['metadata'].get('annotations', {}), self.state)
                     or entry.get('uid', value['metadata']['uid']) != value['metadata']['uid']):
                 raise ContractError('kubernetes_provision_identity_changed')
             entry['uid'] = value['metadata']['uid']
@@ -162,9 +184,7 @@ class TargetBootstrap(Bootstrap):
             if value:
                 self.check(value, meta.get('labels', {}))
                 if entry and entry['created']:
-                    annotations = value['metadata'].get('annotations', {})
-                    if (annotations.get(OPERATION) != self.state['operation_id']
-                            or annotations.get(NONCE) != self.state['nonce']
+                    if (not owned_by(value['metadata'].get('annotations', {}), self.state)
                             or entry.get('uid', value['metadata']['uid']) != value['metadata']['uid']):
                         raise ContractError('kubernetes_provision_identity_changed')
                     entry['uid'] = value['metadata']['uid']
@@ -183,15 +203,14 @@ class TargetBootstrap(Bootstrap):
                 self.state['resources'][key] = entry
                 self.save()  # Intent precedes request; a lost acknowledgement is read back.
             meta.setdefault('labels', {}).update(self.labels)
-            meta.setdefault('annotations', {}).update({OPERATION: self.state['operation_id'], NONCE: self.state['nonce']})
+            meta.setdefault('annotations', {}).update(ownership_annotations(self.state))
             self.kube(['create', '-f', '-', '-o', 'name'], data=json.dumps(item).encode())
             self.mutations += 1
             value = self.observed(kind, name, namespace)
             if value is None:
                 raise ContractError('kubernetes_provision_create_unproven')
             self.check(value)
-            annotations = value['metadata'].get('annotations', {})
-            if annotations.get(OPERATION) != self.state['operation_id'] or annotations.get(NONCE) != self.state['nonce']:
+            if not owned_by(value['metadata'].get('annotations', {}), self.state, require_identity=True):
                 raise ContractError('kubernetes_provision_identity_changed')
             entry['uid'] = value['metadata']['uid']
             self.save()
@@ -252,18 +271,20 @@ def _receipt(operation_dir, state, *, plan, cleanup, mutations, source_sha, boot
 
 def provision(repo, adapter, *, environment, target, profile_root, operation_dir, source_sha,
               adopt=False, plan=False, server_name_env=None):
-    from ..provider_lifecycle import _operator, journal_path
+    from ..provider_lifecycle import _operator, archive_ownership, ownership_path
     _operator()
     if adopt or server_name_env:
         raise ContractError('kubernetes_provision_selection_invalid')
-    private = journal_path(repo, profile_root, operation_dir)
     provider, profile, digest, selection = _selection(repo, adapter, environment, target, profile_root)
+    private = ownership_path(repo, profile_root, selection['repository'], environment, selection['target'])
     target_profile = {key: value for key, value in profile.items() if key != 'tls'}
     values = {} if plan else facts(target_profile)
     if 'tls' in profile:
         _tls_ready(provider, profile['tls'])
     with locked(private.parent), locked(operation_dir):
-        state = _state(private, root=profile_root) if private.exists() else {'schema_version': '1.0.0',
+        if private.exists() and _state(private, root=private.parent)['phase'] == 'deprovisioned':
+            archive_ownership(private, _state(private, root=private.parent)['operation_id'])
+        state = _state(private, root=private.parent) if private.exists() else {'schema_version': '1.0.0',
             'workflow': 'kubernetes-provision', 'selection': selection, 'profile': profile,
             'operation_id': 'kube-provision-' + secrets.token_hex(12), 'nonce': secrets.token_hex(16),
             'resources': {}, 'phase': 'planned'}
@@ -368,12 +389,11 @@ def _namespace_children(bootstrap, namespace, candidates):
                 raise ContractError('provider_foreign_child_present')
 
 
-def deprovision(repo, adapter, *, profile_root, operation_dir, source_sha, plan=False):
-    from ..provider_lifecycle import _operator, journal_path
+def deprovision(repo, adapter, *, private, profile_root, operation_dir, source_sha, plan=False):
+    from ..provider_lifecycle import _operator
     _operator()
-    private = journal_path(repo, profile_root, operation_dir)
     with locked(private.parent), locked(operation_dir):
-        state = _state(private, root=profile_root)
+        state = _state(private, root=private.parent)
         if state.get('workflow') != 'kubernetes-provision':
             raise ContractError('provider_operation_selection_changed')
         selected = state['selection']
@@ -399,8 +419,7 @@ def deprovision(repo, adapter, *, profile_root, operation_dir, source_sha, plan=
                 continue
             bootstrap.check(value)
             metadata = value['metadata']
-            annotations = metadata.get('annotations', {})
-            if (annotations.get(OPERATION) != state['operation_id'] or annotations.get(NONCE) != state['nonce']
+            if (not owned_by(metadata.get('annotations', {}), state)
                     or entry.get('uid', metadata['uid']) != metadata['uid']):
                 raise ContractError('kubernetes_provision_identity_changed')
             if entry.get('delete_requested'):
@@ -448,3 +467,131 @@ def deprovision(repo, adapter, *, profile_root, operation_dir, source_sha, plan=
             state['phase'] = 'deprovisioned'
             save()
         return _receipt(operation_dir, state, plan=plan, cleanup=True, mutations=mutations, source_sha=source_sha)
+
+
+def rebuild_journal(repo, adapter, *, environment, target, profile_root, write_journal=False):
+    """Read-only reconstruction or verification of a provisioning journal from the cluster.
+
+    Only object metadata is read (never Secret data). Every owned object must carry
+    the same operation, nonce and repository/environment/target identity; anything
+    partial, foreign or conflicting refuses. An existing journal is verified, never
+    overwritten; a missing one is written only when explicitly requested.
+    """
+    from ..provider_lifecycle import _operator, ownership_path
+    _operator()
+    provider, profile, digest, selection = _selection(repo, adapter, environment, target, profile_root)
+    private = ownership_path(repo, profile_root, selection['repository'], environment, selection['target'])
+    with metadata_api(provider) as metadata:
+        return _rebuild_metadata(provider, profile, digest, selection, private, metadata, write_journal)
+
+
+def _rebuild_metadata(provider, profile, digest, selection, private, metadata, write_journal):
+    namespace = provider.namespace
+    probe = {'selection': selection, 'operation_id': '', 'nonce': '', 'resources': {}}
+    reader = TargetBootstrap(provider, {k: v for k, v in profile.items() if k != 'tls'}, digest, {}, probe,
+                             lambda: None, plan=True, metadata=metadata)
+    value = reader.observed('Namespace', namespace, None)
+    if value is None:
+        raise ContractError('kubernetes_rebuild_nothing_owned')
+    reader.check(value)
+    annotations = value['metadata'].get('annotations', {})
+    operation, nonce = annotations.get(OPERATION), annotations.get(NONCE)
+    if (not isinstance(operation, str) or not re.fullmatch(r'kube-provision-[0-9a-f]{24}', operation)
+            or not isinstance(nonce, str) or not re.fullmatch(r'[0-9a-f]{32}', nonce)):
+        raise ContractError('kubernetes_rebuild_marker_invalid')
+    state = {'schema_version': '1.0.0', 'workflow': 'kubernetes-provision', 'selection': selection,
+             'profile': profile, 'operation_id': operation, 'nonce': nonce, 'resources': {}, 'phase': 'complete'}
+    if not owned_by(annotations, state, require_identity=True):
+        raise ContractError('kubernetes_rebuild_identity_unproven')
+    state['resources']['|'.join(('Namespace', '', namespace))] = {
+        'created': True, 'apiVersion': 'v1', 'kind': 'Namespace', 'name': namespace, 'namespace': None,
+        'uid': value['metadata']['uid']}
+    expected = ([(PULL_SECRET, None)] if 'image_pull' in profile else []) + [
+        (name, {'app.kubernetes.io/managed-by': 'adw', 'adw.pzagent.io/target': binding_alias(profile, namespace)})
+        for name in profile.get('app_secrets', {}).get(namespace, {})]
+    for name, extra in expected:
+        secret = reader.observed('Secret', name, namespace)
+        if secret is None:
+            raise ContractError('kubernetes_rebuild_incomplete')
+        reader.check(secret, extra)
+        if not owned_by(secret['metadata'].get('annotations', {}), state, require_identity=True):
+            raise ContractError('kubernetes_rebuild_identity_unproven')
+        state['resources']['|'.join(('Secret', namespace, name))] = {
+            'created': True, 'apiVersion': 'v1', 'kind': 'Secret', 'name': name, 'namespace': namespace,
+            'uid': secret['metadata']['uid']}
+    with locked(private.parent):
+        if private.exists() or private.is_symlink():
+            current = _state(private, root=private.parent)
+            same = (current['selection'] == selection and current['operation_id'] == operation
+                    and current['nonce'] == nonce and current['phase'] == 'complete'
+                    and {k: (v['kind'], v['name'], v['namespace'], v.get('uid')) for k, v in current['resources'].items()
+                         if not v.get('deleted')}
+                    == {k: (v['kind'], v['name'], v['namespace'], v['uid']) for k, v in state['resources'].items()})
+            if not same:
+                raise ContractError('kubernetes_journal_conflict')
+            phase, written = 'verified', False
+        elif write_journal:
+            write(private, state)
+            _state(private, root=private.parent)
+            phase, written = 'rebuilt', True
+        else:
+            phase, written = 'planned', False
+    return {'status': 'ok', 'task': 'pz:provider:journal-rebuild', 'provider': 'kubernetes', 'phase': phase,
+            'operation': operation, 'environment': selection['environment'], 'target': selection['target'],
+            'owned_resources': len(state['resources']), 'journal_written': written, 'mutations_requested': 0}
+
+
+def annotate_identity(repo, adapter, *, environment, target, profile_root, plan=False):
+    """One-off migration: add missing identity annotations to journal-owned objects.
+
+    Each object must still match its journal entry (operation, nonce, UID, labels);
+    the patch is metadata-only, bound to the observed resourceVersion and read back.
+    Secret data is never read.
+    """
+    from ..provider_lifecycle import _operator, ownership_path
+    _operator()
+    provider, profile, digest, selection = _selection(repo, adapter, environment, target, profile_root)
+    private = ownership_path(repo, profile_root, selection['repository'], environment, selection['target'])
+    if not private.exists():
+        raise ContractError('kubernetes_migration_journal_required')
+    with metadata_api(provider) as metadata:
+        return _annotate_metadata(provider, profile, digest, selection, private, metadata, plan)
+
+
+def _annotate_metadata(provider, profile, digest, selection, private, client, plan):
+    with locked(private.parent):
+        state = _state(private, root=private.parent)
+        if state['selection'] != selection:
+            raise ContractError('provider_operation_selection_changed')
+        reader = TargetBootstrap(provider, {k: v for k, v in profile.items() if k != 'tls'}, digest, {}, state,
+                                 lambda: None, plan=True, metadata=client)
+        expected = ownership_annotations(state)
+        pending = []
+        for entry in state['resources'].values():
+            if entry.get('deleted'):
+                continue
+            value = reader.observed(entry['kind'], entry['name'], entry['namespace'])
+            if value is None:
+                raise ContractError('kubernetes_migration_resource_absent')
+            reader.check(value)
+            metadata = value['metadata']
+            annotations = metadata.get('annotations', {})
+            if not owned_by(annotations, state) or entry.get('uid') != metadata['uid']:
+                raise ContractError('kubernetes_provision_identity_changed')
+            missing = {key: expected[key] for key in IDENTITY.values() if key not in annotations}
+            version = metadata.get('resourceVersion')
+            if missing and (not isinstance(version, str) or not version):
+                raise ContractError('kubernetes_provision_readback_invalid')
+            if missing:
+                pending.append((entry, missing, metadata))
+        mutations = 0
+        for entry, missing, metadata in ([] if plan else pending):
+            client.annotate(entry['kind'], entry['name'], entry['namespace'], metadata, missing)
+            mutations += 1
+            value = reader.observed(entry['kind'], entry['name'], entry['namespace'])
+            if (value is None or value['metadata']['uid'] != entry['uid']
+                    or not owned_by(value['metadata'].get('annotations', {}), state, require_identity=True)):
+                raise ContractError('kubernetes_migration_readback_unproven')
+    return {'status': 'ok', 'task': 'pz:provider:journal-migrate', 'provider': 'kubernetes',
+            'phase': 'planned' if plan else 'complete', 'operation': state['operation_id'],
+            'objects_needing_identity': len(pending), 'mutations_requested': mutations}

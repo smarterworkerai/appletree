@@ -276,9 +276,9 @@
   "call_boundaries": {
     "modules.ci.github_api:GitHub._fetch_live:subprocess.run": {
       "call_sha256": [
-        "7249aadee6ab30580e08fcaca404d9f661347c92206386f7729de4c07e1cd2cb"
+        "7944e7f9ba01e89d16763286247ce4e37dc0c155f905e74cc811b8f60a89bd35"
       ],
-      "scope_sha256": "6568407c926767706b4925adc920ceea09c42958b314635666df92d786199db4",
+      "scope_sha256": "0564f379eb6027b4c27bacdcf0fd3e6eeafc32dcbfacd376261ae2dde468e642",
       "validator": "modules.ci.provenance:trusted_source",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },
