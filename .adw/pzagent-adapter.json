@@ -45,14 +45,6 @@
         ],
         "timeout_seconds": 180
       },
-      "adw:hotfix:apply": {
-        "command": "bundle:dokploy",
-        "operation": "hotfix-build",
-        "result_keys": [
-          "images"
-        ],
-        "timeout_seconds": 180
-      },
       "adw:readiness": {
         "command": "mise-helper/site_hook.py",
         "operation": "readiness",

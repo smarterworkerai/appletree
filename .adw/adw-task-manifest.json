@@ -91,20 +91,16 @@
       "status": "supported"
     },
     "adw:hotfix:apply": {
-      "environments": [
-        "pr-preview"
-      ],
+      "environments": [],
       "side_effect": "remote-write",
       "source": "context",
-      "status": "supported"
+      "status": "unsupported"
     },
     "adw:hotfix:restore": {
-      "environments": [
-        "pr-preview"
-      ],
+      "environments": [],
       "side_effect": "remote-write",
       "source": "context",
-      "status": "supported"
+      "status": "unsupported"
     },
     "adw:install": {
       "environments": [],

@@ -10,6 +10,10 @@ Feature candidates target `demo`; a separately reviewed same-source companion
 promotes `demo` to `main`. Use `mise run pz:release:promote` for both transitions.
 Publishing and deployment remain separate operator decisions under the plan.
 
+Temporary hotfix apply and restore are unsupported: this project has no hotfix
+build hook. Changes use the immutable release workflow and separately approved
+deployment.
+
 ## Application and quality
 
 The static Three.js app produces one `web` component. It has no database,
