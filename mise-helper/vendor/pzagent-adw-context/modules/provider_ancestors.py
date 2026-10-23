@@ -135,6 +135,23 @@ def _referenced(home, repository, marker, operation):
     return False
 
 
+def created_default(home, repository, project_marker):
+    """True when a sibling operation created the shared project (and with it its implicit default).
+
+    Only the implicit default `production` environment of a project that our own provisioning
+    created belongs to the project claim. The default of a pre-existing project (adopted, later
+    claimed) stays a target's own adoptable, claimable environment.
+    """
+    from .operator_home import ownership_journals
+    for path in ownership_journals(home, repository):
+        if path.is_symlink() or path.stat().st_mode & 0o077 or path.stat().st_size > 262144:
+            raise ContractError('provider_private_journal_invalid')
+        project = read(path).get('resources', {}).get('project', {})
+        if project.get('ancestor_claim') == project_marker and project.get('origin') == 'created':
+            return True
+    return False
+
+
 def cleanup(api, state, save, home):
     """Remove empty shared ancestors only; sibling claims survive, foreign children refuse."""
     verify(api, state)

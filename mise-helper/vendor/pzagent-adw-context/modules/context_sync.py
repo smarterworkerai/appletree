@@ -91,7 +91,7 @@ def _version(raw: str, label: str) -> tuple[int, int, int]:
     return (int(match.group("major")), int(match.group("minor")), int(match.group("patch")))
 
 
-def _check_compatibility(manifest: dict[str, Any], mise_version: str | None, *, minimum_mise: str) -> None:
+def _check_compatibility(manifest: dict[str, Any], mise_version: str | None, *, minimum_mise: str) -> tuple[int, int, int]:
     contract = manifest.get("contract")
     if not isinstance(contract, dict) or contract.get("name") != "adw-mise-task-contract":
         raise ContractError("generic ADW contract identity is missing")
@@ -106,8 +106,10 @@ def _check_compatibility(manifest: dict[str, Any], mise_version: str | None, *, 
             raise ContractError("mise is unavailable")
         raw_mise = result.stdout or result.stderr
     # The bundle declares the floor it was validated on; never accept an older mise.
-    if _version(raw_mise, "mise") < _version(minimum_mise, "bundle minimum mise"):
+    local = _version(raw_mise, "mise")
+    if local < _version(minimum_mise, "bundle minimum mise"):
         raise ContractError("mise version is incompatible")
+    return local
 
 
 def _check_generic_engine(repo: Path, manifest: dict[str, Any]) -> None:
@@ -172,18 +174,120 @@ def tool_lock_gaps(repo: Path) -> list[str] | None:
     if not lock_path.exists() and not lock_path.is_symlink():
         return sorted(name + "@" + version for name, version in pins)
     locked = _private_toml(lock_path, "mise.lock").get("tools")
-    if not isinstance(locked, dict):
-        locked = {}
+    return sorted(name + "@" + version for name, version in pins if not _lock_covers(locked, name, version))
 
-    def covered(name: str, version: str) -> bool:
-        entries = locked.get(name)
-        entries = entries if isinstance(entries, list) else [entries]
-        return any(isinstance(entry, dict) and (
-            entry.get("version") == version
-            or version in (entry.get("specifiers") if isinstance(entry.get("specifiers"), list) else ()))
-            for entry in entries)
 
-    return sorted(name + "@" + version for name, version in pins if not covered(name, version))
+def _lock_covers(locked: Any, name: str, version: str) -> bool:
+    entries = locked.get(name) if isinstance(locked, dict) else None
+    entries = entries if isinstance(entries, list) else [entries]
+    return any(isinstance(entry, dict) and (
+        entry.get("version") == version
+        or version in (entry.get("specifiers") if isinstance(entry.get("specifiers"), list) else ()))
+        for entry in entries)
+
+
+def _mise_action_inputs(path: Path, key: str) -> list[str]:
+    """Values of one `with:` input of every jdx/mise-action step in a workflow file."""
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_TOOL_CONFIG_BYTES:
+        raise ContractError("workflow file is unsafe")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    values = []
+    for index, line in enumerate(lines):
+        if not re.match(r"\s*-?\s*uses:\s*jdx/mise-action@", line):
+            continue
+        step = len(line) - len(line.lstrip(" -"))
+        for following in lines[index + 1:]:
+            indent = len(following) - len(following.lstrip(" "))
+            if following.strip() and (indent < step or following.lstrip().startswith("- ")):
+                break
+            match = re.fullmatch(r"\s*" + key + r":\s*['\"]?([^'\"#]*?)['\"]?\s*(#.*)?", following)
+            if match:
+                values.append(match.group(1).strip())
+                break
+    return values
+
+
+PUBLICATION_WORKFLOW = ".github/workflows/publish-release.yml"
+
+
+def check_publication_tools(repo: Path) -> dict:
+    """Tools the publication workflow installs must be pinned exactly, and locked when CI installs --locked.
+
+    jdx/mise-action runs `mise install --locked` whenever a mise.lock exists, so an
+    undeclared or unlocked tool fails only at publication.
+    """
+    workflow = repo / PUBLICATION_WORKFLOW
+    if not workflow.exists() and not workflow.is_symlink():
+        return {'status': 'skipped', 'reason': 'no_publication_workflow'}
+    names = sorted({token.split("@", 1)[0] for value in _mise_action_inputs(workflow, "install_args")
+                    for token in value.split() if not token.startswith("-")})
+    config_path = repo / "mise.toml"
+    declared = (_private_toml(config_path, "mise.toml").get("tools") if config_path.exists() else None) or {}
+    if not isinstance(declared, dict):
+        raise ContractError("mise.toml tools are malformed")
+    lock_path = repo / "mise.lock"
+    # The file's presence alone makes mise-action install --locked, whatever settings.lockfile says.
+    lock_present = lock_path.exists() or lock_path.is_symlink()
+    locked = _private_toml(lock_path, "mise.lock").get("tools") if lock_present else None
+    for name in names:
+        version = declared.get(name)
+        if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+            raise ContractError("publication_tool_undeclared: the publication workflow installs " + name
+                                + "; declare an exact version for it in mise.toml [tools]")
+        if lock_present and not _lock_covers(locked, name, version):
+            raise ContractError("publication_tool_unlocked: the publication workflow installs " + name
+                                + " with mise install --locked; run `mise lock` and commit mise.lock")
+    return {'status': 'passed', 'tools': len(names), 'locked': lock_present}
+
+
+# The newest mise.lock `lockfile_version` each mise release reads: CURRENT_LOCKFILE_VERSION in
+# jdx/mise src/lockfile.rs, read at release tags on 2026-10-23. A mise refuses a newer format with
+# "unsupported lockfile version". 1 appeared in 2026.8.11, 2 in 2026.9.7 and 3 in 2026.9.16; still 3
+# in 2026.10.17. Releases before 2026.8.11 had no format field (0). Add a row when mise bumps it.
+LOCKFILE_FORMATS = (((2026, 9, 16), 3), ((2026, 9, 7), 2), ((2026, 8, 11), 1))
+
+
+def readable_lockfile_version(mise: tuple[int, int, int]) -> int:
+    return next((version for release, version in LOCKFILE_FORMATS if mise >= release), 0)
+
+
+def ci_mise_version(repo: Path, minimum_mise: str) -> str:
+    """The oldest mise the repository's workflows pin through jdx/mise-action, else the bundle's minimum."""
+    pins = []
+    directory = repo / ".github/workflows"
+    for path in sorted(directory.glob("*.yml")) if directory.is_dir() else ():
+        pins += [value for value in _mise_action_inputs(path, "version") if re.fullmatch(r"\d+\.\d+\.\d+", value)]
+    return min(pins, key=lambda pin: _version(pin, "workflow mise")) if pins else minimum_mise
+
+
+def _format_floor(value: int) -> str | None:
+    return next((".".join(map(str, release)) for release, version in sorted(LOCKFILE_FORMATS)
+                 if version >= value), None)
+
+
+def check_lock_format(repo: Path, minimum_mise: str, local_mise: tuple[int, int, int] | None = None) -> dict:
+    """Refuse a mise.lock format the pinned CI mise or the local mise cannot read. Parses the lock only.
+
+    The bundle's minimum_mise is the updater-contract floor, not the version a format-3 lock needs.
+    Without a known local mise version (None) only the CI pin is checked.
+    """
+    lock_path = repo / "mise.lock"
+    if not lock_path.exists() and not lock_path.is_symlink():
+        return {'status': 'skipped', 'reason': 'no_mise_lock'}
+    value = _private_toml(lock_path, "mise.lock").get("lockfile_version", 0)
+    if type(value) is not int or value < 0:
+        raise ContractError("mise.lock lockfile_version is malformed")
+    pinned = ci_mise_version(repo, minimum_mise)
+    readable = readable_lockfile_version(_version(pinned, "pinned CI mise"))
+    needed = _format_floor(value)
+    needs = (f"mise.lock lockfile_version {value} needs mise "
+             + (needed + " or newer" if needed else "newer than any known release"))
+    if value > readable:
+        raise ContractError(f"mise_lock_format_unreadable: {needs}; the pinned CI mise {pinned} reads up to version {readable}")
+    if local_mise is not None and value > readable_lockfile_version(local_mise):
+        raise ContractError(f"mise_lock_format_unreadable_locally: {needs}; the local mise is "
+                            + ".".join(map(str, local_mise)))
+    return {'status': 'passed', 'lockfile_version': value, 'ci_mise': pinned}
 
 
 def check_tool_lock(repo: Path) -> dict:
@@ -193,6 +297,33 @@ def check_tool_lock(repo: Path) -> dict:
         state = "missing" if not lock.exists() else "does not cover " + ", ".join(gaps)
         raise ContractError("mise.lock " + state + "; run `mise lock` and commit mise.lock")
     return {'status': 'skipped', 'reason': 'lockfile_disabled_or_no_tool_pins'} if gaps is None else {'status': 'passed'}
+
+
+def check_quality_exports(repo: Path) -> dict:
+    """The release recipe's quality_exports, checked here so hosted required-quality cannot be the first to refuse."""
+    path = project_dir(repo) / "pz-release.json"
+    if not path.exists() and not path.is_symlink():
+        return {'status': 'skipped', 'reason': 'no_release_recipe'}
+    recipe = load_json(path)
+    components = recipe.get("components") if isinstance(recipe, dict) else None
+    if not isinstance(components, dict) or not components or not all(
+            isinstance(item, dict) and isinstance(item.get("stages"), list) for item in components.values()):
+        raise ContractError("quality_exports_recipe_invalid: pz-release.json components need a stages list")
+    exports = recipe.get("quality_exports")
+    if not isinstance(exports, dict) or not 0 < len(exports) <= 32:
+        raise ContractError("quality_exports_missing: declare quality_exports in pz-release.json;"
+                            " a component without build stages maps to {}")
+    for name, stages in exports.items():
+        if name not in components:
+            raise ContractError("quality_exports_component_unknown: every quality_exports key must be a declared component")
+        if (not isinstance(stages, dict) or set(stages) != set(components[name]["stages"])
+                or any(not isinstance(files, dict) or not files
+                       or not all(isinstance(k, str) and k and isinstance(v, str) and v for k, v in files.items())
+                       for files in stages.values())):
+            raise ContractError("quality_exports_stage_mismatch: map every build stage of an exported component"
+                                " to its output files, for example {\"build\": {\"dist\": \"app/dist\"}}")
+    deferred = sum(1 for name, item in components.items() if name not in exports and item["stages"])
+    return {'status': 'passed', 'components_built_at_publication': deferred}
 
 
 RELEASE_BUILD = "mise-helper/vendor/pzagent-adw-context/modules/release_build.py"
@@ -299,11 +430,14 @@ def check_consumer(
                 raise ContractError("consumer manifest capability source is unresolved")
             if sources[capability_source].get("layer") == "context" and capability_source != context_source_id:
                 raise ContractError("context capability provenance differs")
-    _check_compatibility(manifest, mise_version, minimum_mise=bundle["minimum_mise"])
+    local_mise = _check_compatibility(manifest, mise_version, minimum_mise=bundle["minimum_mise"])
     _check_generic_engine(repo, manifest)
     check_precedence(repo)
     check_context_task_overrides(repo)
     tool_lock = check_tool_lock(repo)
+    lock_format = check_lock_format(repo, bundle["minimum_mise"], local_mise)
+    publication_tools = check_publication_tools(repo)
+    quality_exports = check_quality_exports(repo)
     handover = {'status': 'skipped', 'reason': 'no_project_adapter'}
 
     adapter_path = project_dir(repo) / 'pzagent-adapter.json'
@@ -334,6 +468,9 @@ def check_consumer(
         "source_ref": source["ref"],
         "bundle_sha256": descriptor_checksum,
         "tool_lock": tool_lock,
+        "lock_format": lock_format,
+        "publication_tools": publication_tools,
+        "quality_exports": quality_exports,
         "release_handover": handover,
     }
 

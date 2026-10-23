@@ -62,7 +62,10 @@ def _append_created_marker(api, state, role, save):
     save()
     key = role + 'Id'
     payload = {key: entry['id'], 'description': marker}
-    if role != 'compose':
+    if role == 'project':
+        # The pinned OpenAPI requires only the ID. project.update keeps sending its unchanged
+        # name to preserve existing behaviour. Environment names are never sent: Dokploy
+        # refuses any name on the default environment, and an optional name could only rename.
         payload['name'] = entry['name']
     api.post(role + '.update', payload)
     current = _get_resource(api, role, entry)
@@ -224,6 +227,29 @@ def _binding(adapter, environment, target):
     if not ENV_KEY.fullmatch(binding.get('child_binding', '')):
         raise ContractError('provider_binding_invalid')
     return target, binding
+
+
+def _shared_roles(adapter, binding):
+    """Ancestors that more than one declared Dokploy target binds by name (#143 item 1).
+
+    A project or environment that provisioning creates for such a repository is
+    recorded as a shared ancestor claim, so sibling targets reference it and only
+    the last one deletes it. A single-target repository keeps plain created
+    ownership: nothing else can live in its project, so cascading deletion stays
+    correct and simpler.
+    """
+    names = []
+    for group in adapter.get('targets', {}).values():
+        for declaration in group.get('items', {}).values():
+            if declaration.get('provider') == 'dokploy':
+                other = adapter['providers']['dokploy']['bindings'].get(declaration.get('provider_binding'), {})
+                names.append((other.get('project'), other.get('environment')))
+    shared = set()
+    if sum(project == binding['project'] for project, _ in names) > 1:
+        shared.add('project')
+    if sum(pair == (binding['project'], binding['environment']) for pair in names) > 1:
+        shared.add('environment')
+    return shared
 
 
 def _client(profile, api):
@@ -416,6 +442,7 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
             profile_root=profile_root, operation_dir=operation_dir, adopt=adopt, plan=plan,
             server_name_env=server_name_env, source_sha=source)
     target, binding = _binding(adapter, environment, target)
+    shared = _shared_roles(adapter, binding)
     image_keys = _image_slot_keys(repo, adapter, binding)
     if server_name_env is not None and not ENV_KEY.fullmatch(server_name_env):
         raise ContractError('provider_server_selector_invalid')
@@ -463,30 +490,65 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
         def save():
             write(private, state)
 
+        def share(role):
+            """A created ancestor that sibling targets bind becomes the repository's shared claim."""
+            entry = resources.get(role)
+            if (role not in shared or not entry or entry.get('ancestor_claim') or not entry['created']
+                    or entry.get('is_default')):
+                return
+            current = _get_resource(api, role, entry)
+            if current is None:
+                raise ContractError('provider_recorded_resource_absent')
+            marker = _marker(state, role)
+            _identity(role, current, entry, marker)
+            from .provider_ancestors import record
+            record(_private_home(repo, profile_root), selection['repository'], role, entry, marker)
+            entry.update(created=False, origin='created', ancestor_claim=marker)
+            save()
+
         def ensure(role, existing, request, *, parent=None):
             nonlocal mutations
             recorded = resources.get(role)
             marker = _marker(state, role) if recorded else ''
             if recorded:
-                if not recorded['created'] and not adopt and not plan:
+                inherited = recorded.get('ancestor_claim') or recorded.get('origin') == 'ancestor-default'
+                if not recorded['created'] and not inherited and not adopt and not plan:
                     raise ContractError('provider_adoption_requires_explicit_flag')
                 if existing is None:
                     raise ContractError('provider_recorded_resource_absent')
                 mutations += _append_created_marker(api, state, role, save)
                 _identity(role, _get_resource(api, role, recorded), recorded, marker)
-                actions.append('owned' if recorded['created'] else 'adopted')
+                share(role)
+                actions.append('owned' if recorded['created'] else 'referenced' if inherited else 'adopted')
                 return existing
             intent = state['intents'].get(role)
             if existing is not None:
                 if role in ('project', 'environment'):
                     from .provider_ancestors import reference
                     entry = _entry(role, existing, created=False, parent=parent)
-                    shared = reference(_private_home(repo, profile_root), selection['repository'], role, entry, existing)
-                    if shared:
-                        entry['ancestor_claim'] = shared
+                    # The live line is verifiable from Dokploy alone, so a sibling on a
+                    # fresh machine records the missing private half instead of refusing.
+                    claimed = reference(_private_home(repo, profile_root), selection['repository'], role, entry,
+                                        existing, rebuild=True)
+                    if claimed:
+                        entry['ancestor_claim'] = claimed
                         resources[role] = entry
                         save()
                         actions.append('reference-ancestor-claim')
+                        return existing
+                    project_claim = resources.get('project', {}).get('ancestor_claim')
+                    from .provider_ancestors import created_default
+                    if (role == 'environment' and project_claim and existing.get('isDefault') is True
+                            and existing.get('name') == 'production'
+                            and created_default(_private_home(repo, profile_root), selection['repository'],
+                                                project_claim)):
+                        # The implicit default our provisioning created with the shared project belongs
+                        # to the project claim. A pre-existing default (a claimed, formerly adopted
+                        # project) stays this target's own adoptable, claimable environment.
+                        entry['origin'] = 'ancestor-default'
+                        resources[role] = entry
+                        save()
+                        actions.append('reference-ancestor-default')
                         return existing
                 if intent:
                     raise ContractError('provider_create_acknowledgement_missing_requires_examine_adopt_claim')
@@ -521,6 +583,7 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
                 raise ContractError('provider_create_readback_conflict')
             save()
             mutations += _append_created_marker(api, state, role, save)
+            share(role)
             return _get_resource(api, role, resources[role])
 
         project = project_before
@@ -887,7 +950,7 @@ def _examine_state(repo, adapter, environment, target, profile_root, operation_d
                             if k in entry} | {'description_sha256': _description_sha(row),
                                               'configuration_sha256': _configuration_sha(row)}
     adopted = [role for role in CLAIM_ROLES if role in resources and not resources[role]['created']
-               and not resources[role].get('ancestor_claim')]
+               and not resources[role].get('ancestor_claim') and resources[role].get('origin') != 'ancestor-default']
     # A journal rebuilt from a completed claim has no local pending-claim
     # record. Its verified markers still permit read-only re-examination with
     # a fresh digest; claim() independently refuses an empty claimable-role set.
@@ -1015,7 +1078,10 @@ def claim(repo: Path, adapter: dict, *, environment: str, target: str | None, pr
             if current.get('description') != marker:
                 key = {'project': 'projectId', 'environment': 'environmentId', 'compose': 'composeId'}[role]
                 payload = {key: entry['id'], 'description': marker}
-                if role != 'compose':
+                if role == 'project':
+                    # The pinned OpenAPI requires only the ID. project.update keeps sending its unchanged
+                    # name to preserve existing behaviour. Environment names are never sent: Dokploy
+                    # refuses any name on the default environment, and an optional name could only rename.
                     payload['name'] = entry['name']
                 if role not in pending['requested']:
                     pending['requested'].append(role)

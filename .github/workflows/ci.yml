@@ -143,8 +143,8 @@ jobs:
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         if: needs.classify.outputs.mode == 'full-quality' || needs.classify.outputs.mode == 'fast-feedback'
         with:
-          version: 2026.9.13
-          sha256: a72f49916b33ba952ba398046c5cc91a58238f0b718fee1d938206ef2af21c6d
+          version: 2026.10.17
+          sha256: fe6dd17e68e09682b31d2e7bb7bb755d22636ac1af5d94621e300f2ca9e9fe8a
           cache_save: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_protected) }}
       - name: Configure quality paths
         if: needs.classify.outputs.mode == 'full-quality' || needs.classify.outputs.mode == 'fast-feedback'

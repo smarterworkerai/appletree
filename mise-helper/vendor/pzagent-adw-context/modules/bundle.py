@@ -5,12 +5,18 @@ from pathlib import Path
 from typing import Any
 from .common import ContractError,ensure_contained,load_json,sha256_file
 DESCRIPTOR='bundle.json'; VERSION=re.compile(r'^(0|[1-9][0-9]*)\.[0-9]+\.[0-9]+$')
+# minimum_mise is a floor: a later bundle may raise it, never below this updater contract value.
+MISE=re.compile(r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'); MISE_FLOOR=(2026,9,13)
+def mise_floor(value:Any)->tuple[int,int,int]|None:
+    match=MISE.fullmatch(value) if isinstance(value,str) else None
+    version=(int(match[1]),int(match[2]),int(match[3])) if match else None
+    return version if version is not None and version>=MISE_FLOOR else None
 def validate_descriptor(data:Any)->dict[str,Any]:
     required={'schema_version','package','version','stability','generic_contract','minimum_mise','task_entrypoint','platforms','runtimes','policy','migration_notes','files'}
     if not isinstance(data,dict) or set(data)!=required: raise ContractError('bundle descriptor is not a closed document')
     if data['schema_version']!='1.0.0' or data['package']!='pzagent-adw-context': raise ContractError('bundle identity is incompatible')
     if not isinstance(data['version'],str) or not VERSION.fullmatch(data['version']) or data['stability']!=('experimental' if data['version'].startswith('0.') else 'stable'): raise ContractError('bundle version or stability is incompatible')
-    if data['generic_contract']!='>=2.0.0,<3.0.0' or data['minimum_mise']!='2026.9.13': raise ContractError('bundle tool contract is incompatible')
+    if data['generic_contract']!='>=2.0.0,<3.0.0' or mise_floor(data['minimum_mise']) is None: raise ContractError('bundle tool contract is incompatible')
     if data['platforms']!=['linux','macos','cygwin-wsl'] or data['runtimes']!=['python>=3.11-stdlib']: raise ContractError('bundle runtime assumptions are incompatible')
     for key in ('task_entrypoint','policy','migration_notes'):
         if not isinstance(data[key],str) or not data[key]: raise ContractError(f'bundle {key} is invalid')

@@ -14,7 +14,7 @@
     },
     {
       "path": "migration-notes.md",
-      "sha256": "e08b1964ca4193f322019e7d19b660a382a8d9a5a1a2be82c89fe0297fac37f8"
+      "sha256": "ceddc749d016c1aab4d1ed87da5011514dda87db24497f523236f0f4fd508717"
     },
     {
       "path": "modules/__init__.py",
@@ -42,7 +42,7 @@
     },
     {
       "path": "modules/bundle.py",
-      "sha256": "b75e085c5b099b174c1834c4bdb8217bf69fc645a337bed386770d502e87bd72"
+      "sha256": "fdc7e72c272dc6728a526519fc88216e16bd1397ce86662698b4c9323761c6cd"
     },
     {
       "path": "modules/ci/__init__.py",
@@ -70,7 +70,7 @@
     },
     {
       "path": "modules/ci/greenfield.py",
-      "sha256": "3edae7f91c662859308f1fa37e33525e2f0a220c4ab206352224d0f38c66abcc"
+      "sha256": "e09d7f05fe091f1f56859002729bc8e8fffacf7ac074df2ca685585670ca33c9"
     },
     {
       "path": "modules/ci/live_pr.py",
@@ -102,7 +102,7 @@
     },
     {
       "path": "modules/ci/trusted_decisions.json",
-      "sha256": "273ae4f47fb7432196864a0dc84b64d24d30b2ecc187e9515bcd8b7d32fef052"
+      "sha256": "a6daaaf902eae9be2e83eafdac03c50e5bfda61c7fca8ddfd19f3da377ea4caa"
     },
     {
       "path": "modules/ci/workflow_drift.py",
@@ -126,7 +126,7 @@
     },
     {
       "path": "modules/context_sync.py",
-      "sha256": "d72767e65fe17db421108c62e1c9ac1d7b40c3565676ba9b6d86aef43d19188c"
+      "sha256": "4246801ccbfb37b4674dd6f5877550fa66868539fa18ada01bef8310d262b5aa"
     },
     {
       "path": "modules/dependency_cache.py",
@@ -266,7 +266,7 @@
     },
     {
       "path": "modules/project_init.py",
-      "sha256": "336ffd6afadbd8583c0a95b7696bf9a31a865214dcec5c08a9d9e5206c3e98d4"
+      "sha256": "9819c049b9632d84e8f3afefdb715b906195f824f9b9e32cab9a4a8e71c55c8d"
     },
     {
       "path": "modules/project_tasks.py",
@@ -274,7 +274,7 @@
     },
     {
       "path": "modules/provider_ancestors.py",
-      "sha256": "5fa11b60ef019eaff39882f0d2ddc4a3e44fa3058c0de02651a8006d4b565e21"
+      "sha256": "614f6555603e002b937ccdf92e2326b7d40e5d7f461d44c3c2f94ff1c9ec4ae8"
     },
     {
       "path": "modules/provider_hooks.py",
@@ -282,7 +282,7 @@
     },
     {
       "path": "modules/provider_lifecycle.py",
-      "sha256": "4e0762689def872826a5dd5983664461dcbcd6eaf06d20409abbae01dc256bf8"
+      "sha256": "8dad7c2a89a7451f5237b229b0bcccf184a3e59e6533b991bbc4642a0eee9838"
     },
     {
       "path": "modules/providers/__init__.py",
@@ -322,7 +322,7 @@
     },
     {
       "path": "modules/quality_tasks.py",
-      "sha256": "f7d3a260786833574b77060bfacb6e141091c0409386bf04374ad7cd2a59e853"
+      "sha256": "df45d255f30c1fbb2f15a97c695ab1b0cbc923dffa3bcc0f0c65195397f9ba3e"
     },
     {
       "path": "modules/rehearsal.py",
@@ -382,7 +382,7 @@
     },
     {
       "path": "policy.md",
-      "sha256": "b653b63afb0daef274890578240cdb4a33103b69593811c83cd54017570c229d"
+      "sha256": "d1721e18f11fabbb9bb5e0f96b4ffacf6d1de20a1dc5ee1a9d38ceaead595426"
     },
     {
       "path": "pzagent_context.py",
@@ -390,7 +390,7 @@
     },
     {
       "path": "schemas/bundle.schema.json",
-      "sha256": "cab08ff0aa0bfa1b232521d7ffe91c0bafb8baffe764b5fa4ce42d8f42bb5e42"
+      "sha256": "fb5fa94ca07094e8ef0db9e7e7634478877e1b59e9a782e7c66b6d1b95c88b1f"
     },
     {
       "path": "schemas/logical-targets.schema.json",
@@ -498,15 +498,15 @@
     },
     {
       "path": "templates/github/ci.yml",
-      "sha256": "59bb7e4fcdacba83eb797bca2802d4676d63441e5fe82a36fd15ed42bbedb7df"
+      "sha256": "12cc8c9a91a4578cdb0839f7aa6d100c723714cd07e0abeb08a08d81eae22a3e"
     },
     {
       "path": "templates/github/cleanup-retention.yml",
-      "sha256": "e5e7757bdd5441a553853e50fa4aeeb594bfe0d4ce7b6649a43e3a421bbb4360"
+      "sha256": "f8acbe2979d2bc26d39550718d43bfaf886cbe0a6b523a687c18fd45178ea17e"
     },
     {
       "path": "templates/github/publish-release.yml",
-      "sha256": "127b15d18d7d53d7c2f4d2705f8765e3673cae46a4b2edc2d222eebdca53652c"
+      "sha256": "6073fe3397f17ffa243bcae87b44b484c90af1087df60b69468607a77daab03c"
     },
     {
       "path": "templates/github/trust-root-bootstrap.yml",
@@ -570,7 +570,7 @@
     },
     {
       "path": "templates/pzagent-context-lock.json",
-      "sha256": "477813ef83a81ea81e473431c0256f100c1af9031264bb6f9ac756cf3cdf99c0"
+      "sha256": "a320f802cd0c87ebfc3c91f04f9e2561b31663f3663ab06933326dc2ccffc737"
     },
     {
       "path": "templates/repo-agents-snippet.md",
@@ -593,5 +593,5 @@
   "schema_version": "1.0.0",
   "stability": "experimental",
   "task_entrypoint": "tasks.toml",
-  "version": "0.15.7"
+  "version": "0.15.8"
 }

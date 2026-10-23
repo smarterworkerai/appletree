@@ -58,6 +58,9 @@ def marked(existing: str, name: str, body: str) -> str:
     return existing[:begin] + block + existing[finish:]
 
 
+ORAS, ORAS_VERSION = 'aqua:oras-project/oras', '1.3.4'
+
+
 def tool_pins(args):
     pins = {name: value for name, value in (('java', args.java), ('node', args.node)) if value is not None}
     for declaration in getattr(args, 'tool', []) or []:
@@ -110,6 +113,9 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
     files['mise-helper/README.md'] = (templates / 'project-helper-readme.md').read_text()
     pins = tool_pins(args)
     mise_pins = dict(pins)
+    # publish-release.yml installs oras through mise-action, which runs `mise install --locked`
+    # when mise.lock exists: declare and lock an exact, released version (1.3.4: 2026-08-27).
+    mise_pins.setdefault(ORAS, ORAS_VERSION)
     if args.provider == 'kubernetes':
         for name, version in (('kubectl', '1.35.0'), ('kustomize', '5.7.1'), ('k3d', '5.8.3'), ('helm', '3.19.0')):
             mise_pins.setdefault(name, version)
@@ -230,6 +236,8 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
     files[directory + '/pz-release.json'] = document({'schema_version': '1.0.0',
         'platforms': ['linux/amd64'], 'kind_environments': {args.release_kind: args.environments},
         'components': {c: {'context': c, 'dockerfile': c + '/Dockerfile', 'stages': []} for c in args.components},
+        # Stage-less components export no files; a project that adds build stages maps them here.
+        'quality_exports': {c: {} for c in args.components},
         'hooks': {'build': 'bundle:release_build'}})
     sources = {'java': 'mise.lock' if 'java' in pins else '', 'node': 'package.json engines' if 'node' in pins else ''}
     sources.update({name: 'mise.toml [tools]' for name in pins if name not in ('java', 'node')})

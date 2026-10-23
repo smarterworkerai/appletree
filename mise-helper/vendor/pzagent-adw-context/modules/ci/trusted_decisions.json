@@ -486,6 +486,14 @@
       "scope_sha256": "cd75067ac225e41d9b5acc1588429486132682cb13704f6925494134c32dd390",
       "validator": "modules.ci.greenfield:released",
       "reason": "Fixed-provider and fixed-generic GitHub Release GET transport only. released verifies published tag/snapshot identity, checksummed bounded archives, complete inventory and Git blob/mode equality; before_mutation rechecks the pinned release commit. CI output and transport success grant no admission."
+    },
+    "modules.ci.greenfield:fetch_candidate:subprocess.run": {
+      "call_sha256": [
+        "02c2263d97910a4eb2c3b0bed0228ea244cff3d29614f7f105e4c93a68a3fe16"
+      ],
+      "scope_sha256": "8aa4ae93c48744d3c0c46ab56aa8052b6d0d9e9a5798e4e5309e761659a42cf7",
+      "validator": "modules.ci.greenfield:candidate",
+      "reason": "Fixed-provider read-only Git GET transport for the sandbox-only candidate anchor: branch-head, commit and recursive tree paths only. candidate verifies the complete bundle inventory, that the exact commit is the current head of a provider branch, and Git blob/mode equality of the operator runtime with that commit; before_mutation rechecks the branch head and the live sandbox identity (name and repository ID). CI output and transport success grant no admission."
     }
   },
   "historical_31_module_classification": {

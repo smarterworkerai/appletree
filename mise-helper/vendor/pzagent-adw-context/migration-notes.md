@@ -1,5 +1,129 @@
 # Migration notes
 
+## 0.15.8
+
+This release carries #144: the #141 greenfield candidate mode and proof tool,
+the mise 2026.10.17 pin, #143 items 1, 5, 7 and 8, and the oras pin.
+
+- Dokploy ownership markers on the project's default `production` environment: the claim
+  and marker writes no longer send `name` in any `environment.update`. The pinned OpenAPI
+  requires only the resource ID; `project.update` keeps sending its unchanged name to
+  preserve existing behaviour. Dokploy v0.29.2 refuses
+  any `name` on the default environment ("You cannot rename the default environment"), even
+  an unchanged one, which blocked v0.15.6/v0.15.7 claims of production targets with
+  `provider_api_request_failed` before any write landed.
+
+- Greenfield candidate anchor (#141), decision owner `modules.ci.greenfield`:
+  first adoption may anchor on an unreleased provider candidate in the fixed
+  sandbox repository `smarterworkerai/pzagent-greenfield-sandbox` only. The
+  repository must match by name and repository ID, and must be private and not
+  a fork. The candidate commit must be the current head of a provider branch;
+  the operator runtime must equal it file by file; the consumer lock names it
+  and the bundle digest. Every other repository refuses a candidate, and the
+  released path is unchanged.
+- The launcher adds `--candidate-archive` and `--candidate-source`, accepted
+  only together and only for the sandbox repository. The private
+  `operator-release.json` marker has a second, candidate form naming the sandbox.
+- `trusted_decisions.json` appends the `fetch_candidate` call boundary: a fixed
+  provider read-only Git GET transport whose validator is
+  `modules.ci.greenfield:candidate`. Existing entries and their order are kept.
+  The trusted-path list is unchanged.
+- `tools/prove_greenfield_sandbox.py` (producer-only, not in the bundle) runs
+  the reset, onboarding, seed, publication and reset proof loop in that sandbox.
+- `docs/onboarding.md` pins the current release.
+- CI's mise moves from 2026.9.13 to **2026.10.17**: the pinned `jdx/mise-action`
+  version and raw-binary SHA-256 in the `ci.yml`, `publish-release.yml` and
+  `cleanup-retention.yml` templates. Mise 2026.10.x writes `mise.lock` with
+  `lockfile_version = 3`; the old pinned 2026.9.13 refused such locks in CI
+  ("failed to read lockfile").
+  - Consumers' workflow copies change, so the repin changes trusted paths and
+    needs the administrator's `BOOTSTRAP_ENABLED <fingerprint>`.
+  - The minimum operator mise stays **2026.9.13**: the bundle's `minimum_mise`
+    and the generated `mise.toml` `min_version`. Installed updaters up to and
+    including 0.15.7 compare the candidate bundle's `minimum_mise` exactly and
+    would refuse the sync ("bundle tool contract is incompatible"). Raising the
+    floor would force another one-time bootstrap on every consumer.
+  - From 0.15.8, `modules/bundle.py` (trusted) accepts any numeric dotted
+    `minimum_mise` of 2026.9.13 or higher instead of exactly 2026.9.13. It
+    refuses malformed values and anything lower. Once consumers run 0.15.8's
+    updater, v0.15.9 will raise the floor to 2026.10.17 without a bootstrap.
+  - A lock written by a newer local mise must still be readable by the CI pin.
+    `adw:context:check` refuses one that isn't (`mise_lock_format_unreadable`).
+  - The floor 2026.9.13 is the updater-contract value, not what every repository
+    can run with. A repository whose `mise.lock` is format 3 (anything locked
+    with mise 2026.9.16 or newer) needs mise 2026.9.16 or newer locally too, and
+    `adw:context:check` says so (`mise_lock_format_unreadable_locally`). The
+    check uses the same format table as the CI-pin check. It is skipped when
+    the local mise version is unknown.
+  - Since mise 2026.10.13, `[settings]` (including `lockfile = true`) apply only
+    to a trusted config. CI is unaffected, because `jdx/mise-action` sets
+    `MISE_TRUSTED_CONFIG_PATHS` to the workspace. `pz:project:init` trusts its
+    generated files temporarily. Operators run `mise trust mise.toml` as the
+    onboarding guide says.
+  - Since 2026.10.15, the default 24-hour `minimum_release_age` applies to every
+    backend. Fuzzy pins such as `node = "22"` resolve to the newest version that
+    is at least a day old, and versions recorded in `mise.lock` install unchanged.
+    Pin a tool that must take a same-day release with
+    `minimum_release_age_excludes`.
+- `pz:project:init` declares `quality_exports` in `pz-release.json`, `{}` for
+  each generated, stage-less component (#143 item 5). `adw:context:check` now
+  checks the declaration that hosted required-quality reads. It refuses a missing
+  or empty declaration (`quality_exports_missing`), an undeclared component
+  (`quality_exports_component_unknown`) and an exported component whose build
+  stages aren't all mapped to output files (`quality_exports_stage_mismatch`). It
+  reports `components_built_at_publication` for staged components left out of
+  `quality_exports`. Without a release recipe it reports `no_release_recipe`.
+  Existing consumers without `quality_exports` must add it; their hosted quality
+  refused already.
+- `adw:context:check` refuses a `mise.lock` whose `lockfile_version` the
+  repository's pinned CI mise can't read (`mise_lock_format_unreadable`, #143
+  item 8). The reason names the lock format, the mise release that reads it, and
+  the pin. The pin is the oldest `jdx/mise-action` `version` in the repository's
+  workflows, or else `minimum_mise`. The check parses the lock only and never
+  runs mise. Formats come from mise's `CURRENT_LOCKFILE_VERSION`: 1 from
+  2026.8.11, 2 from 2026.9.7, 3 from 2026.9.16 (still 3 in 2026.10.17). An
+  unknown newer format refuses until the table is updated.
+
+- Quality tasks now report the fixed refusals on the export path instead of
+  `quality_task_failed` (#143 item 7, trusted `quality_tasks.py`). These are
+  `quality_toolchain_invalid`, the build payload, archive destination and
+  bundle path refusals, `operation state must not be a symlink` and
+  `project_directory_conflict`. Messages that can carry paths or values still
+  map to `quality_task_failed`.
+
+- `pz:project:init` always declares and locks `"aqua:oras-project/oras" = "1.3.4"`
+  in `[tools]`. 1.3.4 is the newest oras release that is at least 14 days old;
+  CI had resolved 1.3.5, released 2026-10-19. `publish-release.yml` installs
+  oras through `jdx/mise-action` with `mise install --locked` whenever
+  `mise.lock` exists, so a generated project without the pin failed at
+  publication with "No lockfile URL found … (--locked mode)". `[tools]` is never
+  empty for a generated project, which settles #143 item 6 there.
+
+- `adw:context:check` checks the tools that the publication workflow's
+  `jdx/mise-action` `install_args` names (oras). Each needs an exact `x.y.z` pin in
+  `mise.toml` `[tools]`, or the check refuses with `publication_tool_undeclared`.
+  When a `mise.lock` file exists, the lock must cover each one, or the check
+  refuses with `publication_tool_unlocked`. This holds even with
+  `settings.lockfile = false` or a lock without a `[tools]` table, because
+  mise-action installs `--locked` whenever the file exists. Consumers that
+  already pin and lock oras exactly, as current consumers do, pass unchanged.
+- Shared ancestors created by provisioning (#143 item 1): when several declared
+  Dokploy targets bind the same project (or project and environment), the first
+  `pz:provider:provision` that creates it records it as the repository's shared
+  ancestor claim right after its marker line lands. Sibling targets reference
+  that claim instead of needing `--adopt`. The implicit default `production`
+  environment of a project that provisioning created belongs to that project
+  claim. The default of a pre-existing project (adopted, later claimed) stays the
+  production target's own environment: it needs `--adopt`, and
+  `pz:provider:examine` lists it as claimable, also when a sibling claimed the
+  project first.
+  Each deprovision deletes only its own scope; the shared ancestor is removed
+  with the last referencing target, only when empty and with no foreign child.
+  A sibling on a machine without the private ancestor journal verifies the live
+  line and records it. A single-target repository keeps plain created ownership.
+  A project shared this way retains no runtime snapshot on the ancestor, so a
+  Compose already deleted outside the tool refuses recovery, as in 0.15.6.
+
 ## 0.15.7
 
 - Context synchronization carries the consumer's exact existing `mise.lock`

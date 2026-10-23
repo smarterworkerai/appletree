@@ -3,6 +3,10 @@
 No PR module or Mise configuration is executed here. A private process context
 holds one immutable admission; neither CI output nor a serialized receipt can
 create it. The normal controller path remains outside this admission.
+
+The fixed greenfield sandbox repository alone may anchor an unreleased provider
+candidate instead of a published release, so a release can be proven before
+its tag exists. Every other repository refuses a candidate runtime.
 """
 from __future__ import annotations
 
@@ -25,6 +29,8 @@ from ..common import PROJECT_DIRECTORIES
 
 PROVIDER = 'smarterworkerai/pzagent-adw-context'
 GENERIC = 'smarterworkerai/agentic-delivery'
+SANDBOX = 'smarterworkerai/pzagent-greenfield-sandbox'
+SANDBOX_ID = 1430780300  # A deleted and recreated repository with the same name differs.
 PROVIDER_ROOT = 'skills/pzagent/pzagent-adw-context/assets/mise/v2/'
 GENERIC_ROOT = 'skills/adw/adw-core/assets/mise/v2/'
 VENDOR = 'mise-helper/vendor/pzagent-adw-context/'
@@ -162,6 +168,7 @@ class Release:
     archive_sha256: str
     files: dict
     modes: dict
+    candidate: bool = False
 
 
 def released(repository, version):
@@ -213,23 +220,7 @@ def released(repository, version):
     require(files, 'greenfield_release_runtime_missing')
     snapshot = source
     if repository == PROVIDER:
-        try:
-            descriptor = json.loads(files['bundle.json'])
-            inventory = descriptor['files']
-            require(descriptor.get('schema_version') == '1.0.0' and descriptor.get('package') == 'pzagent-adw-context'
-                    and descriptor.get('version') == version and isinstance(inventory, list), 'greenfield_bundle_invalid')
-            expected = {'bundle.json'}
-            for entry in inventory:
-                path = entry['path']
-                require(safe_path(path) and path not in expected and set(entry) == {'path', 'sha256'}
-                        and isinstance(entry['sha256'], str) and re.fullmatch(r'[0-9a-f]{64}', entry['sha256']), 'greenfield_bundle_invalid')
-                expected.add(path)
-                require(path in files and hashlib.sha256(files[path]).hexdigest() == entry['sha256'], 'greenfield_bundle_inventory_mismatch')
-            require(set(files) == expected, 'greenfield_bundle_inventory_mismatch')
-        except ProofError:
-            raise
-        except (ValueError, KeyError, TypeError):
-            raise ProofError('greenfield_bundle_invalid') from None
+        bundle_inventory(files, version)
     else:
         record = fetch(repository, 'contents/releases/adw-mise-v2.json?ref=' + source)
         try:
@@ -272,13 +263,88 @@ def compare_files(entries, prefix, files, modes):
                 and actual[path]['sha'] == blob(data), 'greenfield_release_file_mismatch')
 
 
-def source_releases(api, source_sha):
+def fetch_candidate(path):
+    """Fixed read-only provider Git observations for a candidate. No release, URL or command choice."""
+    allowed = (r'commits/[0-9a-f]{40}/branches-where-head', r'git/commits/[0-9a-f]{40}',
+               r'git/trees/[0-9a-f]{40}\?recursive=1')
+    require(any(re.fullmatch(pattern, path) for pattern in allowed), 'greenfield_candidate_path_invalid')
+    try:
+        result = subprocess.run(['gh', 'api', '--method', 'GET', '-H', 'Accept: application/vnd.github+json',
+                                 f'repos/{PROVIDER}/{path}'], capture_output=True, timeout=90, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ProofError('greenfield_candidate_lookup_failed') from None
+    require(result.returncode == 0, 'greenfield_candidate_lookup_failed')
+    require(len(result.stdout) <= MAX_DOWNLOAD, 'greenfield_candidate_response_too_large')
+    try:
+        return json.loads(result.stdout)
+    except (ValueError, UnicodeDecodeError):
+        raise ProofError('greenfield_candidate_response_invalid') from None
+
+
+def bundle_inventory(files, version):
+    """The complete, exact provider runtime its bundle.json declares."""
+    try:
+        descriptor = json.loads(files['bundle.json'])
+        inventory = descriptor['files']
+        require(descriptor.get('schema_version') == '1.0.0' and descriptor.get('package') == 'pzagent-adw-context'
+                and descriptor.get('version') == version and isinstance(inventory, list), 'greenfield_bundle_invalid')
+        expected = {'bundle.json'}
+        for entry in inventory:
+            path = entry['path']
+            require(safe_path(path) and path not in expected and set(entry) == {'path', 'sha256'}
+                    and isinstance(entry['sha256'], str) and re.fullmatch(r'[0-9a-f]{64}', entry['sha256']), 'greenfield_bundle_invalid')
+            expected.add(path)
+            require(path in files and hashlib.sha256(files[path]).hexdigest() == entry['sha256'], 'greenfield_bundle_inventory_mismatch')
+        require(set(files) == expected, 'greenfield_bundle_inventory_mismatch')
+    except ProofError:
+        raise
+    except (ValueError, KeyError, TypeError):
+        raise ProofError('greenfield_bundle_invalid') from None
+
+
+def candidate_head(source_sha):
+    """A candidate is the current head of a provider branch, never a commit seen only via a fork."""
+    heads = fetch_candidate('commits/' + source_sha + '/branches-where-head')
+    require(isinstance(heads, list) and heads and all(
+        isinstance(item, dict) and isinstance(item.get('name'), str) and isinstance(item.get('commit'), dict)
+        and item['commit'].get('sha') == source_sha for item in heads), 'greenfield_candidate_not_branch_head')
+
+
+def candidate(source_sha, version, files, modes):
+    """Unreleased provider runtime bound to an exact provider branch-head commit and its bundle digest."""
+    require(isinstance(source_sha, str) and SHA.fullmatch(source_sha) and isinstance(version, str)
+            and VERSION.fullmatch(version) and isinstance(files, dict) and isinstance(modes, dict)
+            and set(files) == set(modes), 'greenfield_candidate_invalid')
+    bundle_inventory(files, version)
+    candidate_head(source_sha)
+    commit = fetch_candidate('git/commits/' + source_sha)
+    try:
+        tree_sha = commit['tree']['sha']
+        require(isinstance(tree_sha, str) and SHA.fullmatch(tree_sha), 'greenfield_candidate_snapshot_invalid')
+        entries = tree_entries(fetch_candidate('git/trees/' + tree_sha + '?recursive=1'))
+        compare_files(entries, PROVIDER_ROOT, files, modes)
+    except (KeyError, TypeError):
+        raise ProofError('greenfield_candidate_snapshot_invalid') from None
+    digest = hashlib.sha256(files['bundle.json']).hexdigest()
+    return Release(PROVIDER, version, source_sha, source_sha, digest, files, modes, True)
+
+
+def provider_anchor(version, anchor=None):
+    """The published provider release, or the already verified sandbox candidate the lock names."""
+    if anchor is None:
+        return released(PROVIDER, version)
+    require(type(anchor) is Release and anchor.candidate and anchor.repository == PROVIDER
+            and anchor.version == version, 'greenfield_candidate_lock_mismatch')
+    return anchor
+
+
+def source_releases(api, source_sha, anchor=None):
     """Bind lock, source registry, complete provider/generic trees and workflows."""
     try:
         metadata = project_files(api, source_sha, 'adw-task-manifest.json', 'pzagent-context-lock.json')
         manifest = json.loads(metadata['adw-task-manifest.json'][1])
         lock = json.loads(metadata['pzagent-context-lock.json'][1])
-        provider = released(PROVIDER, lock['package_version'])
+        provider = provider_anchor(lock['package_version'], anchor)
         generic = released(GENERIC, manifest['contract']['version'])
         require(lock.get('schema_version') == '1.0.0' and lock.get('source_ref') == provider.source_sha
                 and lock.get('bundle_sha256') == hashlib.sha256(provider.files['bundle.json']).hexdigest(), 'greenfield_lock_mismatch')
@@ -320,6 +386,7 @@ class Admission:
     provider_sha: str
     generic_sha: str
     fingerprint: str
+    candidate: bool = False
 
 
 def _pull(api, number):
@@ -348,11 +415,14 @@ def _operator_runtime(repo, provider):
             and not (marker.stat().st_mode & 0o077) and marker.stat().st_size <= 4096
             and not (root.stat().st_mode & 0o077) and not (root.parent.stat().st_mode & 0o077),
             'greenfield_released_operator_required')
+    expected = {'schema_version': '1.0.0', 'source_sha': provider.source_sha,
+                'version': provider.version, 'archive_sha256': provider.archive_sha256}
+    if provider.candidate:
+        expected = {'schema_version': '1.0.0', 'source_sha': provider.source_sha, 'version': provider.version,
+                    'bundle_sha256': provider.archive_sha256, 'candidate_repository': SANDBOX}
     try:
         value = json.loads(marker.read_bytes())
-        require(value == {'schema_version': '1.0.0', 'source_sha': provider.source_sha,
-                          'version': provider.version, 'archive_sha256': provider.archive_sha256},
-                'greenfield_operator_runtime_mismatch')
+        require(value == expected, 'greenfield_operator_runtime_mismatch')
     except (ValueError, TypeError):
         raise ProofError('greenfield_operator_runtime_mismatch') from None
     require(not any(p.is_symlink() for p in root.rglob('*')), 'greenfield_operator_runtime_mismatch')
@@ -363,6 +433,42 @@ def _operator_runtime(repo, provider):
         mode = '100755' if actual[path].stat().st_mode & 0o111 else '100644'
         require(not actual[path].is_symlink() and actual[path].read_bytes() == expected
                 and mode == provider.modes[path], 'greenfield_operator_runtime_mismatch')
+
+
+def _candidate_marker():
+    """The operator runtime's marker selects candidate mode; _operator_runtime checks it fully."""
+    marker = Path(__file__).resolve().parents[2].parent / 'operator-release.json'
+    if not marker.is_file() or marker.is_symlink() or marker.stat().st_size > 4096:
+        return None
+    try:
+        value = json.loads(marker.read_bytes())
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) and 'candidate_repository' in value else None
+
+
+def _sandbox_identity(api):
+    """Live identity of the fixed sandbox: exact name, owner, private and not a fork."""
+    require(api.repository == SANDBOX, 'greenfield_candidate_repository_forbidden')
+    try:
+        value = api.get('')
+        require(value.get('full_name') == SANDBOX and type(value.get('id')) is int and value['id'] == SANDBOX_ID
+                and value.get('owner', {}).get('login') == SANDBOX.split('/')[0]
+                and value.get('private') is True and value.get('fork') is False, 'greenfield_candidate_repository_forbidden')
+    except (ApiError, AttributeError):
+        raise ProofError('greenfield_candidate_repository_forbidden') from None
+
+
+def _candidate_runtime(api, marker):
+    require(marker.get('candidate_repository') == SANDBOX, 'greenfield_candidate_repository_forbidden')
+    _sandbox_identity(api)
+    root = Path(__file__).resolve().parents[2]
+    paths = [p for p in root.rglob('*') if '__pycache__' not in p.parts and p.suffix not in ('.pyc', '.pyo')]
+    require(not any(p.is_symlink() for p in paths), 'greenfield_operator_runtime_mismatch')
+    files = {p.relative_to(root).as_posix(): p.read_bytes() for p in paths if p.is_file()}
+    modes = {p.relative_to(root).as_posix(): '100755' if p.stat().st_mode & 0o111 else '100644'
+             for p in paths if p.is_file()}
+    return candidate(marker.get('source_sha'), marker.get('version'), files, modes)
 
 
 def _installed_seed(api, pull, snapshot):
@@ -449,7 +555,9 @@ def operator_admission(repo, adapter, args):
                 'greenfield_pull_invalid')
     snapshot = default_snapshot(api)
     require(snapshot['absent'], 'greenfield_controller_present')
-    provider, generic = source_releases(api, pull.head_sha)
+    marker = _candidate_marker()
+    anchor = _candidate_runtime(api, marker) if marker is not None else None
+    provider, generic = source_releases(api, pull.head_sha, anchor)
     metadata = project_files(api, pull.head_sha, 'pzagent-adapter.json', 'adw-task-manifest.json', 'pzagent-context-lock.json')
     for path, data in metadata.values():
         local = repo / path
@@ -458,7 +566,7 @@ def operator_admission(repo, adapter, args):
     _operator_runtime(repo, provider)
     admission = Admission(api.repository, pull.number, pull.head_sha, pull.base_sha, pull.source_branch, pull.target_branch,
                           snapshot['branch'], snapshot['sha'], provider.source_sha,
-                          generic.snapshot_sha, _not_disabled(api, pull))
+                          generic.snapshot_sha, _not_disabled(api, pull), provider.candidate)
     _validate(api, _pull(api, args.pr), admission, default_snapshot(api))
     token = _CURRENT.set(admission)
     try:
@@ -486,7 +594,11 @@ def trusted_decision(api, pull):
 def before_mutation(api, number):
     """Re-read live identity, default tree and explicit denials at the write boundary."""
     admission = _CURRENT.get()
-    if admission is not None:
+    if admission is not None and admission.candidate:
+        _validate(api, _pull(api, number), admission, default_snapshot(api))
+        _sandbox_identity(api)
+        candidate_head(admission.provider_sha)
+    elif admission is not None:
         _validate(api, _pull(api, number), admission, default_snapshot(api))
         require(fetch(PROVIDER, 'commits/v' + json.loads(
             (Path(__file__).resolve().parents[2] / 'bundle.json').read_bytes())['version'])['sha'] == admission.provider_sha,
