@@ -1,0 +1,62 @@
+{
+  "archive_sha256": "60958304b767d96ff3b6c9f43545970324d8687bfadfe3f3cb8988f43d3b1853",
+  "files": {
+    "adw_contract.py": {
+      "mode": "100644",
+      "sha256": "8025be42bf6143daa8aee12c791812c290f7685ca20f48cc71c8f597d689b5a1"
+    },
+    "contract.md": {
+      "mode": "100644",
+      "sha256": "d42c0d26abf2578572e16e00066be31e543c3a9d25d54e9cf648b332d011531b"
+    },
+    "fixtures/library/.adw/adw-task-manifest.json": {
+      "mode": "100644",
+      "sha256": "6197815e168ec71a963a52a61193e6ade98541c76c7552752409fb4d6c392742"
+    },
+    "fixtures/library/task-names.json": {
+      "mode": "100644",
+      "sha256": "9aae62b10efd46be518176abf78b840ffbbbb1158753c205f83a70bc18e68b09"
+    },
+    "fixtures/service/.adw/adw-task-manifest.json": {
+      "mode": "100644",
+      "sha256": "8869f0f48944d63488cc9f5a14aeae1d66400423b251f9258e5cb399fbecf234"
+    },
+    "fixtures/service/task-names.json": {
+      "mode": "100644",
+      "sha256": "9aae62b10efd46be518176abf78b840ffbbbb1158753c205f83a70bc18e68b09"
+    },
+    "generation-guide.md": {
+      "mode": "100644",
+      "sha256": "37a81a5acf3d12809e9c2f5468e972a0f0a5ed4e4522ad48c91dd718489be3be"
+    },
+    "schemas/adw-task-evidence.schema.json": {
+      "mode": "100644",
+      "sha256": "498fd88e21dc41e5aa4be4be3bedf9c681a08412f9c8764d79093274c90b0951"
+    },
+    "schemas/adw-task-manifest.schema.json": {
+      "mode": "100644",
+      "sha256": "92f9bcb21c5d6291681090f6f6fefbd0cf447f5c86165aeb059bd90b601e1d68"
+    },
+    "tasks.toml": {
+      "mode": "100644",
+      "sha256": "2970eb7e5c3181972f3d46e243dd7f286c7e195b8336daa98af8be55f0d1c2ef"
+    },
+    "templates/context-vars.example.toml": {
+      "mode": "100644",
+      "sha256": "1abf8ba07a17831f9eff58ae5b9a8f6a705102bebc578600cca0fa0bc8b7cfe4"
+    },
+    "templates/mise.toml": {
+      "mode": "100644",
+      "sha256": "57763f53e461737b7c833e86e0b51cf382734e583f083042b95d84897a6769ca"
+    },
+    "templates/project-vars.example.toml": {
+      "mode": "100644",
+      "sha256": "483a2204479c177827fc13cdd9f2b715a9ea510c455c86016d300bd87115f370"
+    }
+  },
+  "repository": "smarterworkerai/agentic-delivery",
+  "schema_version": "1.0.0",
+  "snapshot_ref": "81b082594dafb61d4808990f6a153b76eae9df7f",
+  "source_sha": "5863a90d3a616e23d2ee7c54c9000aea82485b4a",
+  "version": "2.3.0"
+}

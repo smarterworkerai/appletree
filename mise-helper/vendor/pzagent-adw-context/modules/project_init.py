@@ -22,6 +22,14 @@ from modules.quality_tasks import engine
 
 BUNDLE = Path(__file__).resolve().parents[1]
 MARKER = 'pz:project:init'
+# Operations the bundled provider hooks serve (their OPERATIONS plus describe). A scaffold routes a
+# capability to bundle:<provider> only when that hook implements it; E2E and, on Dokploy, hotfix
+# builds need a project hook, so the scaffold declares them unsupported.
+BUNDLED_OPERATIONS = {
+    'dokploy': frozenset({'describe', 'config-plan', 'deploy-status', 'health', 'readiness', 'runtime-proof'}),
+    'kubernetes': frozenset({'describe', 'config-plan', 'deploy-status', 'health', 'readiness', 'runtime-proof',
+                             'hotfix-build'}),
+}
 
 
 def document(value):
@@ -144,9 +152,13 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
         scope = args.environments if task in generic.ENVIRONMENT_TASKS else []
         if task in {'adw:hotfix:apply', 'adw:hotfix:restore'}:
             scope = [env for env in args.environments if env in {'pr-preview', 'telephony-preview'}]
+            if 'hotfix-build' not in BUNDLED_OPERATIONS[args.provider]:
+                scope = []
             supported = bool(scope)
         elif task in {'adw:test:e2e:fast', 'adw:test:e2e:full'}:
             scope = [env for env in args.environments if env == 'pr-preview']
+            if not {'e2e-fast', 'e2e-full'} <= BUNDLED_OPERATIONS[args.provider]:
+                scope = []
             supported = bool(scope)
         manifest['capabilities'][task] = {
             'source': 'project' if task in PROJECT_TASKS else 'context' if task in context or task not in {'adw:check'} else 'generic',

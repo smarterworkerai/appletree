@@ -14,6 +14,7 @@ import zipfile
 from .github_api import project_files, ApiError
 from .quality_proof import ProofError, Pull
 from . import greenfield
+from . import generic_release
 
 BOOTSTRAP_COMMAND = re.compile(r'^BOOTSTRAP_(ENABLED|DISABLED) ([0-9a-f]{64})$')
 
@@ -72,6 +73,7 @@ TRUSTED_PATHS = (
     '.adw/adw-task-manifest.json',
     'mise-helper/vendor/pzagent-adw-context/modules/pointer_retirement.py',
     'mise-helper/vendor/pzagent-adw-context/modules/ci/greenfield.py',
+    'mise-helper/vendor/pzagent-adw-context/modules/ci/generic_release.py',
 )
 
 
@@ -86,11 +88,22 @@ WORKFLOW_TEMPLATES = (
     ('.github/workflows/publish-release.yml', 'templates/github/publish-release.yml'),
     ('.github/workflows/cleanup-retention.yml', 'templates/github/cleanup-retention.yml'),
 )
-# A released-vendor repin may change only the vendored context, its manifest source
-# record and the byte-identical workflow templates; anything else keeps the admin gate.
+GENERIC_PREFIX = 'mise-helper/vendor/agentic-delivery/'
+# A released-vendor repin may change only the vendored context, the generic layer that release
+# pins, their manifest records and the byte-identical workflow templates; anything else keeps
+# the admin gate.
 RELEASED_VENDOR_PATHS = frozenset(
-    [path for path in TRUSTED_PATHS if path.startswith(VENDOR_PREFIX)]
+    [path for path in TRUSTED_PATHS if path.startswith((VENDOR_PREFIX, GENERIC_PREFIX))]
     + ['.hermes/adw-task-manifest.json', '.adw/adw-task-manifest.json'] + [path for path, _ in WORKFLOW_TEMPLATES])
+
+
+def _released_generic_pin(ref: str, token: str) -> dict | None:
+    """The agentic-delivery pin of the published provider release itself, never the PR's copy."""
+    published = _provider_get(f'contents/{PROVIDER_SNAPSHOT}{generic_release.GENERIC_PIN}?ref={ref}', token)
+    try:
+        return generic_release.validate_generic_pin(json.loads(base64.b64decode(published.get('content', ''))))
+    except (ProofError, ValueError, TypeError):
+        return None
 
 
 def _provider_get(path: str, token: str):
@@ -157,11 +170,40 @@ def _released_vendor(api, pull: Pull, changed: list[str]) -> str | None:
                 workflow = api.content(workflow_path, pull.head_sha)[1]
                 if hashlib.sha256(workflow).hexdigest() != inventory.get(template_path):
                     return None
-        if manifest_path in changed:
-            head = json.loads(metadata['adw-task-manifest.json'][1])
-            base = json.loads(base_metadata['adw-task-manifest.json'][1])
+        generic_changed = [path for path in changed if path.startswith(GENERIC_PREFIX)]
+        # Generic bytes are judged together with the head manifest that must record them,
+        # whether or not the manifest file itself changed.
+        head = (json.loads(metadata['adw-task-manifest.json'][1])
+                if manifest_path in changed or generic_changed else None)
+        base = json.loads(base_metadata['adw-task-manifest.json'][1]) if head is not None else None
+
+        def generic_record(manifest):
+            return (manifest.get('sources', {}).get('generic'), manifest.get('schema_version'),
+                    manifest.get('contract', {}).get('version'))
+        pin = None
+        if generic_changed or (head is not None and generic_record(head) != generic_record(base)):
+            # Only the pin the published release itself carries may move the generic layer.
+            pin = _released_generic_pin(ref, token)
+            if pin is None:
+                return None
+            modes = _blob_modes(api, pull.head_sha, set(generic_changed))
+            if modes is None:
+                return None
+            for path in generic_changed:
+                expected = pin['files'].get(path.removeprefix(GENERIC_PREFIX))
+                if (expected is None or modes.get(path) != expected['mode']
+                        or expected['sha256'] != hashlib.sha256(api.content(path, pull.head_sha)[1]).hexdigest()):
+                    return None
+            if generic_record(head) != (generic_release.generic_source(pin), pin['version'], pin['version']):
+                return None
+        if head is not None:
             record = head.get('sources', {}).pop('context', None)
             base.get('sources', {}).pop('context', None)
+            if pin is not None:
+                for manifest in (head, base):
+                    manifest['sources'].pop('generic', None)
+                    manifest.pop('schema_version', None)
+                    manifest.get('contract', {}).pop('version', None)
             if head != base or record != {'layer': 'context', 'ref': ref, 'path': VENDOR_PREFIX + 'tasks.toml',
                                           'checksum': 'sha256:' + str(inventory.get('tasks.toml'))}:
                 return None
@@ -200,6 +242,26 @@ def _blob_map(commit: object, tree_of: 'callable', wanted: set[str] | None) -> d
                 return None
             blobs[entry['path']]=entry['sha']
     return blobs
+
+
+def _blob_modes(api, sha: str, wanted: set[str]) -> dict[str, str] | None:
+    """Git file modes of the wanted regular files at one consumer commit; None when unusable."""
+    if not wanted:
+        return {}
+    try:
+        commit=api.get(f'git/commits/{sha}')
+        tree=commit['tree']['sha']
+        if not isinstance(tree,str) or not re.fullmatch(r'[0-9a-f]{40}',tree):
+            return None
+        listing=api.get(f'git/trees/{tree}?recursive=1')
+    except (ApiError, KeyError, TypeError, ValueError, OSError, subprocess.TimeoutExpired):
+        return None
+    entries=listing.get('tree') if isinstance(listing,dict) else None
+    if listing.get('truncated') is not False or not isinstance(entries,list):
+        return None
+    modes={entry['path']: entry.get('mode') for entry in entries
+           if isinstance(entry,dict) and entry.get('type')=='blob' and entry.get('path') in wanted}
+    return modes if set(modes)==wanted else None
 
 
 def _tree_blobs(api, sha: str, wanted: set[str] | None = None) -> dict[str, str] | None:

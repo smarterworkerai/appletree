@@ -37,7 +37,8 @@
     "templates.github.actions.authorize-publication.authorize",
     "templates.github.actions.publish-immutable-release.publish",
     "modules.pointer_retirement",
-    "modules.ci.greenfield"
+    "modules.ci.greenfield",
+    "modules.ci.generic_release"
   ],
   "observations": {
     "modules.build_archive": {

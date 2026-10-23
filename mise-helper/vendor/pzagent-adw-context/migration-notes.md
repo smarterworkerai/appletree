@@ -1,5 +1,48 @@
 # Migration notes
 
+## 0.15.10
+
+- **The provider release now carries its generic layer.** The new bundle file
+  `generic-release.json` pins the agentic-delivery release this provider release was
+  tested with, here **v2.3.0**: tag commit, release-index snapshot ref, archive
+  checksum, and every runtime file's SHA-256 and mode. The bundle checksum covers it
+  through the inventory, so one `adw:context:sync -- vX.Y.Z <bundle-sha256>` fixes
+  both layers.
+  - `adw:context:sync` verifies the published agentic-delivery release against the
+    pin. It then replaces `mise-helper/vendor/agentic-delivery` with the full runtime
+    snapshot (13 files for v2.3.0) and updates `sources.generic`, `schema_version` and
+    `contract.version` in the manifest, in the same change. An already matching
+    generic layer is left untouched and needs no network. Moving to an older pinned
+    generic release needs `--allow-downgrade`.
+  - `adw:context:check` fails with `generic_layer_differs_from_pin` or
+    `generic_manifest_differs_from_pin` when the vendored generic layer or its
+    manifest record differs from the pin.
+  - **First repin from 0.15.9 or older:** the installed updater still syncs only the
+    context layer. Commit that canonical repin, then run the same
+    `adw:context:sync -- v0.15.10 <bundle-sha256>` again; the new updater moves the
+    generic layer. Commit it separately in the same PR.
+  - The generic engine file `adw_contract.py` is a trusted path, and 0.15.10 adds one
+    trusted path, `modules/ci/generic_release.py`, the pin validator the new
+    released-vendor decision uses. A 0.15.9 or older default controller cannot approve
+    a generic change automatically, and the added path makes the current scope's
+    fingerprint differ from the old scope's. So the first repin to 0.15.10 needs **two**
+    administrator decisions, each from the actual task output for that exact consumer
+    head: `BOOTSTRAP_ENABLED <old-scope fingerprint>` and then
+    `BOOTSTRAP_ENABLED <current fingerprint>`, then a rerun of the failed jobs. From
+    0.15.10 on, the released-vendor controller also accepts generic trusted files and
+    manifest records that equal the pin of the published provider release itself, so
+    later same-scope repins are automatic again.
+  - The generic 2.3.0 manifest change is the version only: `schema_version` and
+    `contract.version` become `2.3.0`. The project-owned `mise.toml` `[vars]`
+    `adw_contract_version` is informational and may be updated by hand.
+- **`pz:project:init` no longer scaffolds dead routes.** It declared
+  `adw:test:e2e:fast`/`full` (both providers) and `adw:hotfix:apply`/`restore`
+  (Dokploy) supported and routed them to `bundle:<provider>`, but those bundled
+  hooks don't implement `e2e-fast`/`e2e-full`, nor `hotfix-build` on Dokploy, so the
+  tasks always blocked. New scaffolds declare them unsupported until the project adds
+  its own hook. Existing consumers keep their files. Point those routes at a project
+  hook, or mark them unsupported.
+
 ## 0.15.9
 
 - The bundle's minimum mise rises from 2026.9.13 to **2026.10.17**: the

@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .bundle import validate_bundle
+from .ci import generic_release
+from .ci.quality_proof import ProofError
 from .common import ContractError, FULL_SHA, project_dir, ensure_contained, load_json, sha256_file
 
 REPOSITORY = "smarterworkerai/pzagent-adw-context"
@@ -22,9 +24,13 @@ VERSION = re.compile(r"(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)")
 VENDOR = Path("mise-helper/vendor/pzagent-adw-context")
 GENERIC_ENGINE = Path("mise-helper/vendor/agentic-delivery/adw_contract.py")
 ENGINE_VERSION = re.compile(r'^CONTRACT_VERSION\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*$', re.MULTILINE)
+ENGINE_SCHEMA = re.compile(r'^SCHEMA_VERSION\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*$', re.MULTILINE)
 MAX_ENGINE_BYTES = 1_048_576
 MANIFEST = Path("adw-task-manifest.json")
 LOCK = Path("pzagent-context-lock.json")
+# The bundle names the agentic-delivery release it was tested with in a separate inventory file
+# (generic_release.GENERIC_PIN), not a bundle.json key: installed updaters validate bundle.json as
+# a closed document, so a new key there would make every older consumer refuse the sync.
 
 
 def current_branch(repo: Path) -> str:
@@ -39,7 +45,8 @@ def current_branch(repo: Path) -> str:
 
 def managed_clean(repo: Path) -> None:
     result = subprocess.run(
-        ["git", "status", "--porcelain", "--", str(VENDOR), str(project_dir(repo).relative_to(repo) / MANIFEST), str(project_dir(repo).relative_to(repo) / LOCK)],
+        ["git", "status", "--porcelain", "--", str(VENDOR), str(GENERIC_ENGINE.parent),
+         str(project_dir(repo).relative_to(repo) / MANIFEST), str(project_dir(repo).relative_to(repo) / LOCK)],
         cwd=repo, text=True, capture_output=True, check=False,
     )
     if result.returncode or result.stdout.strip():
@@ -128,6 +135,80 @@ def _check_generic_engine(repo: Path, manifest: dict[str, Any]) -> None:
     declared = str(manifest["contract"].get("version", ""))
     if match is None or match.group(1) != declared:
         raise ContractError("vendored generic ADW engine version differs from the manifest contract")
+
+
+def load_generic_pin(bundle_root: Path) -> dict[str, Any] | None:
+    """The bundle's pinned agentic-delivery release; None for a bundle that pins none."""
+    path = bundle_root / generic_release.GENERIC_PIN
+    if not path.exists() and not path.is_symlink():
+        return None
+    return validate_generic_pin(load_json(path))
+
+
+def validate_generic_pin(pin: Any) -> dict[str, Any]:
+    try:
+        return generic_release.validate_generic_pin(pin)
+    except ProofError as exc:
+        raise ContractError(f"generic release pin is invalid: {exc}") from None
+
+
+def generic_vendor_matches(repo: Path, pin: dict[str, Any]) -> bool:
+    """The vendored generic layer holds exactly the pinned release's runtime files, byte for byte."""
+    root = repo / GENERIC_ENGINE.parent
+    if not root.is_dir() or root.is_symlink():
+        return False
+    actual = {path.relative_to(root).as_posix() for path in root.rglob("*")
+              if not path.is_dir() and "__pycache__" not in path.parts}
+    if actual != set(pin["files"]):
+        return False
+    for name, entry in pin["files"].items():
+        path = ensure_contained(root, name)
+        if path.is_symlink() or not path.is_file() or sha256_file(path) != entry["sha256"]:
+            return False
+        if ("100755" if path.stat().st_mode & 0o111 else "100644") != entry["mode"]:
+            return False
+    return True
+
+
+def _generic_source_id(manifest: dict[str, Any]) -> str:
+    sources = manifest.get("sources") if isinstance(manifest, dict) else None
+    ids = [key for key, value in (sources or {}).items() if isinstance(value, dict) and value.get("layer") == "generic"]
+    if len(ids) != 1:
+        raise ContractError("manifest generic source is missing or ambiguous")
+    return ids[0]
+
+
+def check_generic_pin(repo: Path, manifest: dict[str, Any], pin: dict[str, Any], bundle_version: str) -> dict:
+    """Generic layer, manifest source and contract version must equal the bundle's pinned release."""
+    hint = (f"run `mise run adw:context:sync -- v{bundle_version} <bundle-sha256>` again;"
+            " a 0.15.9 or older updater updates only the context layer on its first run")
+    if not generic_vendor_matches(repo, pin):
+        raise ContractError(f"generic_layer_differs_from_pin: the vendored agentic-delivery files differ from"
+                            f" the pinned v{pin['version']}; {hint}")
+    if manifest["sources"][_generic_source_id(manifest)] != generic_release.generic_source(pin) \
+            or manifest.get("schema_version") != pin["version"] or manifest["contract"].get("version") != pin["version"]:
+        raise ContractError(f"generic_manifest_differs_from_pin: the manifest does not record agentic-delivery"
+                            f" v{pin['version']}; {hint}")
+    return {"status": "passed", "version": pin["version"], "ref": pin["snapshot_ref"]}
+
+
+def released_generic(pin: dict[str, Any]) -> dict[str, tuple[bytes, str]]:
+    """Fetch the published agentic-delivery release and prove it is exactly the pinned one."""
+    from .ci.greenfield import GENERIC, released
+    try:
+        release = released(GENERIC, pin["version"])
+    except ProofError as exc:
+        raise ContractError(f"pinned generic release could not be verified: {exc}") from None
+    if (release.source_sha != pin["source_sha"] or release.snapshot_sha != pin["snapshot_ref"]
+            or release.archive_sha256 != pin["archive_sha256"] or set(release.files) != set(pin["files"])):
+        raise ContractError("published generic release differs from the bundle pin")
+    files = {}
+    for name, entry in pin["files"].items():
+        data = release.files[name]
+        if hashlib.sha256(data).hexdigest() != entry["sha256"] or release.modes[name] != entry["mode"]:
+            raise ContractError("published generic release differs from the bundle pin")
+        files[name] = (data, entry["mode"])
+    return files
 
 
 MAX_TOOL_CONFIG_BYTES = 1_048_576
@@ -432,6 +513,11 @@ def check_consumer(
                 raise ContractError("context capability provenance differs")
     local_mise = _check_compatibility(manifest, mise_version, minimum_mise=bundle["minimum_mise"])
     _check_generic_engine(repo, manifest)
+    pin = load_generic_pin(repo / VENDOR)
+    # A local development candidate binds its own generic files above instead of the release pin.
+    generic = ({'status': 'skipped', 'reason': 'no_generic_pin'} if pin is None
+               else {'status': 'skipped', 'reason': 'local_development_candidate'} if candidate is not None
+               else check_generic_pin(repo, manifest, pin, bundle["version"]))
     check_precedence(repo)
     check_context_task_overrides(repo)
     tool_lock = check_tool_lock(repo)
@@ -467,6 +553,7 @@ def check_consumer(
         "version": bundle["version"],
         "source_ref": source["ref"],
         "bundle_sha256": descriptor_checksum,
+        "generic": generic,
         "tool_lock": tool_lock,
         "lock_format": lock_format,
         "publication_tools": publication_tools,
@@ -552,14 +639,24 @@ def safe_extract(archive: Path, destination: Path) -> Path:
     return destination / "skills/pzagent/pzagent-adw-context/assets/mise/v2"
 
 
+def _write_generic(target: Path, files: dict[str, tuple[bytes, str]]) -> None:
+    for name, (data, mode) in sorted(files.items()):
+        path = ensure_contained(target, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        path.chmod(0o755 if mode == "100755" else 0o644)
+
+
 def _stage_consumer(
     repo: Path, staged: Path, bundle_root: Path, manifest: dict[str, Any],
-    lock: dict[str, Any],
+    lock: dict[str, Any], generic_files: dict[str, tuple[bytes, str]] | None = None,
 ) -> None:
     shutil.copytree(bundle_root, staged / VENDOR)
-    # The generic layer is untouched by a context sync, but the staged check needs it.
     generic = repo / GENERIC_ENGINE.parent
-    if generic.is_dir() and not generic.is_symlink():
+    if generic_files is not None:
+        _write_generic(staged / GENERIC_ENGINE.parent, generic_files)
+    elif generic.is_dir() and not generic.is_symlink():
+        # An unchanged generic layer is copied as is; the staged check still needs it.
         shutil.copytree(generic, staged / GENERIC_ENGINE.parent, symlinks=False)
     (staged / project_dir(repo).name).mkdir(parents=True, exist_ok=True)
     (project_dir(staged) / MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
@@ -581,6 +678,7 @@ def sync(
     allow_downgrade: bool = False,
     archive_path: Path | None = None,
     mise_version: str | None = None,
+    fetch_generic: Callable[[dict[str, Any]], dict[str, tuple[bytes, str]]] = released_generic,
 ) -> dict[str, Any]:
     repo = repo.resolve()
     branch = current_branch(repo)
@@ -641,19 +739,37 @@ def sync(
             for task in ('adw:verify:full', 'adw:describe'):
                 if task in capabilities:
                     capabilities[task]['source'] = context_source_id
+        # The provider release carries its tested generic layer: same change, same review.
+        pin = load_generic_pin(bundle_root)
+        generic_files = None
+        if pin is not None:
+            contract = manifest.get("contract")
+            current_generic = str(contract.get("version", "")) if isinstance(contract, dict) else ""
+            if (_version(pin["version"], "pinned generic") < _version(current_generic, "current generic")
+                    and not allow_downgrade):
+                raise ContractError("generic downgrade requires --allow-downgrade")
+            if not generic_vendor_matches(repo, pin):
+                generic_files = fetch_generic(pin)
+            manifest["sources"][_generic_source_id(manifest)] = generic_release.generic_source(pin)
+            manifest["schema_version"] = pin["version"]
+            manifest["contract"]["version"] = pin["version"]
         lock = {
             "schema_version": "1.0.0", "source_ref": ref,
             "package_version": descriptor["version"],
             "bundle_sha256": bundle_sha256,
         }
         staged = temp / "consumer"
-        _stage_consumer(repo, staged, bundle_root, manifest, lock)
+        _stage_consumer(repo, staged, bundle_root, manifest, lock, generic_files)
         check_consumer(staged, mise_version=mise_version)
 
         if (repo / VENDOR).exists():
             shutil.rmtree(repo / VENDOR)
         (repo / VENDOR).parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(staged / VENDOR, repo / VENDOR)
+        if generic_files is not None:
+            if (repo / GENERIC_ENGINE.parent).exists():
+                shutil.rmtree(repo / GENERIC_ENGINE.parent)
+            shutil.copytree(staged / GENERIC_ENGINE.parent, repo / GENERIC_ENGINE.parent)
         shutil.copy2(project_dir(staged) / MANIFEST, project_dir(repo) / MANIFEST)
         shutil.copy2(project_dir(staged) / LOCK, project_dir(repo) / LOCK)
     result = check_consumer(repo, mise_version=mise_version)

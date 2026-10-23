@@ -1,6 +1,6 @@
 # pzagent ADW runtime policy
 
-Package `0.15.9`. The runtime enforces capabilities, environments, logical targets, side-effect classes and approvals; this page lists only the rules an agent or operator must follow that code cannot enforce.
+Package `0.15.10`. The runtime enforces capabilities, environments, logical targets, side-effect classes and approvals; this page lists only the rules an agent or operator must follow that code cannot enforce.
 
 ## Ownership
 
