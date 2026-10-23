@@ -182,7 +182,7 @@
   "contract": {
     "compatible": ">=2.0.0,<3.0.0",
     "name": "adw-mise-task-contract",
-    "version": "2.2.0"
+    "version": "2.3.0"
   },
   "environments": [
     "review"
@@ -194,7 +194,7 @@
     "id": "fixture/service"
   },
   "required_secret_env": [],
-  "schema_version": "2.2.0",
+  "schema_version": "2.3.0",
   "sources": {
     "generic": {
       "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

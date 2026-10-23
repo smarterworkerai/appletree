@@ -200,7 +200,7 @@
   "contract": {
     "compatible": ">=2.0.0,<3.0.0",
     "name": "adw-mise-task-contract",
-    "version": "2.2.0"
+    "version": "2.3.0"
   },
   "environments": [
     "pr-preview",
@@ -214,7 +214,7 @@
     "id": "smarterworkerai/appletree"
   },
   "required_secret_env": [],
-  "schema_version": "2.2.0",
+  "schema_version": "2.3.0",
   "sources": {
     "context": {
       "checksum": "sha256:3c38156ea3bb4d42453e31c394f5b3ce6d2158521c29e5a7fbfde67547bac099",
@@ -226,7 +226,7 @@
       "checksum": "sha256:2970eb7e5c3181972f3d46e243dd7f286c7e195b8336daa98af8be55f0d1c2ef",
       "layer": "generic",
       "path": "mise-helper/vendor/agentic-delivery/tasks.toml",
-      "ref": "4d417eccc17981768d7f63db7b3517a8a4541c11"
+      "ref": "81b082594dafb61d4808990f6a153b76eae9df7f"
     },
     "project": {
       "checksum": "sha256:fae110b78ffe839188fc549b108ad0f7b6a7eb4a188ef4ff0683fa748251484e",

@@ -4,7 +4,7 @@
 
 This contract defines the stable boundary between Agentic Delivery Workflow orchestration and deterministic project operations. ADW, CI, and humans invoke the same canonical mise tasks. Projects and optional context layers implement those tasks without exposing tool- or provider-specific decisions to generic ADW.
 
-The contract and schema version is `2.2.0`. Version 2.2 adds `.adw/` project-directory support while retaining `.hermes/` for existing projects; both present is a contract error. Version 2.1 introduced the source registry and `adw:local:clean`. `adw_contract.py manifest-migrate` performs reviewed compatible-v2 migration to 2.2.0. Historic immutable v1/v2.0 tags remain in Git history; the v2 directory is the active compatible-major snapshot. Breaking task, manifest, evidence, status, or behavioral changes require a major version bump.
+The contract and schema version is `2.3.0`. Version 2.2 adds `.adw/` project-directory support while retaining `.hermes/` for existing projects; both present is a contract error. Version 2.1 introduced the source registry and `adw:local:clean`. `adw_contract.py manifest-migrate` performs reviewed compatible-v2 migration to 2.2.0. Historic immutable v1/v2.0 tags remain in Git history; the v2 directory is the active compatible-major snapshot. Breaking task, manifest, evidence, status, or behavioral changes require a major version bump.
 
 ## Ownership boundary
 
@@ -24,7 +24,7 @@ New ADW/mise-specific helper code and its tests belong under project-root `mise-
 
 Evidence defaults to `<project-dir>/evidence/<run-id>/` and must be Git-ignored.
 
-The project config declares a hard minimum mise version. The compatibility floor remains `2026.9.5` after validation with both `2026.9.5` and `2026.9.13`; newer compatible mise releases are allowed. Exact reproducibility applies to project tools through explicit versions and `mise.lock`, not by locking the mise executable itself.
+The project config declares a hard minimum mise version. The compatibility floor is `2026.10.17`, the release this snapshot was validated with; newer compatible mise releases are allowed. Mise releases from `2026.9.16` write `mise.lock` format 3, which older releases cannot read, so the floor keeps every operator and CI runner on a mise that reads the locks the others write. Exact reproducibility applies to project tools through explicit versions and `mise.lock`, not by locking the mise executable itself.
 
 ## Fixed task ABI
 

@@ -1,11 +1,11 @@
-min_version = { hard = "2026.9.5" }
+min_version = { hard = "2026.10.17" }
 
 [settings]
 lockfile = true
 
 [vars]
-adw_contract_version = "2.2.0"
-adw_mise_tested_version = "2026.9.5"
+adw_contract_version = "2.3.0"
+adw_mise_tested_version = "2026.10.17"
 
 [task_config]
 includes = [

@@ -23,7 +23,7 @@ Start variable discovery from `templates/project-vars.example.toml` and, when a 
 
 ## Mise version policy
 
-The root template sets `min_version = { hard = "2026.9.5" }`. This is a hard compatibility floor, not an exact lock of the mise executable. `2026.9.5` is the lowest passing version; the snapshot was also validated with `2026.9.13`. Tools managed by mise are pinned through exact project declarations and `mise.lock`; the mise executable may be newer than the hard minimum.
+The root template sets `min_version = { hard = "2026.10.17" }`. This is a hard compatibility floor, not an exact lock of the mise executable; the snapshot was validated with `2026.10.17`. Mise releases from `2026.9.16` write `mise.lock` format 3, so an older floor would let one operator write a lock another cannot read. Tools managed by mise are pinned through exact project declarations and `mise.lock`; the mise executable may be newer than the hard minimum.
 
 ## Generation procedure
 
