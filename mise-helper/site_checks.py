@@ -112,12 +112,15 @@ def http_smoke():
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     try:
-        check_remote('http://localhost:' + str(server.server_port))
+        origin = 'http://localhost:' + str(server.server_port)
+        check_remote(origin)
+        from browser_checks import run_browser
+        run_browser(Path.cwd(), origin, 'full')
     finally:
         server.shutdown()
         server.server_close()
         worker.join()
-    print('PASS: compiled page, scene canvas and all script/style assets over HTTP')
+    print('PASS: compiled HTTP assets and Chromium WebGL rendering/resize (2 executed, 0 skipped)')
 
 
 def container_smoke():

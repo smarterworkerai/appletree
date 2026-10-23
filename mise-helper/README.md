@@ -6,12 +6,12 @@ no implicit shell. Full verification remains context-owned.
 
 | Task | Application behavior |
 | --- | --- |
-| `adw:install` | `npm ci` from the reviewed lockfile. |
+| `adw:install` | `npm ci` from the reviewed lockfile, then install the matching Chromium headless shell. |
 | `adw:build` | Vite compiles `src/` to `dist/`; release mode uses the bundled staged builder and sealed handover. |
 | `adw:lint` | Project documentation/source whitespace and empty examples. |
 | `adw:static-analysis` | Node syntax plus release recipe, pinned images and routing/key contracts. |
-| `adw:test:unit` | Page/asset rejection cases, HTTP probe headers and the layered Three.js sun/resize contract. |
-| `adw:test:integration:fast` | HTTP serves the actual compiled page and every referenced module/style asset. |
+| `adw:test:unit` | Page/asset rejection cases, HTTP probe headers, E2E target/count/refusal validation and the layered Three.js sun/resize contract. |
+| `adw:test:integration:fast` | HTTP serves the actual compiled page and assets; real Chromium checks WebGL rendering and resize. |
 | `adw:test:integration:full` | Explicitly requested Docker runtime-image HTTP smoke with owned-resource cleanup. |
 | `adw:verify:minimal` | Install and build. |
 | `adw:verify:full` | Context-owned full graph and sealed compiled-output export. |
@@ -49,3 +49,16 @@ Command options: `argv`, `cwd` (`workspace` or `repository`), `env`, `stdout_fil
 Command output goes to stderr. Stdout is one JSON result; exit classes are 0 success, 1 command failure, 20 usage, 21 contract/unimplemented. Evidence is generated through the generic contract; timing attachments retain only task/tool names, duration and outcome, never argv or Environment values. The context wrapper retains CI export and producer validation.
 
 After editing `mise-helper/tasks.toml`, run `mise run pz:project:init -- --refresh-manifest`, then `mise run adw:check` and `mise run adw:context:check`. The refresh changes only the manifest's project source checksum, validates the generic manifest, and refuses context-owned full/describe overrides. Editing only `project-commands.toml` does not change the wrapper checksum; commit that file so source/proof inputs include the actual commands. Commit both vendored runtimes and the generated pin/manifest/configuration; `.gitignore` excludes credentials, caches, evidence and handover output, never `mise-helper/vendor/`. Do not change trusted CI/proof code or the four canonical workflows. Fill Docker recipes, real integration tests, provider resources and operator configuration before enabling remote capabilities. Read `docs/onboarding.md` in the provider repository for the complete handover.
+
+`e2e_hook.py` implements the two advertised preview browser operations instead
+of routing them to a bundle hook that has no E2E implementation. It validates
+the closed request and declared environment, delegates active-target and origin
+checks to bundled readiness, checks routed assets, and invokes
+`browser_e2e.mjs` through `browser_checks.py`. The browser child receives only
+tool/cache environment keys. Fast proves the initial scene; full additionally
+proves viewport resize. Counts must match the selected suite exactly, with no
+skips. Browser messages, URLs and screenshots are never written to evidence;
+screenshots are checked in memory. Timeouts kill and reap the owned child
+process group. The local integration smoke uses the same runner on compiled
+output, without operator credentials or billable calls. Routed tasks retain
+the canonical source and operator-approval gates and run only when requested.

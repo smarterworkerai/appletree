@@ -19,7 +19,9 @@ mappings live in `pz-release.json`; Java is not a build dependency.
 Run `mise run adw:check` and `mise run adw:context:check` before deterministic
 work. The required committed gate is `mise run adw:verify:full`: Vite build,
 hygiene, syntax/configuration analysis, page-validator unit tests and an HTTP
-smoke of the real compiled page and all script/style assets. Optional full
+smoke of the real compiled page and all script/style assets, followed by
+Chromium WebGL rendering and viewport-resize checks on an ephemeral loopback
+server. Installation includes the pinned SDK's Chromium headless shell. Optional full
 container integration runs only when requested. No billable test is needed.
 
 ## Existing provider resources
@@ -71,3 +73,14 @@ addressed by `--operation <id>` under `<operator-home>/journals/`. The removed
 operation-directory flags are not used. Each release-line promotion still needs
 an exact-head review, and each ownership claim needs its exact examined digest
 approved before metadata writes.
+
+## Browser E2E
+
+Preview E2E uses the project-owned browser hook. It preserves the bundled
+active-target and routed-origin validation, checks the page and assets, then
+launches Chromium with no provider credentials. Fast executes the initial
+WebGL scene check; full also verifies resize. The hook accepts only exact,
+nonempty executed counts with zero skips and returns safe reason codes on
+failure. Canonical source binding and operator approvals remain required.
+The Appletree scene makes no billable calls. Routed E2E is operator-triggered;
+the local integration smoke exercises the compiled scene without provider access.

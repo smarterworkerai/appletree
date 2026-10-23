@@ -20,9 +20,11 @@ mise run adw:verify:full
 
 The required graph builds the Vite application, checks source and delivery
 configuration, runs unit tests for the page/asset validator and the actual Three.js
-sun scene, and serves the
-compiled output for an HTTP smoke. It verifies the scene canvas, page title and
-all compiled script/style assets. The optional `adw:test:integration:full` builds
+sun scene, and serves the compiled output for an HTTP and real Chromium smoke. It verifies
+the page title and compiled assets, initializes the WebGL scene at 1280×720,
+then resizes to 800×600 and checks the drawing buffer and screenshots.
+`adw:install` installs the pinned Playwright SDK's Chromium headless shell.
+The local smoke uses an ephemeral loopback server and makes no billable calls. The optional `adw:test:integration:full` builds
 and probes the actual container and runs only when explicitly requested.
 
 ## Delivery
@@ -58,3 +60,11 @@ Deployment checks that marker before advancing pointers; status compares it
 with the current manifest source. A wrong SHA or missing marker refuses even
 when container digest parity passes. The marker contains no credentials or
 operator input. Local page builds and the scene remain unchanged.
+
+The declared preview `adw:test:e2e:fast` and `adw:test:e2e:full` tasks use the
+project browser hook against the private adapter-bound origin. Fast executes
+one WebGL scene check; full also executes the resize check. Both require
+nonempty execution with zero skips and retain the canonical source, target and
+operator-approval gates. These routed tests are operator-triggered; local
+compiled-page browser validation is part of `adw:test:integration:fast`.
+No provider mutation or deployment is part of browser validation.

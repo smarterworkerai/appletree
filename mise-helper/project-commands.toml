@@ -5,7 +5,7 @@ isolated_workspace = "none"
 
 [tasks."adw:install"]
 implemented = true
-commands = [{argv = ["npm", "ci", "--no-fund"]}]
+commands = [{argv = ["npm", "ci", "--no-fund"]}, {argv = ["npm", "exec", "--", "playwright", "install", "--only-shell", "chromium"]}]
 
 [tasks."adw:build"]
 implemented = true
@@ -18,7 +18,7 @@ commands = [{argv = ["python3", "mise-helper/site_checks.py", "lint"]}]
 
 [tasks."adw:static-analysis"]
 implemented = true
-commands = [{argv = ["node", "--check", "src/main.js"]}, {argv = ["python3", "mise-helper/site_checks.py", "static-analysis"]}]
+commands = [{argv = ["node", "--check", "src/main.js"]}, {argv = ["node", "--check", "mise-helper/browser_e2e.mjs"]}, {argv = ["python3", "mise-helper/site_checks.py", "static-analysis"]}]
 
 [tasks."adw:test:unit"]
 implemented = true

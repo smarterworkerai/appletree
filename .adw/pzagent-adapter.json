@@ -62,7 +62,7 @@
         "timeout_seconds": 180
       },
       "adw:test:e2e:fast": {
-        "command": "bundle:dokploy",
+        "command": "mise-helper/e2e_hook.py",
         "operation": "e2e-fast",
         "result_keys": [
           "status",
@@ -73,7 +73,7 @@
         "timeout_seconds": 180
       },
       "adw:test:e2e:full": {
-        "command": "bundle:dokploy",
+        "command": "mise-helper/e2e_hook.py",
         "operation": "e2e-full",
         "result_keys": [
           "status",
