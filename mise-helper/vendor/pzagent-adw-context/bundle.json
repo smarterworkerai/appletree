@@ -18,11 +18,15 @@
     },
     {
       "path": "migration-notes.md",
-      "sha256": "c7bacada6ae7c86993161d6e3cdf3f1282f7e3ee5a507a3cffd3722c1825352c"
+      "sha256": "eb87d5b122a50caf04c8c2632d88b92136940b8904cab9ddc9c2d70908a9e34b"
     },
     {
       "path": "modules/__init__.py",
       "sha256": "c419cfbebdb3740a314ee110088a75770ab5b9d764dfcc14a41e940dda9f6766"
+    },
+    {
+      "path": "modules/acme_cache.py",
+      "sha256": "01959815e2b47161f8568216c42984683cc8ce0ba5b70c404976d692ef443ce5"
     },
     {
       "path": "modules/adapter.py",
@@ -126,11 +130,11 @@
     },
     {
       "path": "modules/cluster_bootstrap.py",
-      "sha256": "f2c310971b31fbb24124ea24742f55359c2a42f52a7a8570ce65da15b36c8d37"
+      "sha256": "383220e18db7708057e50f3d27c2c134cdd4baafa9d68da51176629c3fb33ac6"
     },
     {
       "path": "modules/cluster_lifecycle.py",
-      "sha256": "b7b899d132154fadbca953e37bcd7f0d323f1209f8d2bbc768ae7ee2b3b9f891"
+      "sha256": "f0cc51ed8f8bb06d38ef1f5dd119dbb5c5eddf7752dbe6dd2f438733254b39b2"
     },
     {
       "path": "modules/common.py",
@@ -318,11 +322,11 @@
     },
     {
       "path": "modules/providers/kubernetes_lifecycle.py",
-      "sha256": "d872f5c80b493fe72868f0d6a9ae6bdb6a02729606a08f69cbfaffca95c34112"
+      "sha256": "e2113ebf189dc36f425f23e4cf250234d60c87bce88be0ee0fae65fcbcb6a4ed"
     },
     {
       "path": "modules/providers/kubernetes_metadata.py",
-      "sha256": "fd954a63571630dc9d639be5a74148b72c66f0c0a1b726ffd0001d5a6bb21e8b"
+      "sha256": "ece317c0a28b3cbe2fb71e53819b02d7faa4558b1637f348c029257372b6f0d1"
     },
     {
       "path": "modules/publication.py",
@@ -394,11 +398,11 @@
     },
     {
       "path": "policy.md",
-      "sha256": "d341e46ed238f7b5381a5b4f390c9a0fc0a0d7a9e7a9db75ca02728f599694d8"
+      "sha256": "cb29f644eb65ef4079cff32c5548ab3647fa498a51dfc5b9da914809c26cc898"
     },
     {
       "path": "pzagent_context.py",
-      "sha256": "c7a97ad16fbc43ecbef59b886cd9b2647b0aaa7de2a62b767be9f319a9e8fb62"
+      "sha256": "f2191e60e75741a88de39ba1de0408d189626401bd1bd7b7b1073488caa9ac3c"
     },
     {
       "path": "schemas/bundle.schema.json",
@@ -582,7 +586,7 @@
     },
     {
       "path": "templates/pzagent-context-lock.json",
-      "sha256": "aa3258dd5dd529998c7210ee67f616e2031f1709fc00be019b22d20cd1aca5f8"
+      "sha256": "aa74bfa5f4fab6fb66e02a22a439544392a9aa59db79f561d3b5728dcdf1a7f3"
     },
     {
       "path": "templates/repo-agents-snippet.md",
@@ -605,5 +609,5 @@
   "schema_version": "1.0.0",
   "stability": "experimental",
   "task_entrypoint": "tasks.toml",
-  "version": "0.15.11"
+  "version": "0.15.12"
 }

@@ -1,6 +1,7 @@
 """Profile-bound local k3d lifecycle; private inputs never enter task output."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import ipaddress
 import json
@@ -14,6 +15,7 @@ import subprocess
 from .common import ContractError, IDENTIFIER
 from .execution import human
 from .operator_credentials import clean_environment, bootstrap_keys, cluster_seed, CLUSTER_SEED
+from . import acme_cache
 from .cluster_bootstrap import Bootstrap, validate as validate_bootstrap, facts as bootstrap_facts, PULL_SECRET
 from .operator_state import locked, read, write
 
@@ -97,6 +99,8 @@ def _profile(root: Path, alias: str, data: dict | None = None) -> tuple[dict, st
         if storage.is_symlink() or storage.parent.is_symlink():
             raise ValueError()
         validate_bootstrap(profile)
+        if isinstance(profile.get('tls'), dict) and 'mode' in profile['tls']:
+            raise ValueError()  # A cluster the provider creates also owns its TLS; verify-only is for targets.
     except (KeyError, TypeError, ValueError) as exc:
         raise ContractError('cluster_profile_invalid') from exc
     digest = hashlib.sha256(json.dumps(profile, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
@@ -360,7 +364,39 @@ def _write_seed_profile(root: Path, data: dict) -> None:
         stream.write('\n')
 
 
-def manage(*, profile_root: Path, alias: str, action: str, operation_dir: Path, plan: bool = False) -> dict:
+def _export_certificate_cache(lifecycle, tls) -> str:
+    """Before teardown, keep the provider-owned wildcard and ACME account in the shared cache.
+
+    A failed export refuses the teardown, so the only copy of a valid certificate and account
+    key is never destroyed by accident; --purge-certificates discards them explicitly.
+    """
+    owner = Bootstrap(lifecycle, {})
+    issuer = 'adw-acme-' + tls['issuer']
+    def failed(reason):
+        return ContractError('cluster_certificate_export_failed: ' + reason
+                             + '; fix and rerun, or pass --purge-certificates to discard the certificate')
+    try:
+        if not owner.owned('Secret', 'adw-wildcard-tls', 'kube-system'):
+            return 'skipped (no provider-owned certificate)'
+        data = json.loads(lifecycle.kube(['get', 'Secret', 'adw-wildcard-tls', '--namespace', 'kube-system', '-o', 'json']))['data']
+        account = None
+        # cert-manager writes the account key itself; it is taken only from the profile's own issuer.
+        if owner.owned('ClusterIssuer', issuer, None):
+            raw = lifecycle.kube(['get', 'Secret', issuer + '-account', '--namespace', 'cert-manager',
+                                  '--ignore-not-found', '-o', 'json'])
+            if raw.strip():
+                account = base64.b64decode(json.loads(raw)['data']['tls.key'])
+        not_after = acme_cache.export(tls['domain'], tls['issuer'], base64.b64decode(data['tls.crt']),
+                                      base64.b64decode(data['tls.key']), account)
+    except ContractError as exc:
+        raise failed(str(exc)) from exc
+    except (KeyError, TypeError, ValueError, OSError) as exc:
+        raise failed('certificate unreadable') from exc
+    return 'exported (valid until ' + not_after + ')'
+
+
+def manage(*, profile_root: Path, alias: str, action: str, operation_dir: Path, plan: bool = False,
+           purge_certificates: bool = False) -> dict:
     if action not in {'up', 'teardown'}:
         raise ContractError('cluster_action_invalid')
     if not plan and not human():
@@ -379,8 +415,16 @@ def manage(*, profile_root: Path, alias: str, action: str, operation_dir: Path, 
     if present:
         lifecycle.owned()
     if plan:
+        source = None
+        if action == 'up' and 'tls' in profile and not present:  # an existing cluster keeps its live certificate
+            tls = profile['tls']
+            cached, reason = acme_cache.load(tls['domain'], tls['issuer'], recover=False,
+                                             minimum_days=tls.get('cache_minimum_days', acme_cache.MINIMUM_DAYS))
+            source = ('cache (valid until ' + cached['not_after'] + ')' if cached is not None
+                      else 'issued (' + reason + ')')
         return {'status': 'ok', 'phase': 'planned', 'action': action,
                 'profile_sha256': digest, 'cluster_present': present,
+                **({'certificate_source': source} if source is not None else {}),
                 'registry_required': profile['registry'] is not None,
                 'profile_initialization_required': initial is not None}
     selection = {'profile_sha256': digest, 'alias': alias, 'action': action}
@@ -483,6 +527,13 @@ def manage(*, profile_root: Path, alias: str, action: str, operation_dir: Path, 
                     if not state_path.exists() or 'registry_port' not in saved:
                         raise ContractError('cluster_registry_ownership_unproven')
                     lifecycle.registry_owned(registry_name, saved['registry_port'])
+            if 'tls' in profile and 'certificate_cache' not in record:
+                tls = profile['tls']
+                if purge_certificates:
+                    record['certificate_cache'] = 'purged' if acme_cache.purge(tls['domain'], tls['issuer']) else 'absent'
+                elif present:
+                    record['certificate_cache'] = _export_certificate_cache(lifecycle, tls)
+                write(path, record)
             if present:
                 stage('cluster-delete-requested')
                 lifecycle.run(['k3d', 'cluster', 'delete', profile['name']], timeout=240)
@@ -519,6 +570,7 @@ def manage(*, profile_root: Path, alias: str, action: str, operation_dir: Path, 
                 **({'provisioning_required': True} if action == 'up' else {}),
                 **({'bootstrap': record['bootstrap']} if action == 'up' else {}),
                 **({'target_namespaces_outside_scope': record['target_namespaces_outside_scope']} if action == 'up' else {}),
+                **({'certificate_cache': record['certificate_cache']} if 'certificate_cache' in record else {}),
                 **({'leftovers_absent': record['leftovers_absent'],
                     'orphan_network_removed': record['orphan_network_removed'], 'dedicated_directory_retained': True,
                     'host_cached_images_retained': True, 'external_dns_and_credentials': 'human-owned'} if action == 'teardown' else {})}

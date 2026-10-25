@@ -36,14 +36,19 @@ class _UnixConnection(http.client.HTTPConnection):
 
 
 class MetadataClient:
-    def __init__(self, path, namespace):
+    def __init__(self, path, namespace, only_secret=None):
         if not isinstance(namespace, str) or not NAME.fullmatch(namespace):
             raise ContractError('kubernetes_metadata_scope_invalid')
-        self.socket, self.namespace = path, namespace
+        self.socket, self.namespace, self.only_secret = path, namespace, only_secret
 
     def _path(self, kind, name, namespace):
         if not isinstance(name, str) or not NAME.fullmatch(name):
             raise ContractError('kubernetes_metadata_scope_invalid')
+        if self.only_secret is not None:
+            # Read-only mode: exactly one named Secret's metadata, nothing else.
+            if (kind, namespace, name) != ('Secret', self.namespace, self.only_secret):
+                raise ContractError('kubernetes_metadata_scope_invalid')
+            return '/api/v1/namespaces/' + quote(namespace, safe='') + '/secrets/' + quote(name, safe='')
         if kind == 'Namespace' and namespace is None and name == self.namespace:
             return '/api/v1/namespaces/' + quote(name, safe='')
         if kind == 'Secret' and namespace == self.namespace:
@@ -88,6 +93,8 @@ class MetadataClient:
         return self._request('GET', kind, name, namespace)
 
     def annotate(self, kind, name, namespace, metadata, additions):
+        if self.only_secret is not None:
+            raise ContractError('kubernetes_metadata_scope_invalid')
         if (not additions or not set(additions) <= IDENTITY_KEYS
                 or any(not isinstance(v, str) or not v for v in additions.values())
                 or any(key in metadata.get('annotations', {}) for key in additions)):
@@ -110,16 +117,24 @@ class MetadataClient:
 
 
 @contextmanager
-def metadata_api(provider):
+def metadata_api(provider, *, secret=None):
+    """Target-scoped metadata client; with secret=(namespace, name), read-only metadata of exactly that Secret."""
     if not provider.context or provider.kubeconfig is None or not NAME.fullmatch(provider.namespace):
         raise ContractError('kubernetes_context_not_discovered')
+    if secret is not None and (len(secret) != 2 or not all(isinstance(v, str) and NAME.fullmatch(v) for v in secret)):
+        raise ContractError('kubernetes_metadata_scope_invalid')
     with tempfile.TemporaryDirectory(prefix='adw-kube-meta-') as temporary:
         path = Path(temporary) / 'proxy.sock'
-        scope = re.escape('/api/v1/namespaces/' + provider.namespace)
-        accepted = '^' + scope + r'(/secrets/[a-z0-9][a-z0-9.-]*)?$'
+        rejected = 'POST,PUT,DELETE,HEAD,OPTIONS,CONNECT,TRACE'
+        if secret is None:
+            scope = re.escape('/api/v1/namespaces/' + provider.namespace)
+            accepted = '^' + scope + r'(/secrets/[a-z0-9][a-z0-9.-]*)?$'
+        else:
+            accepted = '^' + re.escape('/api/v1/namespaces/' + secret[0] + '/secrets/' + secret[1]) + '$'
+            rejected += ',PATCH'
         command = ['kubectl', '--context', provider.context, '--kubeconfig', str(provider.kubeconfig),
                    'proxy', '--unix-socket=' + str(path), '--accept-hosts=^localhost$',
-                   '--accept-paths=' + accepted, '--reject-methods=POST,PUT,DELETE,HEAD,OPTIONS,CONNECT,TRACE']
+                   '--accept-paths=' + accepted, '--reject-methods=' + rejected]
         try:
             process = subprocess.Popen(command, env=provider._environment(),
                                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -131,7 +146,8 @@ def metadata_api(provider):
                 if process.poll() is not None or time.monotonic() >= deadline:
                     raise ContractError('kubernetes_metadata_proxy_unavailable')
                 time.sleep(0.05)
-            yield MetadataClient(path, provider.namespace)
+            yield (MetadataClient(path, provider.namespace) if secret is None
+                   else MetadataClient(path, secret[0], only_secret=secret[1]))
         finally:
             if process.poll() is None:
                 process.terminate()

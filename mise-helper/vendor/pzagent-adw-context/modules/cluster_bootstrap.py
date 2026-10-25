@@ -9,6 +9,7 @@ import re
 import secrets
 from urllib.request import urlopen
 
+from . import acme_cache
 from .common import ContractError
 from .operator_credentials import REGISTRY
 
@@ -29,9 +30,17 @@ DOMAIN = re.compile(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{
 def validate(profile: dict) -> None:
     """Validate optional closed blocks before any cluster mutation."""
     try:
-        if 'tls' in profile:
+        if 'tls' in profile and isinstance(profile['tls'], dict) and 'mode' in profile['tls']:
+            # Existing cluster TLS that the provider only verifies, never installs.
             tls = profile['tls']
-            if (not isinstance(tls, dict) or set(tls) != {'provider', 'domain', 'issuer', 'acme_email_env'}
+            if (set(tls) != {'mode', 'host'} or tls['mode'] != 'verify-existing'
+                    or not isinstance(tls['host'], str) or len(tls['host']) > 253 or not DOMAIN.fullmatch(tls['host'])):
+                raise ValueError()
+        elif 'tls' in profile:
+            tls = profile['tls']
+            minimum = tls.get('cache_minimum_days', acme_cache.MINIMUM_DAYS) if isinstance(tls, dict) else None
+            if (not isinstance(tls, dict) or set(tls) - {'cache_minimum_days'} != {'provider', 'domain', 'issuer', 'acme_email_env'}
+                    or type(minimum) is not int or not 1 <= minimum <= 89
                     or tls['provider'] != 'cloudflare-dns01' or tls['issuer'] not in {'staging', 'production'}
                     or not isinstance(tls['domain'], str) or len(tls['domain']) > 253
                     or not DOMAIN.fullmatch(tls['domain']) or not ENV_KEY.fullmatch(tls['acme_email_env'])
@@ -193,6 +202,15 @@ class Bootstrap:
         if not self.owned('Secret', name, namespace, extra_labels):
             raise ContractError('cluster_bootstrap_readback_unproven')
 
+    def restore(self, kind: str, name: str, namespace: str, secret_type: str, data: dict, annotations: dict) -> None:
+        """Create a Secret from the certificate cache with this profile's ownership labels."""
+        item = {'apiVersion': 'v1', 'kind': kind, 'type': secret_type,
+                'metadata': {'name': name, 'namespace': namespace, 'annotations': annotations},
+                'data': {key: base64.b64encode(value).decode() for key, value in data.items()}}
+        self.apply([item])
+        if not self.owned(kind, name, namespace):
+            raise ContractError('cluster_bootstrap_readback_unproven')
+
     def run(self, *, target_resources=True) -> dict:
         profile = self.lifecycle.profile
         report = {'tls_ready': False, 'image_pull_ready': False}
@@ -223,12 +241,36 @@ class Bootstrap:
             self.secret('adw-cloudflare', 'cert-manager', {'api-token': self.values['cloudflare']})
             issuer = 'adw-acme-' + tls['issuer']
             issuer_present = self.owned('ClusterIssuer', issuer, None)
+            certificate_present = self.owned('Secret', 'adw-wildcard-tls', 'kube-system')
+            cached, reason = ((None, 'certificate present') if certificate_present
+                              else acme_cache.load(tls['domain'], tls['issuer'],
+                                                   minimum_days=tls.get('cache_minimum_days', acme_cache.MINIMUM_DAYS)))
             if not issuer_present:
-                # Do not let a new issuer adopt an existing account credential.
+                # Do not let a new issuer adopt an existing account credential. Only an
+                # account restored below from this domain's and environment's cache is used.
                 raw = self.lifecycle.kube(['get', 'Secret', issuer + '-account', '--namespace', 'cert-manager',
                                           '--ignore-not-found', '-o', 'name'])
                 if raw.strip():
-                    raise ContractError('cluster_bootstrap_ownership_unproven')
+                    # Only this profile's own cache restore from an interrupted attempt carries its
+                    # ownership labels; any other pre-existing account still refuses.
+                    # owned() refuses unless the Secret carries exactly this profile's labels.
+                    self.owned('Secret', issuer + '-account', 'cert-manager')
+                elif cached is not None and cached['account_key'] is not None:
+                    self.restore('Secret', issuer + '-account', 'cert-manager', 'Opaque',
+                                 {'tls.key': cached['account_key']}, {})
+            if cached is not None:
+                # cert-manager adopts a Secret that already holds a valid certificate for the
+                # Certificate's names and issuer: no new order and no new account.
+                self.restore('Secret', 'adw-wildcard-tls', 'kube-system', 'kubernetes.io/tls',
+                             {'tls.crt': cached['certificate'], 'tls.key': cached['private_key']},
+                             {'cert-manager.io/issuer-name': issuer, 'cert-manager.io/issuer-kind': 'ClusterIssuer',
+                              'cert-manager.io/issuer-group': 'cert-manager.io',
+                              'cert-manager.io/certificate-name': 'adw-wildcard',
+                              'cert-manager.io/common-name': '*.' + tls['domain'],
+                              'cert-manager.io/alt-names': '*.' + tls['domain']})
+                report['certificate_source'] = 'cache (valid until ' + cached['not_after'] + ')'
+            else:
+                report['certificate_source'] = 'existing' if certificate_present else 'issued (' + reason + ')'
             endpoint = 'https://acme-' + ('staging-' if tls['issuer'] == 'staging' else '') + 'v02.api.letsencrypt.org/directory'
             self.apply([{'apiVersion': 'cert-manager.io/v1', 'kind': 'ClusterIssuer', 'metadata': {'name': issuer},
                 'spec': {'acme': {'server': endpoint, 'email': self.values['acme_email_env'],

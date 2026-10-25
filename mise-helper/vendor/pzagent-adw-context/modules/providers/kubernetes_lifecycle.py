@@ -10,6 +10,7 @@ import json
 import re
 import secrets
 import time
+from datetime import timedelta
 
 from ..common import ContractError, IDENTIFIER
 from ..cluster_bootstrap import Bootstrap, validate, facts, PULL_SECRET
@@ -299,8 +300,7 @@ def provision(repo, adapter, *, environment, target, profile_root, operation_dir
     private = ownership_path(repo, profile_root, selection['repository'], environment, selection['target'])
     target_profile = {key: value for key, value in profile.items() if key != 'tls'}
     values = {} if plan else facts(target_profile)
-    if 'tls' in profile:
-        _tls_ready(provider, profile['tls'])
+    tls = _tls_ready(provider, profile['tls']) if 'tls' in profile else None
     with locked(private.parent), locked(operation_dir):
         if private.exists() and _state(private, root=private.parent)['phase'] == 'deprovisioned':
             archive_ownership(private, _state(private, root=private.parent)['operation_id'])
@@ -325,6 +325,8 @@ def provision(repo, adapter, *, environment, target, profile_root, operation_dir
         report = None if plan else bootstrap.run()
         if report is not None:
             report['tls_ready'] = 'tls' in profile
+            if tls is not None:
+                report['tls'] = tls
         state['phase'] = 'planned' if plan else 'complete'
         save()
         return _receipt(operation_dir, state, plan=plan, cleanup=False,
@@ -335,8 +337,102 @@ def binding_alias(profile, namespace):
     return next(alias for alias, ns in profile['context_aliases'].items() if ns == namespace)
 
 
+# A verified existing certificate must stay valid at least this long after provisioning.
+VERIFY_EXISTING_MINIMUM = timedelta(days=7)
+
+
+def _served_certificate(host):
+    """The certificate the cluster ingress serves for host: strict TLS, public data only."""
+    import socket
+    import ssl
+    from datetime import datetime, timezone
+    context = ssl.create_default_context()  # chain and hostname verification on
+    with socket.create_connection((host, 443), timeout=15) as raw, context.wrap_socket(raw, server_hostname=host) as tls:
+        peer = tls.getpeercert()
+    not_after = datetime.fromtimestamp(ssl.cert_time_to_seconds(peer['notAfter']), timezone.utc)
+    return not_after, [value for kind, value in peer.get('subjectAltName', ()) if kind == 'DNS']
+
+
+def _verify_existing_tls(provider, tls):
+    """Existing cluster TLS (verify-existing): read-only, nothing is installed or changed.
+
+    The Traefik default TLSStore must name a Secret in kube-system that exists (read as
+    metadata only: no Secret data is requested). If a cert-manager Certificate writes it
+    (cert-manager's certificate-name annotation), that Certificate must be Ready with affirmative
+    evidence for its current generation, valid for at least seven more days and cover the
+    target's ingress host exactly or through a one-level wildcard. An imported certificate that
+    no Certificate manages is verified by the certificate the ingress actually serves for the
+    host instead: strict TLS chain and hostname verification, at least seven more days.
+    """
+    from datetime import datetime, timezone
+
+    def refuse(check):
+        return ContractError('cluster_tls_not_ready: verify-existing: ' + check)
+    host = tls['host']
+    try:
+        secret = provider._run(['get', 'TLSStore', 'default', '--namespace', 'kube-system',
+            '-o', 'jsonpath={.spec.defaultCertificate.secretName}']).decode().strip()
+    except ContractError as exc:
+        raise refuse('Traefik TLSStore kube-system/default is missing') from exc
+    if not secret or not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?', secret):
+        raise refuse('TLSStore kube-system/default names no certificate Secret')
+    try:
+        with metadata_api(provider, secret=('kube-system', secret)) as client:
+            observed = client.get('Secret', secret, 'kube-system')
+    except ContractError as exc:
+        raise refuse('the TLSStore Secret metadata is unreadable') from exc
+    if observed is None:
+        raise refuse('the TLSStore Secret is missing')
+    writer = (observed['metadata'].get('annotations') or {}).get('cert-manager.io/certificate-name')
+    try:
+        raw = provider._run(['get', 'certificates.cert-manager.io', '--namespace', 'kube-system', '-o', 'json'])
+        certificates = [item for item in json.loads(raw).get('items', [])
+                        if isinstance(item, dict) and isinstance(item.get('spec'), dict)
+                        and item['spec'].get('secretName') == secret]
+    except (ContractError, ValueError, AttributeError):
+        certificates = []  # No cert-manager on this cluster.
+    if not certificates and writer is None:
+        try:
+            served_until, served_names = _served_certificate(host)
+        except (OSError, ValueError, KeyError) as exc:
+            raise refuse('the imported certificate served for the host does not verify') from exc
+        wildcard = '*.' + host.split('.', 1)[1] if '.' in host else None
+        if host not in served_names and wildcard not in served_names:
+            raise refuse('the certificate does not cover the target host')
+        if served_until - datetime.now(timezone.utc) < VERIFY_EXISTING_MINIMUM:
+            raise refuse('the certificate expires within 7 days')
+        return {'mode': 'verify-existing', 'certificate_valid_until': served_until.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                'evidence': 'served-certificate'}
+    if len(certificates) != 1:
+        raise refuse('no single cert-manager Certificate manages the TLSStore Secret')
+    certificate = certificates[0]
+    metadata = certificate.get('metadata') if isinstance(certificate.get('metadata'), dict) else {}
+    if writer != metadata.get('name'):
+        raise refuse('the TLSStore Secret was not written by its managing Certificate')
+    status = certificate.get('status') if isinstance(certificate.get('status'), dict) else {}
+    generation = metadata.get('generation')
+    if not isinstance(generation, int) or not any(
+            isinstance(c, dict) and c.get('type') == 'Ready' and c.get('status') == 'True'
+            and c.get('observedGeneration') == generation for c in status.get('conditions', []) or []):
+        raise refuse('the managing Certificate is not Ready for its current generation')
+    try:
+        not_after = datetime.fromisoformat(str(status.get('notAfter', '')).replace('Z', '+00:00'))
+    except ValueError as exc:
+        raise refuse('the managing Certificate reports no expiry') from exc
+    if not_after.tzinfo is None or not_after - datetime.now(timezone.utc) < VERIFY_EXISTING_MINIMUM:
+        raise refuse('the certificate expires within 7 days')
+    names = certificate['spec'].get('dnsNames', []) or []
+    wildcard = '*.' + host.split('.', 1)[1] if '.' in host else None
+    if not isinstance(names, list) or (host not in names and wildcard not in names):
+        raise refuse('the certificate does not cover the target host')
+    return {'mode': 'verify-existing', 'certificate_valid_until': not_after.strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'evidence': 'cert-manager'}
+
+
 def _tls_ready(provider, tls):
     """Cluster ingress/TLS is a prerequisite; observe only public readiness."""
+    if tls.get('mode') == 'verify-existing':
+        return _verify_existing_tls(provider, tls)
     try:
         issuer = provider._run(['get', 'ClusterIssuer', 'adw-acme-' + tls['issuer'],
             '-o', 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'])
@@ -349,6 +445,7 @@ def _tls_ready(provider, tls):
             raise ContractError('cluster_tls_not_ready')
     except ContractError as exc:
         raise ContractError('cluster_tls_not_ready') from exc
+    return {'mode': 'provider-owned'}
 
 
 def _delete_path(bootstrap, entry):

@@ -198,6 +198,9 @@ def parser() -> argparse.ArgumentParser:
         cluster.add_argument('cluster_alias')
         cluster.add_argument('--repo-root', type=Path, default=Path('.'))
         cluster.add_argument('--profile-root', type=Path)
+        if name == 'cluster-teardown':
+            cluster.add_argument('--purge-certificates', action='store_true',
+                                 help='Remove the shared ACME cache entry for this cluster domain and environment instead of exporting it')
         cluster.add_argument('--operation', dest='operation_id', help='Resume this cluster operation')
         cluster.add_argument('--plan', action='store_true')
     operator_commands = ('release-inspect', 'workflow-deploy-existing', 'workflow-status', 'workflow-resume', 'release-rollback',
@@ -418,7 +421,8 @@ def _main(args: argparse.Namespace) -> int:
             from modules.cluster_lifecycle import manage
             args.operation_dir = args.operation_dir or new_operation(args.repo_root.resolve(), 'k3d')
             result = manage(profile_root=args.profile_root, alias=args.cluster_alias,
-                action=args.command.removeprefix('cluster-'), operation_dir=args.operation_dir, plan=args.plan)
+                action=args.command.removeprefix('cluster-'), operation_dir=args.operation_dir, plan=args.plan,
+                purge_certificates=getattr(args, 'purge_certificates', False))
         elif args.command in {'release-package', 'release-publish', 'workflow-publish', 'workflow-publish-deploy'}:
             from modules import operator_publish
             repo = args.repo_root.resolve()

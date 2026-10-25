@@ -1,5 +1,38 @@
 # Migration notes
 
+## 0.15.12
+
+- **Verify existing cluster TLS (#151 part 1).** A target in
+  `kubernetes-provisioning.json` can declare `tls: {mode: verify-existing, host: <ingress host>}`
+  instead of the provider-owned block. `pz:provider:provision` then never installs anything.
+  It reads the Traefik `default` TLSStore and its Secret's metadata only, never Secret data.
+  The Secret must exist. If a cert-manager Certificate writes it, that Certificate must be the
+  only one. It must be Ready with `observedGeneration` equal to its current generation, valid
+  for at least 7 more days, and its `dnsNames` must cover the host. An imported certificate
+  that no Certificate manages is verified by the certificate the ingress serves for the host
+  instead: strict TLS, host coverage, at least 7 more days. The receipt's `tls.evidence` says
+  which (`cert-manager` or `served-certificate`). Each failed check refuses as
+  `cluster_tls_not_ready: verify-existing: <check>`, before any write. Use this for clusters
+  that already provide TLS, such as devbox's routed k3s VMs, instead of installing a second
+  `adw-*` wildcard. `pz:k3d:up` profiles refuse the mode. The provider-owned form is unchanged.
+- **k3d certificate cache (#151 part 4).** `pz:k3d:teardown` exports the provider-owned
+  wildcard and the owning issuer's ACME account key into the shared, tool-neutral cache
+  `${XDG_STATE_HOME:-~/.local/state}/acme-cache/<domain>/<staging|production>/`, the layout
+  smarterworkerai/devbox uses. `pz:k3d:up` restores it before creating the issuer and the
+  Certificate when the cache covers exactly `*.<domain>`, comes from the matching Let's
+  Encrypt environment, has a matching key and is valid for more than 30 days. Cache paths
+  never follow links. Access is locked per entry. A failed or killed publication keeps or
+  restores the previous entry. A failed export refuses the teardown (`cluster_certificate_export_failed`) instead of
+  destroying the only copy. The cluster is
+  then rebuilt without a new ACME order or account. Plans and receipts report
+  `certificate_source`, and teardown receipts report `certificate_cache`. An optional
+  `cache_minimum_days` (1–89) in the k3d `tls` block changes the 30-day floor; existing profiles
+  keep their digest. `pz:k3d:teardown -- <alias> --purge-certificates` removes the entry.
+  A foreign pre-existing account Secret still refuses, and another domain or environment is
+  never read. The cache holds key material at the trust level of the private profile.
+- No new trusted path. The vendored `bundle.json` changes as in every release, so an exact
+  released-vendor repin from 0.15.11 is approved automatically.
+
 ## 0.15.11
 
 - **`pz:release:pointers:retire` retires Kubernetes targets.** A completed
