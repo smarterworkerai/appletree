@@ -125,9 +125,92 @@ def _rows(value):
     return value
 
 
-def absence(repo, adapter, profile, operation, target, provider=None):
+class KubernetesObserver:
+    """Read-only live observation of a deprovisioned Kubernetes target's journaled scope."""
+
+    def __init__(self, repo, target, binding, profile):
+        from .providers.kubernetes import KubernetesProvider
+        self.provider = KubernetesProvider(repo, target, binding, Path(profile))
+        try:
+            self.provider.discover_context(binding)
+        except ContractError as exc:
+            raise ContractError('pointer_retirement_cluster_unreachable') from exc
+
+    def _get(self, arguments):
+        try:
+            return self.provider._run(arguments)
+        except ContractError as exc:
+            raise ContractError('pointer_retirement_cluster_unreachable') from exc
+
+    def cluster_identity(self):
+        raw = self._get(['get', 'namespace', 'kube-system', '-o', 'jsonpath={.metadata.uid}'])
+        if not raw.strip():
+            raise ContractError('pointer_retirement_cluster_unreachable')
+        return hashlib.sha256(raw).hexdigest()
+
+    def namespace_present(self, namespace):
+        return bool(self._get(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']).strip())
+
+
+def _kubernetes_absence(repo, adapter, profile, state, target, observer, cluster_retired):
+    """A Kubernetes target is absent when its journaled scope was deprovisioned and is gone.
+
+    The journal must record a completed deprovision in every mode: each created object was
+    deleted and read back absent. Live mode then proves the namespace still absent on the
+    journaled cluster identity. When the whole cluster was replaced, the operator says so
+    explicitly: the context must then answer with a different cluster identity, which
+    independently shows the journaled cluster gone. An unreachable cluster proves nothing
+    and refuses. The assertion is part of the plan selection and its operation digest.
+    """
+    selection = state.get('selection', {})
+    binding = selection.get('binding', {})
+    namespace = binding.get('namespace') if isinstance(binding, dict) else None
+    if (selection.get('repository') != adapter['repository']['id'] or selection.get('target') != target
+            or not re.fullmatch(r'[0-9a-f]{32}', str(state.get('nonce', '')))
+            or not isinstance(namespace, str) or not IDENTIFIER.fullmatch(namespace)
+            or not isinstance(binding.get('context_alias'), str) or not IDENTIFIER.fullmatch(binding['context_alias'])
+            or not re.fullmatch(r'[0-9a-f]{64}', str(selection.get('cluster_sha256', '')))
+            or state.get('phase') != 'deprovisioned'):
+        raise ContractError('pointer_retirement_decommission_unproven')
+    resources = state.get('resources', {})
+    if not isinstance(resources, dict) or not resources:
+        raise ContractError('pointer_retirement_ownership_invalid')
+    for entry in resources.values():
+        if (not isinstance(entry, dict) or entry.get('created') is not True
+                or entry.get('kind') not in {'Namespace', 'Secret'} or entry.get('deleted') is not True):
+            raise ContractError('pointer_retirement_ownership_invalid')
+    if not any(entry['kind'] == 'Namespace' and entry.get('name') == namespace and entry.get('namespace') is None
+               for entry in resources.values()):
+        raise ContractError('pointer_retirement_ownership_invalid')
+    for group in adapter['targets'].values():
+        if target in group['items']:
+            raise ContractError('pointer_retirement_target_still_declared')
+        for declaration in group['items'].values():
+            if declaration['provider'] == 'kubernetes':
+                other = adapter['providers']['kubernetes']['bindings'][declaration['provider_binding']]
+                if (other.get('context_alias'), other.get('namespace')) == (binding['context_alias'], namespace):
+                    raise ContractError('pointer_retirement_binding_still_declared')
+    if observer is None:
+        observer = KubernetesObserver(repo, target, binding, _home(repo, profile) / 'profile')
+    identity = observer.cluster_identity()
+    if cluster_retired:
+        if identity == selection['cluster_sha256']:
+            raise ContractError('pointer_retirement_cluster_not_retired')
+        return _digest(_bytes({'decommission': state, 'replacement_cluster_sha256': identity}))
+    if identity != selection['cluster_sha256']:
+        raise ContractError('pointer_retirement_cluster_identity_changed')
+    if observer.namespace_present(namespace):
+        raise ContractError('pointer_retirement_runtime_still_present')
+    return _digest(_bytes(state))
+
+
+def absence(repo, adapter, profile, operation, target, provider=None, *, cluster_retired=False):
     """Independently validate ownership scope and fresh raw provider absence."""
     state = _read_private(_decommission(repo, adapter, profile, operation))
+    if state.get('workflow') == 'kubernetes-provision':
+        return _kubernetes_absence(repo, adapter, profile, state, target, provider, cluster_retired)
+    if cluster_retired:
+        raise ContractError('pointer_retirement_cluster_retired_unsupported')
     selection = state.get('selection', {})
     binding = selection.get('binding', {})
     if (state.get('workflow') != 'provider-provision' or state.get('phase') != 'complete'
@@ -333,7 +416,7 @@ def _reconcile_deleted(plan, registry, private):
 
 def retire(repo, adapter, *, kind_name, target, profile_root, operation_dir,
            deprovision_operation, apply=False, approve_operation_digest=None,
-           provider=None, registry=None):
+           provider=None, registry=None, cluster_retired=False):
     _operator()
     if not isinstance(target, str) or not IDENTIFIER.fullmatch(target):
         raise ContractError('pointer_retirement_target_invalid')
@@ -345,10 +428,14 @@ def retire(repo, adapter, *, kind_name, target, profile_root, operation_dir,
         raise ContractError('pointer_retirement_requires_separate_operation')
     registry = registry or OrasRegistry()
     with locked(private.parent), locked(decommission.parent):
-        proof = absence(repo, adapter, profile_root, deprovision_operation, target, provider)
+        proof = absence(repo, adapter, profile_root, deprovision_operation, target, provider,
+                        cluster_retired=cluster_retired)
         selection = {'repository': adapter['repository']['id'], 'kind': kind_name,
                      'target': target, 'decommission_sha256': proof, 'packages': packages,
                      'pointer_tags': kind['pointer_tags']}
+        if cluster_retired:
+            selection['absence'] = 'cluster-retired-asserted'
+
         if private.exists():
             plan = _read_private(private)
             if plan.get('workflow') != 'pointer-retirement' or plan.get('selection') != selection:
@@ -416,7 +503,8 @@ def retire(repo, adapter, *, kind_name, target, profile_root, operation_dir,
                     raise ContractError('pointer_retirement_pointer_readback_invalid')
                 if tag_ref not in plan['moved']:
                     plan['moved'].append(tag_ref); write(private, plan)
-            absence(repo, adapter, profile_root, deprovision_operation, target, provider)
+            absence(repo, adapter, profile_root, deprovision_operation, target, provider,
+                    cluster_retired=cluster_retired)
             _check_positions(plan, registry)
             versions, roots, locations = inventory(repo, adapter, kind_name, plan)
             eligible = candidates(versions, roots, now=float('inf'), grace_hours=1)

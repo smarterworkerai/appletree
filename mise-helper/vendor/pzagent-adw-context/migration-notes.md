@@ -1,5 +1,56 @@
 # Migration notes
 
+## 0.15.11
+
+- **`pz:release:pointers:retire` retires Kubernetes targets.** A completed
+  Kubernetes deprovision is the decommission proof: ownership journal phase
+  `deprovisioned`, every created Secret and the Namespace deleted and read back
+  absent, the target absent from the adapter and no other declared binding with
+  the same context alias and namespace. The live check compares the journaled
+  cluster identity (`pointer_retirement_cluster_identity_changed`) and requires
+  the namespace absent (`pointer_retirement_runtime_still_present`). For a
+  replaced cluster, `--cluster-retired` accepts only a context that answers with
+  a different cluster identity and binds it into the operation digest; an
+  unreachable cluster refuses (`pointer_retirement_cluster_unreachable`).
+  Plan, digest approval and owned-placeholder rules are unchanged.
+- **`pz:provider:deprovision --include-runtime`** (Kubernetes) removes the
+  runtime the provider applied before the namespace, so a deployed target no
+  longer needs a manual `kubectl delete`. A full namespace ownership preflight
+  runs before the first deletion; foreign objects refuse
+  (`provider_foreign_child_present`). Persistent claims need
+  `--confirm-data-loss --backup-reference` or refuse with
+  `kubernetes_deprovision_persistent_data_present`. Objects already gone, for
+  example claims collected with their StatefulSet or a lost delete
+  acknowledgement, reconcile by absence; a same-named replacement refuses.
+  Dokploy refuses the option.
+- Kubernetes deprovision, with or without `--include-runtime`, now holds the
+  logical target lock that deployments and configuration sync use; a concurrent
+  transaction refuses it with `logical target transaction lock is busy` before
+  any deletion.
+- **Actionable reasons.** `kubernetes_context_profile_invalid` now names the
+  file relative to the operator home and the failed check, including a hint for
+  the flat layout before 0.15.5. A configuration-only sync of a namespace where
+  no release image was ever deployed refuses with
+  `kubernetes_initial_deploy_required` before the server-side diff.
+- **Consumer CI checks the vendored context against its pins.** The `classify`
+  job of `templates/github/ci.yml` runs `ci.py vendor-integrity` (offline,
+  read-only, trusted code only) on every PR and push, before `required-quality`.
+  It checks the complete provider bundle inventory, the lock's bundle SHA-256 and
+  version, and the generic layer and manifest record against the pin. A drifted
+  provider file or generic layer fails hosted CI with `bundle checksum drift:
+  <path>`, `vendor_lock_differs_from_bundle`, `generic_layer_differs_from_pin` or
+  `generic_manifest_differs_from_pin`.
+- **Two new trusted paths:** `modules/ci/vendor_integrity.py` and the vendored
+  `bundle.json`. As for 0.15.10, the first repin to 0.15.11 therefore needs two
+  administrator decisions from the actual task output for that exact consumer head:
+  `BOOTSTRAP_ENABLED <old-scope fingerprint>`, then
+  `BOOTSTRAP_ENABLED <current fingerprint>`, then a rerun of the failed jobs.
+  Later exact released-vendor repins are automatic again; the controller accepts a
+  `bundle.json` only when it equals the published release's.
+- Trusted scope: `modules/pointer_retirement.py` uses the Kubernetes provider's
+  kubectl runner for two raw reads; `modules/ci/trusted_decisions.json` declares
+  that observation edge with `_kubernetes_absence` as its validator.
+
 ## 0.15.10
 
 - **The provider release now carries its generic layer.** The new bundle file

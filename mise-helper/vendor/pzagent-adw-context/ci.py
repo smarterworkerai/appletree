@@ -19,6 +19,7 @@ from modules.ci.publication_proof import destination_gate, with_transient_retry
 from modules.ci.provenance import bootstrap_status, trust_root_gate, trusted_source
 from modules.ci.quality_proof import ProofError, Pull, premerge_check
 from modules.ci.reuse import prior_gate
+from modules.ci.vendor_integrity import check as check_vendor_integrity
 from modules.ci.workflow_drift import validate as validate_workflow
 
 
@@ -177,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
     gate.add_argument('--wait-seconds',type=int,default=300)
     drift=sub.add_parser('workflow-drift')
     drift.add_argument('--root',type=Path,default=Path('.'))
+    integrity=sub.add_parser('vendor-integrity')
+    integrity.add_argument('--root',type=Path,default=Path('.'))
     args=parser.parse_args(argv)
     if args.command == 'release-coordinator':
         from modules import ci_release
@@ -211,6 +214,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except ContractError:
             return _blocked('workflow_template_drift')
+    if args.command=='vendor-integrity':
+        try:
+            print(json.dumps(check_vendor_integrity(args.root.resolve()),sort_keys=True))
+            return 0
+        except (ContractError,ProofError) as exc:
+            # Fixed closed reasons naming bundle-relative paths only; never file contents.
+            return _blocked(exc.reason if isinstance(exc,ProofError) else str(exc))
+        except (OSError,ValueError,TypeError,KeyError):
+            return _blocked('vendor_integrity_unreadable')
     if args.command!='classify':
         try:
             if args.command=='proof-destination':

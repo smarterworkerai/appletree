@@ -1117,7 +1117,8 @@ def _data_loss_guard(state, confirm_data_loss, backup_reference):
 
 
 def deprovision(repo: Path, adapter: dict, *, profile_root: Path, operation_dir: Path,
-                operation_id=None, plan=False, api=None, confirm_data_loss=False, backup_reference=None) -> dict:
+                operation_id=None, plan=False, api=None, confirm_data_loss=False, backup_reference=None,
+                include_runtime=False) -> dict:
     _operator()
     source = prove_source(repo, adapter)
     if profile_root is None:
@@ -1130,7 +1131,11 @@ def deprovision(repo: Path, adapter: dict, *, profile_root: Path, operation_dir:
     if private is not None and read(private).get('workflow') == 'kubernetes-provision':
         from .providers.kubernetes_lifecycle import deprovision as deprovision_kubernetes
         return deprovision_kubernetes(repo, adapter, private=private, profile_root=profile_root,
-                                     operation_dir=operation_dir, plan=plan, source_sha=source)
+                                     operation_dir=operation_dir, plan=plan, source_sha=source,
+                                     include_runtime=include_runtime, confirm_data_loss=confirm_data_loss,
+                                     backup_reference=backup_reference)
+    if include_runtime:
+        raise ContractError('provider_include_runtime_unsupported')
     api = _client(profile_root, api)
     api.validate()
     if private is None:

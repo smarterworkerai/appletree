@@ -157,6 +157,9 @@ def parser() -> argparse.ArgumentParser:
             lifecycle.add_argument('--list', dest='list_operations', action='store_true')
             lifecycle.add_argument('--confirm-data-loss', action='store_true')
             lifecycle.add_argument('--backup-reference')
+            lifecycle.add_argument('--include-runtime', action='store_true',
+                                   help='Kubernetes: first remove the runtime this provider applied to the target; '
+                                        'persistent claims also need --confirm-data-loss and --backup-reference')
         elif name == 'provider-claim':
             lifecycle.add_argument('--approve-examination-digest', required=True)
         elif name == 'provider-journal-rebuild':
@@ -178,6 +181,9 @@ def parser() -> argparse.ArgumentParser:
                                   help='Operation ID of the completed provider deprovision')
             pointers.add_argument('--apply', action='store_true')
             pointers.add_argument('--approve-operation-digest')
+            pointers.add_argument('--cluster-retired', action='store_true',
+                                  help='Kubernetes: the deprovisioned target\'s cluster was replaced; its context must '
+                                       'answer with a different cluster identity. Recorded in the plan and its digest')
     handover = sub.add_parser('release-pointers-handover')
     handover.add_argument('--repo-root', type=Path, default=Path('.'))
     handover.add_argument('--from', dest='source_target', required=True)
@@ -352,7 +358,7 @@ def _main(args: argparse.Namespace) -> int:
                 result = retire(repo, adapter, kind_name=args.kind, target=args.target,
                     profile_root=args.profile_root, operation_dir=args.operation_dir,
                     deprovision_operation=args.deprovision_operation, apply=args.apply,
-                    approve_operation_digest=args.approve_operation_digest)
+                    approve_operation_digest=args.approve_operation_digest, cluster_retired=args.cluster_retired)
                 from modules.task_evidence import record_operator
                 record_operator(args.operation_dir, result)
         elif args.command in {'provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
@@ -398,7 +404,8 @@ def _main(args: argparse.Namespace) -> int:
                     raise ContractError('provider_operation_id_required')
                 result = lifecycle.deprovision(repo, adapter, profile_root=profile,
                     operation_dir=new_operation(repo, 'deprovision'), operation_id=args.operation_id, plan=args.plan,
-                    confirm_data_loss=args.confirm_data_loss, backup_reference=args.backup_reference)
+                    confirm_data_loss=args.confirm_data_loss, backup_reference=args.backup_reference,
+                    include_runtime=args.include_runtime)
         elif args.command == 'release-pointers-handover':
             from modules.pointer_handover import handover
             repo = args.repo_root.resolve()

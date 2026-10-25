@@ -38,7 +38,8 @@
     "templates.github.actions.publish-immutable-release.publish",
     "modules.pointer_retirement",
     "modules.ci.greenfield",
-    "modules.ci.generic_release"
+    "modules.ci.generic_release",
+    "modules.ci.vendor_integrity"
   ],
   "observations": {
     "modules.build_archive": {
@@ -192,11 +193,20 @@
     "modules.providers.kubernetes": {
       "validators": [
         "modules.operator_retention:inventory",
-        "modules.retention:candidates"
+        "modules.retention:candidates",
+        "modules.pointer_retirement:_kubernetes_absence"
       ],
-      "reason": "Registered Kubernetes I/O supplies configured/runtime image observations only. Trusted retention independently checks declared immutable component repositories and protected manifest reachability; operational driver/hooks cannot authorize CI publication/promotion or choose deletion candidates.",
-      "imports": {},
-      "symbols": {}
+      "reason": "Registered Kubernetes I/O supplies configured/runtime image observations only. Trusted retention independently checks declared immutable component repositories and protected manifest reachability; operational driver/hooks cannot authorize CI publication/promotion or choose deletion candidates. Pointer retirement uses only its explicit-context kubectl runner for two raw reads (cluster identity, namespace presence); trusted Kubernetes absence validates the completed private deprovision journal, target and binding removal, and compares both observations itself.",
+      "imports": {
+        "modules.pointer_retirement": [
+          "KubernetesProvider"
+        ]
+      },
+      "symbols": {
+        "modules.pointer_retirement": [
+          "KubernetesProvider"
+        ]
+      }
     },
     "modules.dokploy_transaction": {
       "validators": [

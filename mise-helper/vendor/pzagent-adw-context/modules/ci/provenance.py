@@ -74,6 +74,8 @@ TRUSTED_PATHS = (
     'mise-helper/vendor/pzagent-adw-context/modules/pointer_retirement.py',
     'mise-helper/vendor/pzagent-adw-context/modules/ci/greenfield.py',
     'mise-helper/vendor/pzagent-adw-context/modules/ci/generic_release.py',
+    'mise-helper/vendor/pzagent-adw-context/modules/ci/vendor_integrity.py',
+    'mise-helper/vendor/pzagent-adw-context/bundle.json',
 )
 
 
@@ -163,6 +165,8 @@ def _released_vendor(api, pull: Pull, changed: list[str]) -> str | None:
                     return None
         else:
             for path in vendored:
+                if path == VENDOR_PREFIX + 'bundle.json':
+                    continue  # Already equal to the published release's bundle.json above.
                 expected = inventory.get(path.removeprefix(VENDOR_PREFIX))
                 if expected != hashlib.sha256(api.content(path, pull.head_sha)[1]).hexdigest():
                     return None

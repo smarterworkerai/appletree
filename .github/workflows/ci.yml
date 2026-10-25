@@ -98,6 +98,10 @@ jobs:
           echo "ADW_PROJECT_DIR=$directory" >> "$GITHUB_ENV"
       - name: Check bundled workflow drift
         run: python3 mise-helper/vendor/pzagent-adw-context/ci.py workflow-drift --root .
+      # Offline, read-only and trusted code only: the vendored provider inventory, the lock,
+      # the generic layer and the manifest must match the pinned releases on every PR and push.
+      - name: Check vendored context against its pins
+        run: python3 mise-helper/vendor/pzagent-adw-context/ci.py vendor-integrity --root .
       - id: classify
         uses: ./mise-helper/vendor/pzagent-adw-context/templates/github/actions/classify-ci-event
         with:

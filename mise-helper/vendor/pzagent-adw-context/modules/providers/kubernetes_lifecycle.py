@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import secrets
+import time
 
 from ..common import ContractError, IDENTIFIER
 from ..cluster_bootstrap import Bootstrap, validate, facts, PULL_SECRET
@@ -59,7 +60,8 @@ def _private(path, *, root=None):
 
 def _state(path, *, root=None):
     value = _private(path, root=root)
-    if (set(value) != {'schema_version', 'workflow', 'selection', 'profile', 'operation_id', 'nonce', 'resources', 'phase'}
+    keys = {'schema_version', 'workflow', 'selection', 'profile', 'operation_id', 'nonce', 'resources', 'phase'}
+    if (set(value) - {'runtime'} != keys or ('runtime' in value and not _runtime_record(value['runtime']))
             or value['schema_version'] != '1.0.0' or value['workflow'] != 'kubernetes-provision'
             or not isinstance(value['operation_id'], str) or not re.fullmatch(r'kube-provision-[0-9a-f]{24}', value['operation_id'])
             or not isinstance(value['nonce'], str) or not re.fullmatch(r'[0-9a-f]{32}', value['nonce'])
@@ -78,6 +80,22 @@ def _state(path, *, root=None):
                 or (entry['created'] and entry.get('apiVersion') != 'v1')):
             raise ContractError('kubernetes_provision_journal_invalid')
     return value
+
+
+def _runtime_record(value):
+    from ..provider_lifecycle import BACKUP_REFERENCE
+    from .kubernetes import RUNTIME_PATHS
+    if not isinstance(value, dict) or set(value) != {'objects', 'backup_reference'}:
+        return False
+    objects = value['objects']
+    if (not isinstance(objects, list) or len(objects) > 256
+            or any(not isinstance(v, dict) or set(v) != {'kind', 'name', 'uid'} or v['kind'] not in RUNTIME_PATHS
+                   or not isinstance(v['name'], str) or not IDENTIFIER.fullmatch(v['name'])
+                   or not isinstance(v['uid'], str) or not v['uid'] for v in objects)):
+        return False
+    if any(v['kind'] == 'PersistentVolumeClaim' for v in objects):
+        return isinstance(value['backup_reference'], str) and bool(BACKUP_REFERENCE.fullmatch(value['backup_reference']))
+    return value['backup_reference'] is None
 
 
 def _profile(root, provider, binding):
@@ -253,7 +271,7 @@ def _selection(repo, adapter, environment, target, profile_root):
     return provider, profile, digest, selection
 
 
-def _receipt(operation_dir, state, *, plan, cleanup, mutations, source_sha, bootstrap=None):
+def _receipt(operation_dir, state, *, plan, cleanup, mutations, source_sha, bootstrap=None, runtime=None):
     from ..task_evidence import record_operator
     created = [v for v in state['resources'].values() if v['created']]
     result = {'status': 'ok', 'task': 'pz:provider:deprovision' if cleanup else 'pz:provider:provision',
@@ -265,6 +283,8 @@ def _receipt(operation_dir, state, *, plan, cleanup, mutations, source_sha, boot
               'operation_digest': 'sha256:' + _hash(state['selection'])}
     if bootstrap is not None:
         result['bootstrap'] = bootstrap
+    if runtime is not None:
+        result['runtime'] = runtime
     record_operator(operation_dir, result)
     return result
 
@@ -389,72 +409,143 @@ def _namespace_children(bootstrap, namespace, candidates):
                 raise ContractError('provider_foreign_child_present')
 
 
-def deprovision(repo, adapter, *, private, profile_root, operation_dir, source_sha, plan=False):
+def _settled_children(bootstrap, namespace, candidates, attempts=30):
+    """Endpoints and terminating Pods of just-removed runtime vanish asynchronously."""
+    for attempt in range(attempts):
+        try:
+            return _namespace_children(bootstrap, namespace, candidates)
+        except ContractError as exc:
+            if str(exc) != 'provider_foreign_child_present' or attempt == attempts - 1:
+                raise
+            time.sleep(2)
+
+
+# The only controller dependents garbage collection may remove with the runtime.
+DEPENDENTS = {'ReplicaSet': {'Deployment'}, 'Pod': {'ReplicaSet', 'StatefulSet', 'DaemonSet'},
+              'ControllerRevision': {'StatefulSet', 'DaemonSet'}, 'EndpointSlice': {'Service'}}
+
+
+def _runtime_preflight(bootstrap, provider, namespace, candidates, runtime):
+    """Before the first deletion, every object in the namespace must be provably ours.
+
+    Owned are the journaled Secrets, the controller defaults, the inventoried runtime and,
+    transitively, the bounded controller dependents in DEPENDENTS whose controller owner
+    reference names an owned UID of the expected parent kind, plus the Endpoints of owned
+    Services. Any other kind with such a reference (a Secret, Role or custom resource) stays
+    foreign. Then no deletion, including garbage collection, can reach a foreign object.
+    """
+    journaled = {(v['kind'], v['name']) for v in candidates if v['namespace'] == namespace}
+    owned = {v['metadata']['uid']: v['kind'] for v in runtime}
+    services = {v['metadata']['name'] for v in runtime if v['kind'] == 'Service'}
+    pending = []
+    for item in provider.namespace_inventory():
+        kind, name = item['kind'], item['metadata']['name']
+        if ((kind, name) in journaled or item['metadata'].get('uid') in owned
+                or (kind == 'Endpoints' and name in services)):
+            continue
+        pending.append(item)
+    changed = True
+    while pending and changed:
+        changed = False
+        for item in list(pending):
+            references = item['metadata'].get('ownerReferences') or []
+            parents = DEPENDENTS.get(item['kind'], set())
+            if any(isinstance(r, dict) and r.get('controller') is True and owned.get(r.get('uid')) in parents
+                   for r in references):
+                owned[item['metadata'].get('uid')] = item['kind']
+                pending.remove(item)
+                changed = True
+    for item in pending:
+        if not _generated_default(bootstrap, namespace, item['kind'], item['metadata']['name']):
+            raise ContractError('provider_foreign_child_present')
+
+
+def _remove_runtime(bootstrap, provider, state, save, candidates, *, plan, confirm_data_loss, backup_reference):
+    """Remove the runtime this provider applied to the target before its namespace goes."""
+    from ..provider_lifecycle import BACKUP_REFERENCE
+    previous = state.get('runtime', {}).get('objects', [])
+    workloads, claims = provider.runtime_inventory(previous)
+    persistent = bool(claims) or any(v['kind'] == 'PersistentVolumeClaim' for v in previous)
+    if persistent and (confirm_data_loss is not True or not isinstance(backup_reference, str)
+                       or not BACKUP_REFERENCE.fullmatch(backup_reference)):
+        raise ContractError('kubernetes_deprovision_persistent_data_present')
+    _runtime_preflight(bootstrap, provider, provider.namespace, candidates, workloads + claims)
+    top = [v for v in workloads if v['kind'] not in {'ReplicaSet', 'Pod'}]
+    summary = {'workloads': len(top), 'persistent_claims': len(claims), 'data_loss_confirmed': persistent}
+    if plan:
+        return {**summary, 'state': 'planned'}
+    known = {(v['kind'], v['name']) for v in previous}
+    record = previous + [{'kind': v['kind'], 'name': v['metadata']['name'], 'uid': v['metadata']['uid']}
+                         for v in workloads + claims if (v['kind'], v['metadata']['name']) not in known]
+    state['runtime'] = {'objects': record, 'backup_reference': backup_reference if persistent else None}
+    state['phase'] = 'deprovisioning'
+    save()
+    for item in top:
+        provider.delete_exact(item)
+    provider.wait_gone(workloads)
+    for claim in claims:
+        provider.delete_exact(claim)
+    provider.wait_gone(claims)
+    provider.verify_runtime_removed(claims)
+    return {**summary, 'state': 'removed'}
+
+
+def deprovision(repo, adapter, *, private, profile_root, operation_dir, source_sha, plan=False,
+                include_runtime=False, confirm_data_loss=False, backup_reference=None):
     from ..provider_lifecycle import _operator
+    from ..dokploy_transaction import target_lock
     _operator()
     with locked(private.parent), locked(operation_dir):
         state = _state(private, root=private.parent)
-        if state.get('workflow') != 'kubernetes-provision':
-            raise ContractError('provider_operation_selection_changed')
-        selected = state['selection']
-        provider, profile, digest, selection = _selection(repo, adapter, selected['environment'], selected['target'], profile_root)
-        if selection != selected:
-            raise ContractError('provider_operation_selection_changed')
-        save = lambda: write(private, state)
-        bootstrap = TargetBootstrap(provider, profile, digest, {}, state, save, plan)
-        candidates = [v for v in state['resources'].values() if v['created']]
-        if any(not ((v['kind'] == 'Secret' and v['namespace'] == provider.namespace)
-                    or (v['kind'] == 'Namespace' and v['name'] == provider.namespace and v['namespace'] is None))
-               for v in candidates):
-            raise ContractError('kubernetes_provision_resource_scope_refused')
-        candidates.sort(key=lambda v: v['kind'] == 'Namespace')
-        observations = []
-        # Preflight every candidate before deleting the first object.
-        for entry in candidates:
-            value = bootstrap.observed(entry['kind'], entry['name'], entry['namespace'])
-            if value is None:
-                if entry.get('delete_requested') and not entry.get('deleted') and not plan:
-                    entry['deleted'] = True
-                    save()
-                continue
-            bootstrap.check(value)
-            metadata = value['metadata']
-            if (not owned_by(metadata.get('annotations', {}), state)
-                    or entry.get('uid', metadata['uid']) != metadata['uid']):
-                raise ContractError('kubernetes_provision_identity_changed')
-            if entry.get('delete_requested'):
-                if not metadata.get('deletionTimestamp'):
-                    raise ContractError('kubernetes_provision_delete_outcome_unproven')
-                if plan:
-                    continue
-                args = ['wait', '--for=delete', entry['kind'] + '/' + entry['name'], '--timeout=90s']
-                if entry['namespace']:
-                    args += ['--namespace', entry['namespace']]
-                bootstrap.kube(args, timeout=105)
-                if bootstrap.observed(entry['kind'], entry['name'], entry['namespace']) is not None:
-                    raise ContractError('kubernetes_provision_delete_unproven')
+        target = state.get('selection', {}).get('target') if isinstance(state.get('selection'), dict) else None
+        if not isinstance(target, str) or not IDENTIFIER.fullmatch(target):
+            raise ContractError('kubernetes_provision_journal_invalid')
+        # Deployments and configuration sync hold the same logical target lock, so no apply
+        # can interleave with the inventory, the ownership preflight or any deletion.
+        with target_lock(repo, target):
+            return _deprovision_locked(repo, adapter, state, private=private, profile_root=profile_root,
+                                       operation_dir=operation_dir, source_sha=source_sha, plan=plan,
+                                       include_runtime=include_runtime, confirm_data_loss=confirm_data_loss,
+                                       backup_reference=backup_reference)
+
+
+def _deprovision_locked(repo, adapter, state, *, private, profile_root, operation_dir, source_sha, plan,
+                        include_runtime, confirm_data_loss, backup_reference):
+    if state.get('workflow') != 'kubernetes-provision':
+        raise ContractError('provider_operation_selection_changed')
+    selected = state['selection']
+    provider, profile, digest, selection = _selection(repo, adapter, selected['environment'], selected['target'], profile_root)
+    if selection != selected:
+        raise ContractError('provider_operation_selection_changed')
+    save = lambda: write(private, state)
+    bootstrap = TargetBootstrap(provider, profile, digest, {}, state, save, plan)
+    candidates = [v for v in state['resources'].values() if v['created']]
+    if any(not ((v['kind'] == 'Secret' and v['namespace'] == provider.namespace)
+                or (v['kind'] == 'Namespace' and v['name'] == provider.namespace and v['namespace'] is None))
+           for v in candidates):
+        raise ContractError('kubernetes_provision_resource_scope_refused')
+    candidates.sort(key=lambda v: v['kind'] == 'Namespace')
+    runtime = ({'state': 'absent', 'workloads': 0, 'persistent_claims': 0, 'data_loss_confirmed': False}
+               if include_runtime else None)
+    observations = []
+    # Preflight every candidate before deleting the first object.
+    for entry in candidates:
+        value = bootstrap.observed(entry['kind'], entry['name'], entry['namespace'])
+        if value is None:
+            if entry.get('delete_requested') and not entry.get('deleted') and not plan:
                 entry['deleted'] = True
                 save()
-                continue
-            if entry['kind'] == 'Namespace':
-                _namespace_children(bootstrap, entry['name'], candidates)
-            if not isinstance(metadata.get('resourceVersion'), str) or not metadata['resourceVersion']:
-                raise ContractError('kubernetes_provision_readback_invalid')
-            observations.append((entry, metadata['uid'], metadata['resourceVersion']))
-        mutations = 0
-        for entry, uid, version in observations:
+            continue
+        bootstrap.check(value)
+        metadata = value['metadata']
+        if (not owned_by(metadata.get('annotations', {}), state)
+                or entry.get('uid', metadata['uid']) != metadata['uid']):
+            raise ContractError('kubernetes_provision_identity_changed')
+        if entry.get('delete_requested'):
+            if not metadata.get('deletionTimestamp'):
+                raise ContractError('kubernetes_provision_delete_outcome_unproven')
             if plan:
                 continue
-            path = _delete_path(bootstrap, entry)
-            if entry['kind'] == 'Namespace':
-                _namespace_children(bootstrap, entry['name'], candidates)
-            payload = {'apiVersion': 'v1', 'kind': 'DeleteOptions',
-                       'preconditions': {'uid': uid, 'resourceVersion': version}, 'propagationPolicy': 'Orphan'}
-            state['phase'] = 'deprovisioning'
-            entry['delete_requested'] = True
-            save()
-            bootstrap.kube(['delete', '--raw', path, '-f', '-'], data=json.dumps(payload).encode())
-            mutations += 1
             args = ['wait', '--for=delete', entry['kind'] + '/' + entry['name'], '--timeout=90s']
             if entry['namespace']:
                 args += ['--namespace', entry['namespace']]
@@ -463,10 +554,47 @@ def deprovision(repo, adapter, *, private, profile_root, operation_dir, source_s
                 raise ContractError('kubernetes_provision_delete_unproven')
             entry['deleted'] = True
             save()
-        if not plan:
-            state['phase'] = 'deprovisioned'
-            save()
-        return _receipt(operation_dir, state, plan=plan, cleanup=True, mutations=mutations, source_sha=source_sha)
+            continue
+        if entry['kind'] == 'Namespace':
+            if not include_runtime:
+                _namespace_children(bootstrap, entry['name'], candidates)
+            else:
+                # Only inside the journal-proven namespace, after every Secret was checked.
+                runtime = _remove_runtime(bootstrap, provider, state, save, candidates, plan=plan,
+                                          confirm_data_loss=confirm_data_loss, backup_reference=backup_reference)
+                if not plan:
+                    # Garbage-collected dependents of the removed runtime vanish asynchronously.
+                    _settled_children(bootstrap, entry['name'], candidates)
+        if not isinstance(metadata.get('resourceVersion'), str) or not metadata['resourceVersion']:
+            raise ContractError('kubernetes_provision_readback_invalid')
+        observations.append((entry, metadata['uid'], metadata['resourceVersion']))
+    mutations = 0
+    for entry, uid, version in observations:
+        if plan:
+            continue
+        path = _delete_path(bootstrap, entry)
+        if entry['kind'] == 'Namespace':
+            _namespace_children(bootstrap, entry['name'], candidates)
+        payload = {'apiVersion': 'v1', 'kind': 'DeleteOptions',
+                   'preconditions': {'uid': uid, 'resourceVersion': version}, 'propagationPolicy': 'Orphan'}
+        state['phase'] = 'deprovisioning'
+        entry['delete_requested'] = True
+        save()
+        bootstrap.kube(['delete', '--raw', path, '-f', '-'], data=json.dumps(payload).encode())
+        mutations += 1
+        args = ['wait', '--for=delete', entry['kind'] + '/' + entry['name'], '--timeout=90s']
+        if entry['namespace']:
+            args += ['--namespace', entry['namespace']]
+        bootstrap.kube(args, timeout=105)
+        if bootstrap.observed(entry['kind'], entry['name'], entry['namespace']) is not None:
+            raise ContractError('kubernetes_provision_delete_unproven')
+        entry['deleted'] = True
+        save()
+    if not plan:
+        state['phase'] = 'deprovisioned'
+        save()
+    return _receipt(operation_dir, state, plan=plan, cleanup=True, mutations=mutations, source_sha=source_sha,
+                    runtime=runtime)
 
 
 def rebuild_journal(repo, adapter, *, environment, target, profile_root, write_journal=False):

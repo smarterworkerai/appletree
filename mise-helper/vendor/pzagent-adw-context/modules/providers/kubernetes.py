@@ -29,6 +29,11 @@ WORKLOADS = {'Deployment', 'StatefulSet', 'DaemonSet'}
 KINDS = WORKLOADS | {'Service', 'Ingress', 'ConfigMap', 'PersistentVolumeClaim'}
 RESOURCES = 'deployments,statefulsets,daemonsets,services,ingresses,configmaps,persistentvolumeclaims'
 NAME = re.compile(r'^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$')
+RUNTIME_PATHS = {'Deployment': ('/apis/apps/v1', 'deployments'), 'StatefulSet': ('/apis/apps/v1', 'statefulsets'),
+                 'DaemonSet': ('/apis/apps/v1', 'daemonsets'), 'ReplicaSet': ('/apis/apps/v1', 'replicasets'),
+                 'Service': ('/api/v1', 'services'), 'Ingress': ('/apis/networking.k8s.io/v1', 'ingresses'),
+                 'ConfigMap': ('/api/v1', 'configmaps'), 'PersistentVolumeClaim': ('/api/v1', 'persistentvolumeclaims'),
+                 'Pod': ('/api/v1', 'pods')}
 DIGEST = re.compile(r'^.+@sha256:[0-9a-f]{64}$')
 
 
@@ -176,31 +181,58 @@ class KubernetesProvider:
         if root is None:
             raise ContractError('kubernetes_context_profile_missing')
         path = root / 'kubernetes-contexts.json'
+        # Reasons name the file relative to the operator home and the failed check,
+        # never the private path, context handle or file contents.
+        where = (root.name + '/' if root.name == 'profile' else '') + path.name
+
+        def invalid(check: str) -> ContractError:
+            return ContractError(f'kubernetes_context_profile_invalid: {where}: {check}')
+
         try:
-            if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536 or path.stat().st_mode & 0o077:
-                raise ValueError()
-            profile = json.loads(path.read_bytes())
+            if path.is_symlink():
+                raise invalid('is a symlink')
+            if not path.is_file():
+                flat = root.name == 'profile' and (root.parent / path.name).exists()
+                raise invalid('missing; found in the operator home itself (flat layout before 0.15.5): '
+                              'move the profile files into <operator-home>/profile/' if flat
+                              else 'missing; expected in <operator-home>/profile/')
+            if path.stat().st_mode & 0o077:
+                raise invalid('mode must be 0600')
+            if path.stat().st_size > 65536:
+                raise invalid('larger than 64 KiB')
+            try:
+                profile = json.loads(path.read_bytes())
+            except (UnicodeError, ValueError):
+                raise invalid('not valid JSON') from None
             if (not isinstance(profile, dict) or set(profile) != {'schema_version', 'contexts'}
                     or profile['schema_version'] != '1.0.0' or not isinstance(profile['contexts'], dict)):
-                raise ValueError()
-            selected = profile['contexts'][binding['context_alias']]
+                raise invalid('schema must be {schema_version: "1.0.0", contexts}')
+            selected = profile['contexts'].get(binding['context_alias'])
+            if selected is None:
+                raise invalid('no entry for the binding\'s context alias ' + str(binding['context_alias']))
             if (not isinstance(selected, dict) or not {'context', 'namespace'} <= set(selected)
                     or set(selected) - {'context', 'namespace', 'image_pull_secret'}):
-                raise ValueError()
+                raise invalid('context entry needs exactly context, namespace and optional image_pull_secret')
             secret = selected.get('image_pull_secret')
             if secret is not None and secret != 'adw-ghcr-pull':
-                raise ValueError()
+                raise invalid('image_pull_secret must be adw-ghcr-pull')
             context = selected['context']
             namespace = selected['namespace']
-            if (not isinstance(context, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,255}', context)
-                    or namespace != binding['namespace']
-                    or os.environ.get('PZ_ADW_KUBE_CONTEXT', context) != context):
-                raise ValueError()
+            if not isinstance(context, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,255}', context):
+                raise invalid('context handle is not a valid kubeconfig context name')
+            if namespace != binding['namespace']:
+                raise invalid('namespace differs from the adapter binding')
+            if os.environ.get('PZ_ADW_KUBE_CONTEXT', context) != context:
+                raise invalid('PZ_ADW_KUBE_CONTEXT selects a different context')
             config = Path(os.environ.get('KUBECONFIG', str(root / 'kubeconfig')))
-            if config.is_symlink() or not config.is_file() or config.stat().st_mode & 0o077 or config.stat().st_size > MAX_BYTES:
-                raise ValueError()
-        except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
-            raise ContractError('kubernetes_context_profile_invalid') from exc
+            if config.is_symlink() or not config.is_file():
+                raise invalid('kubeconfig missing (KUBECONFIG or profile/kubeconfig)')
+            if config.stat().st_mode & 0o077:
+                raise invalid('kubeconfig mode must be 0600')
+            if config.stat().st_size > MAX_BYTES:
+                raise invalid('kubeconfig too large')
+        except (OSError, TypeError) as exc:
+            raise invalid('unreadable') from exc
         self.context, self.namespace, self.kubeconfig = context, namespace, config
         self.image_pull_secret = secret
         actual = self._run(['config', 'get-contexts', context, '-o', 'name']).decode().strip()
@@ -378,6 +410,120 @@ class KubernetesProvider:
                 raise ContractError('kubernetes_empty_runtime_restore_unproven')
             return result
 
+    def runtime_inventory(self, journaled: list[dict] = ()) -> tuple[list[dict], list[dict]]:
+        """This target's applied runtime and its persistent claims, with exact identities.
+
+        A claim is owned when the provider applied it (labeled live object), when a live
+        owned StatefulSet created it from a claim template (exact `<template>-<set>-<n>`
+        name, the set's selector labels, created after the set, no foreign owner), or when
+        this operation journaled its UID before an interrupted removal. Every other claim,
+        including a same-named replacement of a journaled one, is foreign.
+        """
+        recorded = {(v['kind'], v['name']): v['uid'] for v in journaled}
+        live = self._live() + self._runtime_children()
+        for item in live:
+            identity = (item['kind'], item['metadata']['name'])
+            if identity in recorded and recorded[identity] != item['metadata'].get('uid'):
+                raise ContractError('kubernetes_provision_identity_changed')
+        workloads = [v for v in live if v['kind'] != 'PersistentVolumeClaim']
+        owned = {v['metadata']['name']: v for v in live if v['kind'] == 'PersistentVolumeClaim'}
+        templates = {}
+        for item in workloads:
+            if item['kind'] == 'StatefulSet':
+                for template in item.get('spec', {}).get('volumeClaimTemplates', []) or []:
+                    name = template.get('metadata', {}).get('name') if isinstance(template, dict) else None
+                    if not isinstance(name, str) or not NAME.fullmatch(name):
+                        raise ContractError('kubernetes_object_identity_invalid')
+                    templates[name + '-' + item['metadata']['name'] + '-'] = item
+        for claim in _objects(self._run(['get', 'persistentvolumeclaims', '-o', 'json'])):
+            kind, name = _identity(claim)
+            metadata = claim['metadata']
+            if kind != 'PersistentVolumeClaim' or metadata.get('namespace') != self.namespace:
+                raise ContractError('kubernetes_empty_runtime_readback_ambiguous')
+            if name in owned:
+                continue
+            if recorded.get((kind, name)) is not None:
+                if recorded[(kind, name)] != metadata.get('uid'):
+                    raise ContractError('kubernetes_provision_identity_changed')
+                owned[name] = claim
+                continue
+            sets = [s for prefix, s in templates.items() if re.fullmatch(re.escape(prefix) + r'[0-9]+', name)]
+            if len(sets) == 1:
+                owner = sets[0]
+                selector = owner.get('spec', {}).get('selector', {}).get('matchLabels', {})
+                references = metadata.get('ownerReferences', []) or []
+                if (isinstance(selector, dict) and selector and isinstance(metadata.get('labels'), dict)
+                        and all(metadata['labels'].get(k) == v for k, v in selector.items())
+                        and str(metadata.get('creationTimestamp', '')) >= str(owner['metadata'].get('creationTimestamp', '~'))
+                        and all(isinstance(r, dict) and r.get('uid') == owner['metadata'].get('uid') for r in references)):
+                    owned[name] = claim
+        return workloads, [owned[name] for name in sorted(owned)]
+
+    def namespace_inventory(self) -> list[dict]:
+        """Every listable namespaced object, for an ownership preflight before runtime removal."""
+        resources = self._run(['api-resources', '--verbs=list', '--namespaced=true', '-o', 'name']).decode().splitlines()
+        if not resources or len(resources) > 256:
+            raise ContractError('kubernetes_provision_inventory_invalid')
+        items = []
+        for resource in resources:
+            if not resource or not all(c.isalnum() or c in '.-' for c in resource):
+                raise ContractError('kubernetes_provision_inventory_invalid')
+            if resource in {'events', 'events.events.k8s.io'}:
+                continue  # Control-plane telemetry carries no persistent state.
+            for item in _objects(self._run(['get', resource, '-o', 'json'])):
+                metadata = item.get('metadata')
+                if (not isinstance(metadata, dict) or not isinstance(item.get('kind'), str)
+                        or not isinstance(metadata.get('name'), str) or metadata.get('namespace') != self.namespace):
+                    raise ContractError('kubernetes_provision_inventory_invalid')
+                items.append(item)
+        return items
+
+    def _current_uid(self, kind: str, name: str) -> str | None:
+        resource = RUNTIME_PATHS[kind][1]
+        raw = self._run(['get', resource, name, '--ignore-not-found', '-o', 'jsonpath={.metadata.uid}'])
+        return raw.decode().strip() or None
+
+    def delete_exact(self, item: dict) -> None:
+        """Delete one object only while it still has the observed UID and resourceVersion.
+
+        An object that is already gone (garbage-collected with its owner, or a lost delete
+        acknowledgement) is reconciled by absence; a same-named replacement refuses.
+        """
+        kind, name = item['kind'], item['metadata']['name']
+        group, resource = RUNTIME_PATHS[kind]
+        uid, version = item['metadata'].get('uid'), item['metadata'].get('resourceVersion')
+        if not isinstance(uid, str) or not uid or not isinstance(version, str) or not version:
+            raise ContractError('kubernetes_provision_readback_invalid')
+        current = self._current_uid(kind, name)
+        if current is None:
+            return
+        if current != uid:
+            raise ContractError('kubernetes_provision_identity_changed')
+        path = f'{group}/namespaces/{self.namespace}/{resource}/{name}'
+        options = {'apiVersion': 'v1', 'kind': 'DeleteOptions', 'propagationPolicy': 'Background',
+                   'preconditions': {'uid': uid, 'resourceVersion': version}}
+        try:
+            self._run(['delete', '--raw', path, '-f', '-'], data=json.dumps(options).encode())
+        except ContractError:
+            current = self._current_uid(kind, name)
+            if current is None:
+                return
+            if current != uid:
+                raise ContractError('kubernetes_provision_identity_changed') from None
+            raise
+
+    def wait_gone(self, items: list[dict]) -> None:
+        for item in items:
+            self._run(['wait', '--for=delete', item['kind'] + '/' + item['metadata']['name'], '--timeout=300s'],
+                      timeout=315)
+
+    def verify_runtime_removed(self, claims: list[dict]) -> None:
+        remaining, _ = self.runtime_inventory()
+        names = {v['metadata']['name'] for v in claims}
+        left = {v['metadata']['name'] for v in _objects(self._run(['get', 'persistentvolumeclaims', '-o', 'json']))}
+        if remaining or names & left:
+            raise ContractError('kubernetes_deprovision_runtime_unproven')
+
     def _images(self, items: list[dict], *, require_all: bool) -> dict[str, str]:
         indexed = {_identity(item): item for item in items}
         result = {}
@@ -467,6 +613,14 @@ class KubernetesProvider:
             if len(containers) != 1:
                 raise ContractError('kubernetes_image_mapping_unresolved')
             containers[0]['image'] = image
+        # Still-empty placeholders mean no release image was ever deployed here: a fresh
+        # namespace needs the initial deployment before a configuration-only sync.
+        for entry in self.binding['image_variables'].values():
+            for item in items:
+                if _identity(item) == (entry['kind'], entry['name']) and any(
+                        v['name'] == entry['container'] and not v['image'] for v in _containers(item)):
+                    raise ContractError('kubernetes_initial_deploy_required: deploy the release once without '
+                                        'config sync, then sync configuration')
         live = self._live()
         self._preserve_claim_defaults(live, items)
         self._guard(live, items)

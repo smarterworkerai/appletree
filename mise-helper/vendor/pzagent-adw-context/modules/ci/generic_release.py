@@ -7,7 +7,9 @@ SHA-256 and mode.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
+from ..common import ContractError, ensure_contained, sha256_file
 from .quality_proof import ProofError
 
 GENERIC = 'smarterworkerai/agentic-delivery'
@@ -43,6 +45,46 @@ def validate_generic_pin(pin):
                      and entry['mode'] in ('100644', '100755') for name, entry in files.items()),
              'generic_pin_inventory_invalid')
     return pin
+
+
+def generic_vendor_matches(repo: Path, pin) -> bool:
+    """The vendored generic layer holds exactly the pinned release's runtime files, byte for byte."""
+    root = repo / GENERIC_VENDOR
+    if not root.is_dir() or root.is_symlink():
+        return False
+    actual = {path.relative_to(root).as_posix() for path in root.rglob('*')
+              if not path.is_dir() and '__pycache__' not in path.parts}
+    if actual != set(pin['files']):
+        return False
+    for name, entry in pin['files'].items():
+        path = ensure_contained(root, name)
+        if path.is_symlink() or not path.is_file() or sha256_file(path) != entry['sha256']:
+            return False
+        if ('100755' if path.stat().st_mode & 0o111 else '100644') != entry['mode']:
+            return False
+    return True
+
+
+def generic_source_id(manifest) -> str:
+    sources = manifest.get('sources') if isinstance(manifest, dict) else None
+    ids = [key for key, value in (sources or {}).items() if isinstance(value, dict) and value.get('layer') == 'generic']
+    if len(ids) != 1:
+        raise ContractError('manifest generic source is missing or ambiguous')
+    return ids[0]
+
+
+def check_generic_layer(repo: Path, manifest, pin, bundle_version: str) -> dict:
+    """Generic layer, manifest source and contract version must equal the bundle's pinned release."""
+    hint = (f'run `mise run adw:context:sync -- v{bundle_version} <bundle-sha256>` again;'
+            ' a 0.15.9 or older updater updates only the context layer on its first run')
+    if not generic_vendor_matches(repo, pin):
+        raise ContractError(f"generic_layer_differs_from_pin: the vendored agentic-delivery files differ from"
+                            f" the pinned v{pin['version']}; {hint}")
+    if manifest['sources'][generic_source_id(manifest)] != generic_source(pin) \
+            or manifest.get('schema_version') != pin['version'] or manifest['contract'].get('version') != pin['version']:
+        raise ContractError(f"generic_manifest_differs_from_pin: the manifest does not record agentic-delivery"
+                            f" v{pin['version']}; {hint}")
+    return {'status': 'passed', 'version': pin['version'], 'ref': pin['snapshot_ref']}
 
 
 def generic_source(pin):
