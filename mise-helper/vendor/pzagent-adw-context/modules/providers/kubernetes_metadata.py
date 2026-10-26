@@ -7,6 +7,7 @@ is private, its paths are target-scoped, and it is stopped when the call ends.
 from contextlib import contextmanager
 import http.client
 import json
+import os
 from pathlib import Path
 import re
 import socket
@@ -116,6 +117,15 @@ class MetadataClient:
         return self._request('PATCH', kind, name, namespace, patch)
 
 
+# AF_UNIX paths are limited to 107 bytes; a long TMPDIR falls back to /tmp for the proxy socket.
+SOCKET_PATH_LIMIT = 100
+
+
+def socket_directory_base():
+    base = tempfile.gettempdir()
+    return base if len(os.fsencode(base)) + len('/adw-kube-meta-XXXXXXXX/proxy.sock') <= SOCKET_PATH_LIMIT else '/tmp'
+
+
 @contextmanager
 def metadata_api(provider, *, secret=None):
     """Target-scoped metadata client; with secret=(namespace, name), read-only metadata of exactly that Secret."""
@@ -123,7 +133,7 @@ def metadata_api(provider, *, secret=None):
         raise ContractError('kubernetes_context_not_discovered')
     if secret is not None and (len(secret) != 2 or not all(isinstance(v, str) and NAME.fullmatch(v) for v in secret)):
         raise ContractError('kubernetes_metadata_scope_invalid')
-    with tempfile.TemporaryDirectory(prefix='adw-kube-meta-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='adw-kube-meta-', dir=socket_directory_base()) as temporary:
         path = Path(temporary) / 'proxy.sock'
         rejected = 'POST,PUT,DELETE,HEAD,OPTIONS,CONNECT,TRACE'
         if secret is None:

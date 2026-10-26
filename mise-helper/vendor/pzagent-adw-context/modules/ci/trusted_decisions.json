@@ -358,30 +358,6 @@
       "validator": "modules.merged_source_proof:prove",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },
-    "modules.merged_source_proof:_git:subprocess.run": {
-      "call_sha256": [
-        "3b8301082907240d88c2e218740bb18dde2d90c14aaf95e303e1da46d4f37419"
-      ],
-      "scope_sha256": "472a5fbf19cf9982486c3ea5a27f60723301d084ef2503e3a084d9d43373a7b8",
-      "validator": "modules.merged_source_proof:prove",
-      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
-    },
-    "modules.merged_source_proof:operator_prove:subprocess.run": {
-      "call_sha256": [
-        "62acdcb14965817c6a6ad65bb4c897135877ccd4032cd861966ac251f913ff1c"
-      ],
-      "scope_sha256": "f60283c7d1b2c9f8cd3ab05b1a16deb4e42e1bab4bcfeebebe73753393310dd6",
-      "validator": "modules.merged_source_proof:prove",
-      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
-    },
-    "modules.merged_source_proof:operator_prove.is_ancestor:subprocess.run": {
-      "call_sha256": [
-        "756bb036a195edad128b8076fd918e83180b4967729717480ae12f0e87efb4d5"
-      ],
-      "scope_sha256": "ad79e81b7a183c97d62b7a63085b32fa37ff66b196b596e0e9bfc39995f3ee3f",
-      "validator": "modules.merged_source_proof:prove",
-      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
-    },
     "modules.operator_publish:tool:subprocess.run": {
       "call_sha256": [
         "be513ffd10e738e3159850766995cb187f12e256d56cf68b3326dd88be76e76c"
@@ -505,6 +481,14 @@
       "scope_sha256": "8aa4ae93c48744d3c0c46ab56aa8052b6d0d9e9a5798e4e5309e761659a42cf7",
       "validator": "modules.ci.greenfield:candidate",
       "reason": "Fixed-provider read-only Git GET transport for the sandbox-only candidate anchor: branch-head, commit and recursive tree paths only. candidate verifies the complete bundle inventory, that the exact commit is the current head of a provider branch, and Git blob/mode equality of the operator runtime with that commit; before_mutation rechecks the branch head and the live sandbox identity (name and repository ID). CI output and transport success grant no admission."
+    },
+    "modules.merged_source_proof:_github:subprocess.run": {
+      "call_sha256": [
+        "c306780654dcb445e2a63b04eea0919e00e74c9953c0dedc372685f00d765592"
+      ],
+      "scope_sha256": "1518637a2279e018cc158d354db31ba7ffe0ce81ebf0148161c89c8c1198ca1e",
+      "validator": "modules.merged_source_proof:prove",
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     }
   },
   "historical_31_module_classification": {

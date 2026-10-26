@@ -495,8 +495,8 @@ def _namespace_children(bootstrap, namespace, candidates):
     for resource in resources:
         if not resource or not all(c.isalnum() or c in '.-' for c in resource):
             raise ContractError('kubernetes_provision_inventory_invalid')
-        if resource in {'events', 'events.events.k8s.io'}:
-            continue  # Control-plane telemetry carries no persistent state.
+        if resource in {'events', 'events.events.k8s.io'} or resource.endswith('.metrics.k8s.io'):
+            continue  # Control-plane telemetry and metrics-server views carry no persistent state.
         raw = bootstrap.kube(['get', resource, '--namespace', namespace, '-o',
             'jsonpath={range .items[*]}{.kind}{" "}{.metadata.name}{"\\n"}{end}'])
         for line in raw.decode().splitlines():

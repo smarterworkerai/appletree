@@ -259,6 +259,10 @@ def execute(repo: Path, name: str, config: dict):
             context = {'repository': str(repo), 'workspace': str(selected),
                        'command_workspace': str(selected), 'task': name}
             env = environment(task, context)
+            if selected != repo:
+                # A byte copy of the trusted checkout: mise shims on PATH must not refuse its mise.toml.
+                trusted = [entry for entry in env.get('MISE_TRUSTED_CONFIG_PATHS', '').split(os.pathsep) if entry]
+                env['MISE_TRUSTED_CONFIG_PATHS'] = os.pathsep.join([*trusted, str(selected)])
             if name == 'adw:verify:minimal':
                 env['ADW_SHARED_WORKSPACE'] = str(selected)
             maven_options = _maven_cache(repo, env, context) if task.get('maven_cache') else []

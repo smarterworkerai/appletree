@@ -18,7 +18,7 @@
     },
     {
       "path": "migration-notes.md",
-      "sha256": "eb87d5b122a50caf04c8c2632d88b92136940b8904cab9ddc9c2d70908a9e34b"
+      "sha256": "54357c4d168204dc22fc545f61443df5918d54c702cc994bbbfb28ccada0388d"
     },
     {
       "path": "modules/__init__.py",
@@ -114,7 +114,7 @@
     },
     {
       "path": "modules/ci/trusted_decisions.json",
-      "sha256": "d94128eb3c19d047e663fc66a402a9145ca85f9a3b113b18f5c6f539d617786c"
+      "sha256": "7c77b4cdcd1cccbb36c747a0b265fd0c2ef37c6bccc21db77d0eb4b8ce5f250f"
     },
     {
       "path": "modules/ci/vendor_integrity.py",
@@ -130,11 +130,11 @@
     },
     {
       "path": "modules/cluster_bootstrap.py",
-      "sha256": "383220e18db7708057e50f3d27c2c134cdd4baafa9d68da51176629c3fb33ac6"
+      "sha256": "5a48515cc905a70946d4f9b52f8302818e108f5518ae61f7698ccabcbc226eca"
     },
     {
       "path": "modules/cluster_lifecycle.py",
-      "sha256": "f0cc51ed8f8bb06d38ef1f5dd119dbb5c5eddf7752dbe6dd2f438733254b39b2"
+      "sha256": "08d7eff8bb485e15449ea32e3116bba947c36dc4e8f7af8e3227280601b14fee"
     },
     {
       "path": "modules/common.py",
@@ -218,7 +218,7 @@
     },
     {
       "path": "modules/merged_source_proof.py",
-      "sha256": "42fa0783260617055a7eb3e510470d2538b06d34218a656de335d62de4a47a65"
+      "sha256": "4e9fe5898ee5d9f5a10625737ae11de56381698a53868648b315a211d052e057"
     },
     {
       "path": "modules/operator_credentials.py",
@@ -246,7 +246,7 @@
     },
     {
       "path": "modules/operator_retention.py",
-      "sha256": "b9cef119e8fde9d90b0b516f1f1f0603bab16ee1291c37e03bb8ba3a139f8794"
+      "sha256": "83610299f2ee0f0b092d959eb230bd4584d3fed3d55e57b2d4755b53af7697e4"
     },
     {
       "path": "modules/operator_sources.py",
@@ -286,7 +286,7 @@
     },
     {
       "path": "modules/project_tasks.py",
-      "sha256": "a3c3eadfcca9574f23e7563b6eada8d53c5fb13e7c37c2ae583c57cd68900854"
+      "sha256": "4f4cc8e36a1d014e4daacd5aa6263209557b65d292ee9bb006cbdb6b24ed3f68"
     },
     {
       "path": "modules/provider_ancestors.py",
@@ -314,7 +314,7 @@
     },
     {
       "path": "modules/providers/kubernetes.py",
-      "sha256": "78d3adb83db7c21263f929411c563b463997551c6d23e59c573a05a0c1676fb9"
+      "sha256": "4487c8becdcd922d563725133f856ca3fbde0db39a76ba7def275e538bfdfa12"
     },
     {
       "path": "modules/providers/kubernetes_hooks.py",
@@ -322,11 +322,11 @@
     },
     {
       "path": "modules/providers/kubernetes_lifecycle.py",
-      "sha256": "e2113ebf189dc36f425f23e4cf250234d60c87bce88be0ee0fae65fcbcb6a4ed"
+      "sha256": "bba3445c6cde8a58da59b4fa10e0f8678e4cbf272f4b2ef4f0e0a8ccdab256b2"
     },
     {
       "path": "modules/providers/kubernetes_metadata.py",
-      "sha256": "ece317c0a28b3cbe2fb71e53819b02d7faa4558b1637f348c029257372b6f0d1"
+      "sha256": "ee1164e999f152a6b28d506fa5b3b57f4ebd77d6a98878035ccaaf111f5798cb"
     },
     {
       "path": "modules/publication.py",
@@ -398,7 +398,7 @@
     },
     {
       "path": "policy.md",
-      "sha256": "cb29f644eb65ef4079cff32c5548ab3647fa498a51dfc5b9da914809c26cc898"
+      "sha256": "7f53e0a8b820eda60fa658b9d0de7fb72fac26b7e47fd3becbf46632ef8034aa"
     },
     {
       "path": "pzagent_context.py",
@@ -586,7 +586,7 @@
     },
     {
       "path": "templates/pzagent-context-lock.json",
-      "sha256": "aa74bfa5f4fab6fb66e02a22a439544392a9aa59db79f561d3b5728dcdf1a7f3"
+      "sha256": "15c352ff9dea8d8dd8379adba3f819031e77a69012cfc4e4a589dcf7f0ebd898"
     },
     {
       "path": "templates/repo-agents-snippet.md",
@@ -609,5 +609,5 @@
   "schema_version": "1.0.0",
   "stability": "experimental",
   "task_entrypoint": "tasks.toml",
-  "version": "0.15.12"
+  "version": "0.15.13"
 }

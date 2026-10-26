@@ -32,27 +32,36 @@ def prove(value:ProofInput,pull:Any,live_ref:Callable[[str],str],is_ancestor:Cal
     else: raise ContractError('source_not_ancestor_and_trees_unequal')
     return {'repository':value.repository,'pr_number':value.pr_number,'source_branch':value.source_branch,'target_branch':value.target_branch,'source_head':source,'remote_source_head':remote_source,'target_head':target,'merge_commit':merge,'source_tree':source_tree,'merge_tree':merge_tree,'proof_mode':mode}
 
-def _git(repo,*args:str)->str:
-    result=subprocess.run(['git',*args],cwd=repo,text=True,capture_output=True,check=False)
-    if result.returncode: raise ContractError('git_lookup_failed')
-    return result.stdout.strip()
+def _github(endpoint:str,reason:str,*,missing:str|None=None,invalid:str|None=None)->dict[str,Any]:
+    fetched=subprocess.run(['gh','api','--method','GET',endpoint],text=True,capture_output=True,check=False)
+    if fetched.returncode:
+        if missing and 'HTTP 404' in fetched.stderr: raise ContractError(missing)
+        raise ContractError(reason)
+    try: value=json.loads(fetched.stdout)
+    except json.JSONDecodeError: raise ContractError(invalid or reason) from None
+    if not isinstance(value,dict): raise ContractError(invalid or reason)
+    return value
 def operator_prove(repo,adapter:dict,*,pr_number:int,source_branch:str,target_branch:str,remote:str='origin')->dict[str,Any]:
-    """Read-only proof with live GitHub REST and Git readback; never deletes or pushes a ref."""
+    """Read-only proof through the live GitHub REST API only, so it needs no Git credentials
+    (HTTPS, SSH and token-only setups alike); never deletes or pushes a ref. `repo` and
+    `remote` are accepted for compatibility and no longer read."""
     repository=adapter['repository']['id']; protected=frozenset(adapter['repository']['protected_branches'])
     value=ProofInput(repository,pr_number,source_branch,target_branch)
     validate_input(value,protected,protected)
-    fetched=subprocess.run(['gh','api','--method','GET',f'repos/{repository}/pulls/{pr_number}'],text=True,capture_output=True,check=False)
-    if fetched.returncode: raise ContractError('github_pr_lookup_failed')
-    try: pull=json.loads(fetched.stdout)
-    except json.JSONDecodeError: raise ContractError('github_pr_metadata_invalid') from None
+    pull=_github(f'repos/{repository}/pulls/{pr_number}','github_pr_lookup_failed',invalid='github_pr_metadata_invalid')
     def live_ref(branch:str)->str:
-        line=_git(repo,'ls-remote','--heads',remote,f'refs/heads/{branch}').splitlines()
-        sha=line[0].split('\t',1)[0] if line else ''
-        if not FULL_SHA.fullmatch(sha): raise ContractError('remote_branch_missing')
+        ref=_github(f'repos/{repository}/git/ref/heads/{branch}','github_ref_lookup_failed',missing='remote_branch_missing')
+        target=ref.get('object')
+        sha=target.get('sha') if isinstance(target,dict) and target.get('type')=='commit' else None
+        if ref.get('ref')!=f'refs/heads/{branch}' or not isinstance(sha,str) or not FULL_SHA.fullmatch(sha): raise ContractError('remote_branch_missing')
         return sha
     def is_ancestor(ancestor:str,descendant:str)->bool:
-        result=subprocess.run(['git','merge-base','--is-ancestor',ancestor,descendant],cwd=repo,capture_output=True,check=False)
-        if result.returncode not in (0,1): raise ContractError('git_lookup_failed')
-        return result.returncode==0
-    _git(repo,'fetch','--quiet',remote,f'refs/heads/{source_branch}',f'refs/heads/{target_branch}')
-    return prove(value,pull,live_ref,is_ancestor,lambda commit:_git(repo,'rev-parse',f'{commit}^{{tree}}'),protected=protected)
+        status=_github(f'repos/{repository}/compare/{descendant}...{ancestor}','github_compare_failed').get('status')
+        if status not in {'ahead','behind','identical','diverged'}: raise ContractError('github_compare_failed')
+        return status in {'behind','identical'}
+    def tree(commit:str)->str:
+        found=_github(f'repos/{repository}/git/commits/{commit}','github_commit_lookup_failed').get('tree')
+        sha=found.get('sha') if isinstance(found,dict) else None
+        if not isinstance(sha,str) or not FULL_SHA.fullmatch(sha): raise ContractError('github_commit_lookup_failed')
+        return sha
+    return prove(value,pull,live_ref,is_ancestor,tree,protected=protected)

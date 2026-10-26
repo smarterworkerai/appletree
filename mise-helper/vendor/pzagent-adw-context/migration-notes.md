@@ -1,5 +1,44 @@
 # Migration notes
 
+## 0.15.13
+
+- **Deprovision ignores metrics-server views (live finding).** The ownership preflight of
+  `pz:provider:deprovision --include-runtime` counted metrics-server PodMetrics
+  (`pods.metrics.k8s.io`) as foreign objects. They are virtual, carry no UID or owner, and
+  refused every deprovision on clusters that run metrics-server, such as k3s. Namespace
+  inventories now skip `*.metrics.k8s.io` like events.
+- **A missing bootstrap fact names its variable (live finding).** `pz:provider:provision` and
+  `pz:k3d:up` refuse as `cluster_bootstrap_fact_missing: <VARIABLE>`, naming the operator
+  variable to load. The value is never echoed.
+- **Journal scan reads only journal positions (#153).** Retention and pointer retirement scan
+  `handover/` and the operator home for in-flight journals only up to two directories below
+  each base, where journals live. A frozen proof checkout parked under `handover/` (for
+  example with a vendored provider template named `deployment.json`) no longer refuses with
+  `active operation journal is invalid`. A malformed journal at a journal position still refuses.
+- **k3d failures are kept in the journal (#155 part 1).** A failed `pz:k3d:up` or
+  `pz:k3d:teardown` records `last_failure` (closed reason, stage, UTC time) in its operation
+  journal, and a failed `k3d`/`kubectl`/`docker` call writes a private, bounded diagnostic
+  `diagnostics/command-failed-*.log` (mode 0600), also on a timeout: the tool and subcommand
+  words, and the bounded stderr tail. Control characters are removed first. Then every
+  occurrence of every loaded, generated or submitted secret (Secret `data`/`stringData` a
+  command receives on stdin, encoded and decoded) is redacted with its base64 forms, overlaps
+  included, as are token-like runs. Only then is the tail cut. The final foreign-cluster observation is journaled too
+  (`final-foreign-observation`). A resumed run that completes reports `resumed_after_failure`.
+- **The merged-branch proof needs no Git credentials (#155 part 2).**
+  `pz:release:prove-merged-branch` reads branch heads (`git/ref/heads/<branch>`), ancestry
+  (`compare`, `behind`/`identical` prove ancestry) and trees (`git/commits/<sha>`) through the
+  GitHub REST API, like the pull request. It now works on HTTPS remotes without a credential
+  helper. New closed reasons: `github_ref_lookup_failed`, `github_compare_failed`,
+  `github_commit_lookup_failed`. `--remote` is accepted and no longer read.
+- **Isolated workspaces under mise shims (#155 part 3).** Project commands that run in a copied
+  workspace get it on `MISE_TRUSTED_CONFIG_PATHS`, so a mise shim on `PATH` no longer refuses
+  the copy's `mise.toml`.
+- **Short proxy socket directory (#155 part 4).** The Kubernetes metadata proxy places its
+  Unix socket under `/tmp` when `TMPDIR` would exceed the socket path limit. Two tests no
+  longer depend on an ambient `.git` above the temporary directory or on a short `TMPDIR`.
+- No new trusted path. The vendored `bundle.json` changes as in every release, so an exact
+  released-vendor repin from 0.15.12 is approved automatically.
+
 ## 0.15.12
 
 - **Verify existing cluster TLS (#151 part 1).** A target in

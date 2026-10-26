@@ -468,8 +468,9 @@ class KubernetesProvider:
         for resource in resources:
             if not resource or not all(c.isalnum() or c in '.-' for c in resource):
                 raise ContractError('kubernetes_provision_inventory_invalid')
-            if resource in {'events', 'events.events.k8s.io'}:
-                continue  # Control-plane telemetry carries no persistent state.
+            if resource in {'events', 'events.events.k8s.io'} or resource.endswith('.metrics.k8s.io'):
+                # Control-plane telemetry and metrics-server views (PodMetrics) carry no stored state.
+                continue
             for item in _objects(self._run(['get', resource, '-o', 'json'])):
                 metadata = item.get('metadata')
                 if (not isinstance(metadata, dict) or not isinstance(item.get('kind'), str)

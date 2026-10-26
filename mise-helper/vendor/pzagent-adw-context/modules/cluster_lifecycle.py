@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 import hashlib
 import ipaddress
 import json
@@ -45,6 +46,111 @@ def _failure_reason(stdout: bytes, stderr: bytes) -> str:
         if any(marker in raw for marker in markers):
             return reason
     return 'cluster_command_failed'
+
+
+MAX_FAILURE_DIAGNOSTIC = 16384
+
+
+REDACTED = b'[redacted]'
+# Token-like runs cover provider-generated values and encoded Secret data that no known value
+# matches. One linear scan finds the runs; a run is redacted when it mixes cases with a digit or
+# carries base64 punctuation, so lowercase object names stay readable.
+TOKEN_RUN = re.compile(rb'[A-Za-z0-9+/_-]{16,}={0,2}')
+
+
+def _token_like(match: re.Match) -> bytes:
+    run = match.group(0)
+    mixed = (any(65 <= c <= 90 for c in run) and any(97 <= c <= 122 for c in run)
+             and any(48 <= c <= 57 for c in run))
+    return REDACTED if mixed or b'+' in run or b'/' in run else run
+
+
+def _printable(value: bytes) -> bytes:
+    return bytes(c for c in value if c in b'\n\t' or 32 <= c < 127)
+
+
+def _variants(value: bytes) -> set[bytes]:
+    found = {value, _printable(value)}
+    for encoded in (base64.b64encode(value), base64.urlsafe_b64encode(value)):
+        found |= {encoded, encoded.rstrip(b'=')}
+    return {variant for variant in found if variant}
+
+
+def _redact_union(text: bytes, known: set[bytes]) -> bytes:
+    """Redact the union of every occurrence of every known form, overlaps included, so no
+    replacement order can split one match with another (across facts and encodings)."""
+    covered = []
+    for value in known:
+        start = text.find(value)
+        while start != -1:
+            covered.append((start, start + len(value)))
+            start = text.find(value, start + 1)
+    if not covered:
+        return text
+    covered.sort()
+    pieces, position, end = [], 0, -1
+    for begin, finish in covered:
+        if begin > end:
+            if end >= 0:
+                pieces.append(REDACTED)
+            pieces.append(text[position:begin])
+        end = max(end, finish)
+        position = end
+    pieces.append(REDACTED)
+    pieces.append(text[position:])
+    return b''.join(pieces)
+
+
+def _sanitized(stderr: bytes, secrets_: tuple[bytes, ...]) -> bytes:
+    """Normalize, redact the union of all known forms, then token-like runs, and only then keep the
+    bounded tail, which can no longer cut a secret."""
+    # Normalize first: every fact's printable form is in the set, so control or binary bytes can
+    # neither hide a fact nor let a shorter fact be redacted out of a longer one before the match.
+    known = {variant for value in secrets_ if value for variant in _variants(value)}
+    text = _redact_union(_printable(stderr), known)
+    text = TOKEN_RUN.sub(_token_like, text)
+    return text[-MAX_FAILURE_DIAGNOSTIC:]
+
+
+def _submitted_secrets(data: bytes | None) -> tuple[bytes, ...]:
+    """Secret data a command receives on stdin (encoded and decoded), such as restored key material."""
+    if not data:
+        return ()
+    try:
+        document = json.loads(data)
+    except (ValueError, UnicodeDecodeError):
+        return ()
+    found: list[bytes] = []
+
+    def visit(node):
+        if isinstance(node, list):
+            for child in node:
+                visit(child)
+        elif isinstance(node, dict):
+            if node.get('kind') == 'Secret':
+                for field in ('data', 'stringData'):
+                    for value in (node.get(field) or {}).values() if isinstance(node.get(field), dict) else ():
+                        if isinstance(value, str) and value:
+                            found.append(value.encode())
+                            if field == 'data':
+                                try:
+                                    found.append(base64.b64decode(value, validate=True))
+                                except ValueError:
+                                    pass
+            for child in node.values():
+                if isinstance(child, (list, dict)):
+                    visit(child)
+    visit(document)
+    return tuple(value for value in found if value)
+
+
+def _sensitive_values(value) -> tuple[bytes, ...]:
+    """Every operator fact of any length, including nested application secrets."""
+    if isinstance(value, str):
+        return (value.encode(),) if value else ()
+    if isinstance(value, dict):
+        return tuple(item for child in value.values() for item in _sensitive_values(child))
+    return ()
 
 
 def _private_json(path: Path) -> dict:
@@ -118,6 +224,8 @@ class Lifecycle:
         for key in ('SSH_AUTH_SOCK', 'DOCKER_CONFIG', 'DOCKER_AUTH_CONFIG', 'REGISTRY_AUTH_FILE', 'ORAS_CONFIG'):
             self.env.pop(key, None)
         self.env['KUBECONFIG'] = str(self.kubeconfig)
+        self.secrets: tuple[bytes, ...] = ()
+        self.last_diagnostic: tuple[str, str] | None = None  # (reason, diagnostic file name)
 
     def run(self, arguments: list[str], *, data: bytes | None = None, timeout: int = 45) -> bytes:
         diagnostic = None
@@ -129,7 +237,11 @@ class Lifecycle:
             diagnostic = directory / ('cluster-create-' + secrets.token_hex(12) + '.log')
         try:
             result = subprocess.run(arguments, input=data, env=self.env, capture_output=True, timeout=timeout)
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except subprocess.TimeoutExpired as exc:
+            # Keep what the command wrote before the timeout; the closed reason stays the same.
+            self._failure_diagnostic(arguments, exc.stderr or b'', 'cluster_command_unavailable', data)
+            raise ContractError('cluster_command_unavailable') from exc
+        except OSError as exc:
             raise ContractError('cluster_command_unavailable') from exc
         if diagnostic is not None:
             # Operator-only raw diagnostic, never evidence/stdout or source.
@@ -139,10 +251,39 @@ class Lifecycle:
                 stream.write(b'STDOUT\n' + result.stdout[-MAX_BYTES:]
                              + b'\nSTDERR\n' + result.stderr[-MAX_BYTES:])
         if result.returncode:
-            raise ContractError(_failure_reason(result.stdout, result.stderr))
+            reason = _failure_reason(result.stdout, result.stderr)
+            self._failure_diagnostic(arguments, result.stderr, reason, data)
+            raise ContractError(reason)
         if len(result.stdout) > MAX_BYTES:
             raise ContractError('cluster_output_unbounded')
         return result.stdout
+
+    def register_secret(self, value: str) -> None:
+        self.secrets += _sensitive_values(value)
+
+    def _failure_diagnostic(self, arguments: list[str], stderr: bytes, reason: str, data: bytes | None = None) -> None:
+        # Operator-only: the tool and its subcommand words, never options, paths or input.
+        words, option_value = [arguments[0]], False
+        for word in arguments[1:]:
+            if option_value or word.startswith('-'):
+                option_value = not option_value and '=' not in word
+                continue
+            if len(words) == 3 or not re.fullmatch(r'[a-z][a-z-]*', word):
+                break
+            words.append(word)
+        directory = self.storage / 'diagnostics'
+        self.last_diagnostic = None
+        try:
+            if directory.is_symlink():
+                return
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            name = 'command-failed-' + secrets.token_hex(12) + '.log'
+            with (directory / name).open('xb') as stream:
+                os.chmod(directory / name, 0o600)
+                stream.write(b'COMMAND ' + ' '.join(words).encode() + b'\nSTDERR\n' + _sanitized(stderr, self.secrets + _submitted_secrets(data)))
+            self.last_diagnostic = (reason, name)
+        except OSError:
+            self.last_diagnostic = None
 
     def clusters(self) -> list[dict]:
         try:
@@ -407,6 +548,7 @@ def manage(*, profile_root: Path, alias: str, action: str, operation_dir: Path, 
         raise ContractError('cluster_context_mismatch')
     tls_profile = {key: value for key, value in lifecycle.profile.items() if key not in {'image_pull', 'app_secrets'}}
     values = bootstrap_facts(tls_profile) if action == 'up' and not plan else {}
+    lifecycle.secrets = _sensitive_values(values)
     lifecycle.local_docker()
     lifecycle.kubeconfig_owned()
     profile, digest = lifecycle.profile, lifecycle.digest
@@ -455,118 +597,130 @@ def manage(*, profile_root: Path, alias: str, action: str, operation_dir: Path, 
             record['phase'] = phase
             write(path, record)
 
-        registry = profile['registry']
-        registry_name = 'k3d-' + registry['name'] if registry is not None else None
-        if action == 'up':
-            lifecycle.storage.mkdir(parents=True, exist_ok=True, mode=0o700)
-            if registry is not None:
-                if 'registry_port' not in saved:
-                    port = registry['port']
-                    if not port:
-                        with socket.socket() as listener:
-                            listener.bind(('localhost', 0))
-                            port = listener.getsockname()[1]
-                    saved['registry_port'] = port
-                    write(state_path, saved)
-                stage('registry-selected')
-                registries = json.loads(lifecycle.run(['k3d', 'registry', 'list', '-o', 'json']))
-                if not any(v.get('name') == registry_name for v in registries):
-                    directory = lifecycle.storage / 'registry'
-                    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-                    stage('registry-create-requested')
-                    lifecycle.run(['k3d', 'registry', 'create', registry['name'], '--port',
-                        socket.gethostbyname('localhost') + ':' + str(saved['registry_port']), '--volume', str(directory) + ':/var/lib/registry', '--no-help'], timeout=180)
-                else:
-                    # Only the exact private-profile mount and bound port may
-                    # be adopted after a lost create acknowledgement.
-                    lifecycle.registry_owned(registry_name, saved['registry_port'])
-                mirrors = {'mirrors': {'localhost:' + str(saved['registry_port']): {'endpoint': ['http://' + registry_name + ':5000']}}}
-                mirror = lifecycle.storage / 'registries.yaml'
-                write(mirror, mirrors)
-            if not present:
-                if 'api_port' not in saved:
-                    with socket.socket() as listener:
-                        listener.bind(('127.0.0.1', 0))
-                        saved['api_port'] = listener.getsockname()[1]
-                    write(state_path, saved)
-                stage('cluster-create-requested')
-                arguments = ['k3d', 'cluster', 'create', profile['name'], '--image', profile['image'],
-                    '--servers', '1', '--agents', '0', '--wait', '--timeout', '240s',
-                    '--api-port', '127.0.0.1:' + str(saved['api_port']),
-                    '--kubeconfig-update-default=false', '--kubeconfig-switch-context=false',
-                    '--runtime-label', OWNER + '=adw@all', '--runtime-label', PROFILE + '=' + digest + '@all',
-                    '--port', profile['bind_address'] + ':' + str(profile['http_port']) + ':80@loadbalancer',
-                    '--port', profile['bind_address'] + ':' + str(profile['https_port']) + ':443@loadbalancer']
+        try:
+            registry = profile['registry']
+            registry_name = 'k3d-' + registry['name'] if registry is not None else None
+            if action == 'up':
+                lifecycle.storage.mkdir(parents=True, exist_ok=True, mode=0o700)
                 if registry is not None:
-                    arguments += ['--registry-use', registry_name + ':5000', '--registry-config', str(mirror)]
-                lifecycle.run(arguments, timeout=300)
-            lifecycle.owned()
-            stage('cluster-created')
-            raw = lifecycle.run(['k3d', 'kubeconfig', 'get', profile['name']])
-            if lifecycle.kubeconfig.is_symlink():
-                raise ContractError('cluster_kubeconfig_path_invalid')
-            descriptor = os.open(lifecycle.kubeconfig, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, 'O_NOFOLLOW', 0), 0o600)
-            with os.fdopen(descriptor, 'wb') as stream:
-                os.fchmod(stream.fileno(), 0o600)
-                stream.write(raw)
-            lifecycle.api_endpoint(saved['api_port'])
-            lifecycle.contexts()
-            record['target_namespaces_outside_scope'] = [namespace for namespace in profile['namespaces']
-                if lifecycle.kube(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']).strip()]
-            stage('tls-bootstrap-requested')
-            record['bootstrap'] = Bootstrap(lifecycle, values).run(target_resources=False)
-            write(path, record)
-            saved['cluster_created'] = True
-            write(state_path, saved)
-        else:
-            registry_present = False
-            if registry_name is not None:
-                registries = json.loads(lifecycle.run(['k3d', 'registry', 'list', '-o', 'json']))
-                registry_present = any(v.get('name') == registry_name for v in registries)
-                if registry_present:
-                    if not state_path.exists() or 'registry_port' not in saved:
-                        raise ContractError('cluster_registry_ownership_unproven')
-                    lifecycle.registry_owned(registry_name, saved['registry_port'])
-            if 'tls' in profile and 'certificate_cache' not in record:
-                tls = profile['tls']
-                if purge_certificates:
-                    record['certificate_cache'] = 'purged' if acme_cache.purge(tls['domain'], tls['issuer']) else 'absent'
-                elif present:
-                    record['certificate_cache'] = _export_certificate_cache(lifecycle, tls)
+                    if 'registry_port' not in saved:
+                        port = registry['port']
+                        if not port:
+                            with socket.socket() as listener:
+                                listener.bind(('localhost', 0))
+                                port = listener.getsockname()[1]
+                        saved['registry_port'] = port
+                        write(state_path, saved)
+                    stage('registry-selected')
+                    registries = json.loads(lifecycle.run(['k3d', 'registry', 'list', '-o', 'json']))
+                    if not any(v.get('name') == registry_name for v in registries):
+                        directory = lifecycle.storage / 'registry'
+                        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+                        stage('registry-create-requested')
+                        lifecycle.run(['k3d', 'registry', 'create', registry['name'], '--port',
+                            socket.gethostbyname('localhost') + ':' + str(saved['registry_port']), '--volume', str(directory) + ':/var/lib/registry', '--no-help'], timeout=180)
+                    else:
+                        # Only the exact private-profile mount and bound port may
+                        # be adopted after a lost create acknowledgement.
+                        lifecycle.registry_owned(registry_name, saved['registry_port'])
+                    mirrors = {'mirrors': {'localhost:' + str(saved['registry_port']): {'endpoint': ['http://' + registry_name + ':5000']}}}
+                    mirror = lifecycle.storage / 'registries.yaml'
+                    write(mirror, mirrors)
+                if not present:
+                    if 'api_port' not in saved:
+                        with socket.socket() as listener:
+                            listener.bind(('127.0.0.1', 0))
+                            saved['api_port'] = listener.getsockname()[1]
+                        write(state_path, saved)
+                    stage('cluster-create-requested')
+                    arguments = ['k3d', 'cluster', 'create', profile['name'], '--image', profile['image'],
+                        '--servers', '1', '--agents', '0', '--wait', '--timeout', '240s',
+                        '--api-port', '127.0.0.1:' + str(saved['api_port']),
+                        '--kubeconfig-update-default=false', '--kubeconfig-switch-context=false',
+                        '--runtime-label', OWNER + '=adw@all', '--runtime-label', PROFILE + '=' + digest + '@all',
+                        '--port', profile['bind_address'] + ':' + str(profile['http_port']) + ':80@loadbalancer',
+                        '--port', profile['bind_address'] + ':' + str(profile['https_port']) + ':443@loadbalancer']
+                    if registry is not None:
+                        arguments += ['--registry-use', registry_name + ':5000', '--registry-config', str(mirror)]
+                    lifecycle.run(arguments, timeout=300)
+                lifecycle.owned()
+                stage('cluster-created')
+                raw = lifecycle.run(['k3d', 'kubeconfig', 'get', profile['name']])
+                if lifecycle.kubeconfig.is_symlink():
+                    raise ContractError('cluster_kubeconfig_path_invalid')
+                descriptor = os.open(lifecycle.kubeconfig, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+                with os.fdopen(descriptor, 'wb') as stream:
+                    os.fchmod(stream.fileno(), 0o600)
+                    stream.write(raw)
+                lifecycle.api_endpoint(saved['api_port'])
+                lifecycle.contexts()
+                record['target_namespaces_outside_scope'] = [namespace for namespace in profile['namespaces']
+                    if lifecycle.kube(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']).strip()]
+                stage('tls-bootstrap-requested')
+                record['bootstrap'] = Bootstrap(lifecycle, values).run(target_resources=False)
                 write(path, record)
-            if present:
-                stage('cluster-delete-requested')
-                lifecycle.run(['k3d', 'cluster', 'delete', profile['name']], timeout=240)
-            if registry_present:
-                stage('registry-delete-requested')
-                lifecycle.run(['k3d', 'registry', 'delete', registry_name], timeout=120)
-            stage('orphan-network-check')
-            record['orphan_network_removed'] = lifecycle.orphan_network(remove=True)
+                saved['cluster_created'] = True
+                write(state_path, saved)
+            else:
+                registry_present = False
+                if registry_name is not None:
+                    registries = json.loads(lifecycle.run(['k3d', 'registry', 'list', '-o', 'json']))
+                    registry_present = any(v.get('name') == registry_name for v in registries)
+                    if registry_present:
+                        if not state_path.exists() or 'registry_port' not in saved:
+                            raise ContractError('cluster_registry_ownership_unproven')
+                        lifecycle.registry_owned(registry_name, saved['registry_port'])
+                if 'tls' in profile and 'certificate_cache' not in record:
+                    tls = profile['tls']
+                    if purge_certificates:
+                        record['certificate_cache'] = 'purged' if acme_cache.purge(tls['domain'], tls['issuer']) else 'absent'
+                    elif present:
+                        record['certificate_cache'] = _export_certificate_cache(lifecycle, tls)
+                    write(path, record)
+                if present:
+                    stage('cluster-delete-requested')
+                    lifecycle.run(['k3d', 'cluster', 'delete', profile['name']], timeout=240)
+                if registry_present:
+                    stage('registry-delete-requested')
+                    lifecycle.run(['k3d', 'registry', 'delete', registry_name], timeout=120)
+                stage('orphan-network-check')
+                record['orphan_network_removed'] = lifecycle.orphan_network(remove=True)
+                write(path, record)
+                # This private file was checked to contain only this cluster. The
+                # default user kubeconfig and every unrelated context remain intact.
+                lifecycle.kubeconfig_owned()
+                lifecycle.kubeconfig.unlink(missing_ok=True)
+                contexts_path = profile_root / 'kubernetes-contexts.json'
+                if contexts_path.exists():
+                    contexts = _private_json(contexts_path)
+                    contexts['contexts'] = {key: value for key, value in contexts['contexts'].items()
+                        if value.get('context') != 'k3d-' + profile['name']}
+                    write(contexts_path, contexts)
+                leftovers = lifecycle.leftovers()
+                if not all(leftovers.values()) or any(v['name'] == profile['name'] for v in lifecycle.clusters()):
+                    raise ContractError('cluster_teardown_leftovers')
+                record['leftovers_absent'] = leftovers
+                saved['cluster_created'] = False
+                saved.pop('api_port', None)
+                saved.pop('registry_port', None)
+                write(state_path, saved)
+            stage('final-foreign-observation')
+            if lifecycle.foreign_hash() != record['foreign_before_sha256']:
+                raise ContractError('cluster_foreign_observation_changed')
+        except ContractError as exc:
+            # Resumable evidence: the closed reason, the failing stage and the private diagnostic
+            # name, only when that diagnostic belongs to this failure (not an earlier probe).
+            diagnostic = lifecycle.last_diagnostic
+            record['last_failure'] = {'reason': str(exc), 'stage': record.get('phase'),
+                                      'at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                      **({'diagnostic': diagnostic[1]} if diagnostic and diagnostic[0] == str(exc) else {})}
             write(path, record)
-            # This private file was checked to contain only this cluster. The
-            # default user kubeconfig and every unrelated context remain intact.
-            lifecycle.kubeconfig_owned()
-            lifecycle.kubeconfig.unlink(missing_ok=True)
-            contexts_path = profile_root / 'kubernetes-contexts.json'
-            if contexts_path.exists():
-                contexts = _private_json(contexts_path)
-                contexts['contexts'] = {key: value for key, value in contexts['contexts'].items()
-                    if value.get('context') != 'k3d-' + profile['name']}
-                write(contexts_path, contexts)
-            leftovers = lifecycle.leftovers()
-            if not all(leftovers.values()) or any(v['name'] == profile['name'] for v in lifecycle.clusters()):
-                raise ContractError('cluster_teardown_leftovers')
-            record['leftovers_absent'] = leftovers
-            saved['cluster_created'] = False
-            saved.pop('api_port', None)
-            saved.pop('registry_port', None)
-            write(state_path, saved)
-        if lifecycle.foreign_hash() != record['foreign_before_sha256']:
-            raise ContractError('cluster_foreign_observation_changed')
+            raise
         record['foreign_clusters_unchanged'] = True
         stage('complete')
         return {'status': 'ok', 'phase': 'complete', 'action': action,
                 'profile_sha256': digest, 'foreign_clusters_unchanged': True,
+                **({'resumed_after_failure': record['last_failure']} if 'last_failure' in record else {}),
                 **({'provisioning_required': True} if action == 'up' else {}),
                 **({'bootstrap': record['bootstrap']} if action == 'up' else {}),
                 **({'target_namespaces_outside_scope': record['target_namespaces_outside_scope']} if action == 'up' else {}),

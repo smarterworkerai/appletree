@@ -88,6 +88,11 @@ def validate(profile: dict) -> None:
         raise ContractError('cluster_bootstrap_profile_invalid') from exc
 
 
+def _missing(variable: str) -> ContractError:
+    # The operator variable's name tells the operator what to load; its value is never echoed.
+    return ContractError('cluster_bootstrap_fact_missing: ' + variable)
+
+
 def facts(profile: dict) -> dict:
     """Preflight missing facts before creating anything; never return publicly."""
     values = {}
@@ -97,12 +102,12 @@ def facts(profile: dict) -> dict:
                 key = profile[block][field]
                 value = os.environ.get(key, '')
                 if not value or len(value) > 16384 or any(c in value for c in '\r\n\x00'):
-                    raise ContractError('cluster_bootstrap_fact_missing')
+                    raise _missing(key)
                 values[field] = value
     if 'tls' in profile:
         token = os.environ.get('CF_DNS_API_TOKEN', '')
         if not token or len(token) > 16384 or any(c in token for c in '\r\n\x00'):
-            raise ContractError('cluster_bootstrap_fact_missing')
+            raise _missing('CF_DNS_API_TOKEN')
         if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', values['acme_email_env']):
             raise ContractError('cluster_bootstrap_email_invalid')
         values['cloudflare'] = token
@@ -115,7 +120,7 @@ def facts(profile: dict) -> dict:
                 if 'env' in source:
                     value = os.environ.get(source['env'], '')
                     if not value or len(value) > 16384 or any(c in value for c in '\r\n\x00'):
-                        raise ContractError('cluster_bootstrap_fact_missing')
+                        raise _missing(source['env'])
                     application[(namespace, name, key)] = value
     values['app_secrets'] = application
     return values
@@ -167,6 +172,11 @@ class Bootstrap:
     def __init__(self, lifecycle, values: dict) -> None:
         self.lifecycle, self.values = lifecycle, values
         self.labels = {OWNER: 'adw', PROFILE: lifecycle.digest[:63]}
+
+    def _sensitive(self, value: str) -> None:
+        # Generated and derived values join the failure-diagnostic redaction of the k3d lifecycle.
+        if hasattr(self.lifecycle, 'register_secret'):
+            self.lifecycle.register_secret(value)
 
     def owned(self, kind: str, name: str, namespace: str | None, extra_labels: dict | None = None) -> bool:
         args = ['get', kind, name, '--ignore-not-found', '-o', 'jsonpath={.metadata.name}{"\\n"}{.metadata.labels}']
@@ -299,6 +309,7 @@ class Bootstrap:
         if target_resources and 'image_pull' in profile:
             pull = profile['image_pull']
             auth = base64.b64encode((self.values['username_env'] + ':' + self.values['token_env']).encode()).decode()
+            self._sensitive(auth)
             config = json.dumps({'auths': {pull['registry']: {'auth': auth}}}, separators=(',', ':'))
             for namespace in pull['namespaces']:
                 self.secret(PULL_SECRET, namespace, {'.dockerconfigjson': config}, 'kubernetes.io/dockerconfigjson')
@@ -312,6 +323,8 @@ class Bootstrap:
                     if not self.owned('Secret', name, namespace, labels):
                         values = {key: (self.values['app_secrets'][(namespace, name, key)] if 'env' in source
                                         else secrets.token_urlsafe(32)) for key, source in fields.items()}
+                        for value in values.values():
+                            self._sensitive(value)
                         self.secret(name, namespace, values, extra_labels=labels)
                     observed = self.lifecycle.kube(['get', 'Secret', name, '--namespace', namespace,
                         '-o', 'go-template={{range $key, $value := .data}}{{$key}}{{"\\n"}}{{end}}'])

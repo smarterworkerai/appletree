@@ -33,6 +33,11 @@ def _walk_values(value):
             yield from _walk_values(child)
 
 
+# Journals sit at <base>/<operation>/ or one level below it (legacy deploy/, home ownership/<key>/);
+# anything deeper, such as a frozen proof checkout with a vendored provider, is never a journal.
+MAX_JOURNAL_DEPTH = 2
+
+
 def _active_operation_roots(repo, kind_name, versions):
     """Protect immutable objects named by resumable publication/deployment journals,
     both legacy handover/ ones and those in the operator home."""
@@ -47,10 +52,12 @@ def _active_operation_roots(repo, kind_name, versions):
     known = {version.identifier: version for version in versions}
     packages = {identifier.split('@', 1)[0] for identifier in known}
     roots, count = set(), 0
-    walks = (entry for base in bases for entry in os.walk(base, followlinks=False))
-    for directory, children, files in walks:
+    walks = ((base, entry) for base in bases for entry in os.walk(base, followlinks=False))
+    for base, (directory, children, files) in walks:
         current = Path(directory)
-        children[:] = sorted(name for name in children if not (current / name).is_symlink())
+        depth = len(current.relative_to(base).parts)
+        children[:] = [] if depth >= MAX_JOURNAL_DEPTH else sorted(
+            name for name in children if not (current / name).is_symlink())
         for name in sorted(set(files) & {'operation.json', 'deployment.json'}):
             path = current / name
             count += 1
