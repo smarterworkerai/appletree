@@ -58,6 +58,9 @@ resource, retains private Kubernetes failure diagnostics, and reads Dokploy hand
 credentials only from the top-level `env:` block in the operator profile.
 Diagnostics distinguish absent provider bindings from duplicate matches and name
 missing image-variable keys to restore before deployment.
+The runtime verifies that each Compose resource matches its declared placement.
+Omitted placement uses remote semantics; manager-local targets require explicit
+local placement and a recorded manager identity for cleanup.
 All three targets opt into routed source identity:
 the runtime image bakes the release recipe's selected source SHA into
 `/.well-known/adw-release.json`, served as JSON with `Cache-Control: no-store`.

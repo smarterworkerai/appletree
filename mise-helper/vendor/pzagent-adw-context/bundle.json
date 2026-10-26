@@ -18,7 +18,7 @@
     },
     {
       "path": "migration-notes.md",
-      "sha256": "b806a85da9d5a7517fe66dd0307196ff28a20ef626c0d63331d86f869283b7f4"
+      "sha256": "058ee9cee3ddf2cd73a86fa2ecff039731d7e21d3d11c1ed160b568a44ac3421"
     },
     {
       "path": "modules/__init__.py",
@@ -30,7 +30,7 @@
     },
     {
       "path": "modules/adapter.py",
-      "sha256": "ca9388876ecdc9e252d07340dc6836f1b4c0bc8bfcbca10cf1deb1f2474986d5"
+      "sha256": "88b43da50081b82d46a7b0247970286689c9135ab4ddd5028dd5fc73d41a300d"
     },
     {
       "path": "modules/approval.py",
@@ -158,7 +158,7 @@
     },
     {
       "path": "modules/dokploy_lifecycle_api.py",
-      "sha256": "047e089efdeb2df4e5b0df62a0285af2f592f5841913957458bd9bce822a64d0"
+      "sha256": "b72227b3437c77a50e7c686f7bb3d047b890eb4f65bc56d7de11053d1c238378"
     },
     {
       "path": "modules/dokploy_lifecycle_contract.json",
@@ -274,7 +274,7 @@
     },
     {
       "path": "modules/pointer_retirement.py",
-      "sha256": "fdc1da1b611c83fbbfbbc46061385ffeadcd216fb6fdd97e216a6e7a79374091"
+      "sha256": "5a2fa7e3eef091c9ea5033b1e713a48f6ed0eecfc9219beae61df5983376bbde"
     },
     {
       "path": "modules/probe_profile.py",
@@ -298,7 +298,7 @@
     },
     {
       "path": "modules/provider_lifecycle.py",
-      "sha256": "49ccf9d21530076bb1cdf97aaf6ac2b58f3b586ec8f3cbc6f2889eda7746eb8c"
+      "sha256": "f4ad6cf7b521af17470ebd83aab5a068eb23bdd45fd2f8ecc90523cc7c022fa7"
     },
     {
       "path": "modules/providers/__init__.py",
@@ -306,11 +306,11 @@
     },
     {
       "path": "modules/providers/dokploy.py",
-      "sha256": "d538222c09573fa5cc46eef3f6005bc85d13b822ce71c09ca7ed2836883445dc"
+      "sha256": "2e7f9f5d86a5f4033e9b3cea0136ba8b382405db75b1850f28fc437055db4948"
     },
     {
       "path": "modules/providers/dokploy_hooks.py",
-      "sha256": "3286675dabe632e8ada7e8df4ecef62c7adc4c377e1851b08c7b385017ccae0a"
+      "sha256": "e28272a373f780771c414ba9ec882d03797173b0e19707e46f9469e0b5e4ead9"
     },
     {
       "path": "modules/providers/kubernetes.py",
@@ -398,7 +398,7 @@
     },
     {
       "path": "policy.md",
-      "sha256": "2a425ef242e3511882111698171abad3789c50a20c36157f6a7537026512217d"
+      "sha256": "2351d186347f640072a54f9e5bff754b1e28ddaf4f67d9d92674dc1c08962c47"
     },
     {
       "path": "pzagent_context.py",
@@ -414,7 +414,7 @@
     },
     {
       "path": "schemas/pzagent-adapter.schema.json",
-      "sha256": "9bc6d0939af21652e98a848c078a434ac7ab16a3c24ea3047cd1bb8e6367650e"
+      "sha256": "5057abe38f8bc0c749e197e24c8ce5fc7908267d51d4bb504c04eeffefdca539"
     },
     {
       "path": "schemas/release-index.schema.json",
@@ -586,7 +586,7 @@
     },
     {
       "path": "templates/pzagent-context-lock.json",
-      "sha256": "c1d32f3a565bb2d05317837239038154eebffbad7b8b0948a88eea38f4a6ef4d"
+      "sha256": "af22f3197fa061f0a67f94ccf72482443159b430e11af0a109863e226d5b2506"
     },
     {
       "path": "templates/repo-agents-snippet.md",
@@ -609,5 +609,5 @@
   "schema_version": "1.0.0",
   "stability": "experimental",
   "task_entrypoint": "tasks.toml",
-  "version": "0.15.15"
+  "version": "0.15.16"
 }

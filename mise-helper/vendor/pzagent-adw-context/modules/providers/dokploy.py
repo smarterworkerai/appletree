@@ -308,7 +308,10 @@ def _key_contract(data):
 
 
 class ComposeBackend:
- def __init__(self,endpoint:str,credential:str,compose_id:str):self.endpoint=endpoint.rstrip('/');self.credential=credential;self.compose_id=compose_id
+ def __init__(self,endpoint:str,credential:str,compose_id:str,*,placement:str='remote'):
+  self.endpoint=endpoint.rstrip('/');self.credential=credential;self.compose_id=compose_id
+  self.placement=placement;self.manager_identity=None
+ def request(self,method,path,payload=None):return self._request(method,path,payload)
  def _request(self,method,path,payload=None):
   data=None if payload is None else json.dumps(payload,separators=(',',':')).encode();request=Request(self.endpoint+path,data=data,method=method,headers={'x-api-key':self.credential,'Accept':'application/json','Content-Type':'application/json'})
   try:
@@ -317,16 +320,21 @@ class ComposeBackend:
   try:return json.loads(raw) if raw else {}
   except json.JSONDecodeError as exc:raise ContractError('Dokploy configuration response malformed') from exc
  def _state(self):
+  from ..dokploy_lifecycle_api import placement_server_id as server_id,manager_identity,check_manager
+  if self.placement=='local':
+   if self.manager_identity is None:self.manager_identity=manager_identity(self)
+   else:check_manager(self,self.manager_identity)
   value=self._request('GET',f'/api/compose.one?composeId={self.compose_id}')
   if (not isinstance(value,dict) or not isinstance(value.get('composeFile'),str)
       or 'env' not in value or (value['env'] is not None and not isinstance(value['env'],str))):raise ContractError('Dokploy raw configuration readback malformed')
+  server_id(value,self.placement)
   # Newly created apps return an explicit null for their unset Environment.
   # Missing fields still refuse; existing text is returned byte-for-byte.
   return {**value,'env':value['env'] if value['env'] is not None else ''}
  def read_compose(self):return self._state()['composeFile'].encode()
  def read_environment(self):return self._state()['env'].encode()
- def write_compose(self,value):self._request('POST','/api/compose.update',{'composeId':self.compose_id,'composeFile':value.decode()})
- def write_environment(self,value):self._request('POST','/api/compose.saveEnvironment',{'composeId':self.compose_id,'env':value.decode()})
+ def write_compose(self,value):self._state();self._request('POST','/api/compose.update',{'composeId':self.compose_id,'composeFile':value.decode()})
+ def write_environment(self,value):self._state();self._request('POST','/api/compose.saveEnvironment',{'composeId':self.compose_id,'env':value.decode()})
 
 
 class DokployNotFound(ContractError):pass
@@ -380,9 +388,12 @@ def _guard_deployment_log(client:DeployClient,deployment_id:str)->None:
 
 
 
-def _deploy(endpoint:str,credential:str,resource_id:str,*,operation:str|None=None,submit:bool=True)->str:
+def _deploy(endpoint:str,credential:str,resource_id:str,*,operation:str|None=None,submit:bool=True,placement:str='remote',manager:str|None=None)->str:
+ from ..dokploy_lifecycle_api import placement_server_id as server_id,check_manager
  client=DeployClient(endpoint,credential);initial=client.request('GET','/api/compose.one?'+urlencode({'composeId':resource_id}))
  if not isinstance(initial,dict):raise ContractError('pre-deploy status is malformed')
+ server_id(initial,placement)
+ if placement=='local':check_manager(client,manager)
  route='/api/deployment.allByCompose?'+urlencode({'composeId':resource_id});before=client.request('GET',route)
  if not isinstance(before,list) or any(not isinstance(row,dict) or not isinstance(row.get('deploymentId'),str) or not row['deploymentId'] for row in before):raise ContractError('pre-deploy history is malformed')
  existing={row['deploymentId'] for row in before};operation=operation or 'operation-'+secrets.token_hex(16);title='ADW '+operation;description='pzagent-adw-context '+operation
@@ -495,8 +506,10 @@ def _runtime_services(definition: bytes, owned: set[str]) -> tuple[dict[str, str
 
 def observe_runtime(client: DokployClient, resource: str, services: dict[str, str],
                     *, first: dict | None = None,
-                    declared: set[str] | None = None) -> dict[str, list[dict]]:
+                    declared: set[str] | None = None, placement: str = 'remote') -> dict[str, list[dict]]:
     """Shared read-only Docker observations; no settings leave this boundary."""
+    from ..dokploy_lifecycle_api import placement_server_id as server_id,server_query,manager_identity,check_manager
+    manager = manager_identity(client) if placement == 'local' else None
     if first is None:
         first = _runtime_get(client, '/api/compose.one?' + urlencode({'composeId': resource}),
                      'runtime-container-discovery-failed')
@@ -504,12 +517,16 @@ def observe_runtime(client: DokployClient, resource: str, services: dict[str, st
             _runtime_blocked('runtime-project-identity-absent')
     second = _runtime_get(client, '/api/compose.one?' + urlencode({'composeId': resource}),
                   'runtime-container-discovery-failed')
-    if (not isinstance(second, dict) or second.get('appName') != first['appName']
-            or not isinstance(second.get('serverId'), str) or not REMOTE_ID.fullmatch(second['serverId'])):
+    if (not isinstance(first, dict) or not isinstance(first.get('appName'), str)
+            or not PROJECT.fullmatch(first['appName']) or not isinstance(second, dict)
+            or second.get('appName') != first['appName']):
         _runtime_blocked('runtime-project-identity-absent')
-    project, server = first['appName'], second['serverId']
+    server = server_id(first, placement)
+    if server_id(second, placement) != server:
+        _runtime_blocked('runtime-project-identity-absent')
+    project = first['appName']
     containers = _runtime_get(client, '/api/docker.getContainersByAppLabel?' + urlencode({
-        'appName': project, 'serverId': server, 'type': 'standalone'}), 'runtime-container-discovery-failed')
+        'appName': project, **server_query(server, placement), 'type': 'standalone'}), 'runtime-container-discovery-failed')
     if not isinstance(containers, list):
         _runtime_blocked('runtime-container-discovery-failed')
     seen: dict[str, list[dict[str, Any]]] = {service: [] for service in services}
@@ -517,7 +534,7 @@ def observe_runtime(client: DokployClient, resource: str, services: dict[str, st
         if not isinstance(container, dict) or not isinstance(container.get('containerId'), str) or not CONTAINER_ID.fullmatch(container['containerId']):
             _runtime_blocked('runtime-container-discovery-failed')
         metadata = _runtime_get(client, '/api/docker.getConfig?' + urlencode({
-            'containerId': container['containerId'], 'serverId': server}), 'runtime-container-inspection-failed')
+            'containerId': container['containerId'], **server_query(server, placement)}), 'runtime-container-inspection-failed')
         if not isinstance(metadata, dict) or not isinstance(metadata.get('Config'), dict):
             _runtime_blocked('runtime-container-inspection-failed')
         labels = metadata['Config'].get('Labels')
@@ -534,6 +551,8 @@ def observe_runtime(client: DokployClient, resource: str, services: dict[str, st
     for service in services:
         if len(seen[service]) != 1:
             _runtime_blocked('runtime-container-cardinality-differs')
+    if placement == 'local':
+        check_manager(client, manager)
     return seen
 
 
@@ -562,7 +581,9 @@ class DokployProvider:
             binding["project"], binding["environment"], binding["resource"], binding["child_binding"],
         ))
         self._endpoint, self._credential, self._resource_id = endpoint, credential, resolved.resource_id
-        self._backend = ComposeBackend(endpoint, credential, resolved.resource_id)
+        from ..dokploy_lifecycle_api import placement
+        self._backend = ComposeBackend(endpoint, credential, resolved.resource_id, placement=placement(self.binding))
+        self._backend.read_compose()
 
     @property
     def backend(self) -> ComposeBackend:
@@ -613,11 +634,13 @@ class DokployProvider:
 
     def apply(self, updates: Mapping[str, str], *, operation: str | None = None,
               submit: bool = True) -> DeploymentOperation:
+        from ..dokploy_lifecycle_api import placement
         if updates:
             self.config_apply(self.plan(updates), set(updates))
         token = operation or "operation-" + secrets.token_hex(16)
         completed = _deploy(self._endpoint, self._credential, self._resource_id,
-                            operation=token, submit=submit)
+                            operation=token, submit=submit, placement=placement(self.binding),
+                            manager=self.backend.manager_identity if placement(self.binding) == 'local' else None)
         return DeploymentOperation(token, completed)
 
     def wait(self, operation: DeploymentOperation) -> str:
@@ -637,13 +660,15 @@ class DokployProvider:
         return self.readback()
 
     def observed_image_refs(self, owned_keys: set[str]) -> Mapping[str, str]:
+        from ..dokploy_lifecycle_api import placement
         from ..common import ensure_contained
         from ..release_manifest import DIGEST_REF
         try:
             definition = ensure_contained(self.repo, self.configuration.definition_path).read_bytes()
             services, declared = _runtime_services(definition, owned_keys)
             observations = observe_runtime(DokployClient(self._endpoint, self._credential),
-                                           self._resource_id, services, declared=declared)
+                                           self._resource_id, services, declared=declared,
+                                           placement=placement(self.binding))
             result = {}
             for service, key in services.items():
                 metadata = observations[service][0]

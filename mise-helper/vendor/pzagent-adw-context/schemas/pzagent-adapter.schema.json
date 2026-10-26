@@ -1081,6 +1081,13 @@
                       "resource": {
                         "minLength": 1,
                         "type": "string"
+                      },
+                      "placement": {
+                        "type": "string",
+                        "enum": [
+                          "local",
+                          "remote"
+                        ]
                       }
                     },
                     "required": [
@@ -1740,6 +1747,13 @@
                       "resource": {
                         "minLength": 1,
                         "type": "string"
+                      },
+                      "placement": {
+                        "type": "string",
+                        "enum": [
+                          "local",
+                          "remote"
+                        ]
                       }
                     },
                     "required": [
@@ -2408,6 +2422,13 @@
                       "resource": {
                         "minLength": 1,
                         "type": "string"
+                      },
+                      "placement": {
+                        "type": "string",
+                        "enum": [
+                          "local",
+                          "remote"
+                        ]
                       }
                     },
                     "required": [

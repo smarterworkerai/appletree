@@ -1,5 +1,25 @@
 # Migration notes
 
+## 0.15.16
+
+- **Explicit Dokploy placement (#163).** Bindings accept `placement: local` or
+  `placement: remote`; omitted placement retains remote semantics. Local creates
+  and Docker observations omit `serverId`, while readback requires an explicit
+  JSON null. Local bindings reject server-name selectors before provider access;
+  remote bindings never fall back to the manager. Configuration writes, deploy,
+  runtime proof, rollback, hotfix and rehearsal preserve the same scope checks.
+- **Local lifecycle and retirement parity (#163, trusted change).** Private
+  journals retain a fingerprint of the manager's persisted settings identity.
+  Recovery, adopt/claim, teardown and retirement refuse replacement managers or
+  placement drift. Trusted retirement independently matches that identity before
+  scoped 404/empty-container absence and rechecks it afterwards. Live owned scopes
+  can rebuild private history; absent Compose resources without a saved runtime
+  scope still refuse. Placement migration requires a new target or complete
+  deprovision/reprovision. Compact ownership markers are unchanged. The approved
+  protected code changes are `modules/adapter.py` and
+  `modules/pointer_retirement.py`; the trust list and observation declarations
+  remain unchanged. Exact-head sandbox proof and review are required for release.
+
 ## 0.15.15
 
 - **Dokploy errors name the actual problem (#161).** A project, environment or

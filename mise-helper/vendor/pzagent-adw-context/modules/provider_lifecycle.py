@@ -16,6 +16,7 @@ from .hooks import prove_source
 from .operator_state import locked, private_directory, read, write
 from .providers.dokploy import ProviderNames, discover_binding, profile_credentials, _key_contract
 from .release_manifest import image_variables
+from .dokploy_lifecycle_api import placement, placement_server_id as server_id, manager_identity, check_manager
 
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 _-]{0,126}$')
 ENV_KEY = re.compile(r'^[A-Z][A-Z0-9_]{0,127}$')
@@ -86,7 +87,8 @@ def _validate_runtime_scope(value):
     for role, fields in (('environment', {'id', 'name', 'created', 'parent', 'is_default'}),
                          ('compose', {'id', 'name', 'created', 'parent', 'app_name', 'server_id'})):
         entry = value[role]
-        if (not isinstance(entry, dict) or set(entry) != fields or not isinstance(entry['created'], bool)
+        local_fields = {'placement', 'manager_identity'} if role == 'compose' and isinstance(entry, dict) and entry.get('placement') == 'local' else set()
+        if (not isinstance(entry, dict) or set(entry) != fields | local_fields or not isinstance(entry['created'], bool)
                 or not isinstance(entry['name'], str) or not NAME.fullmatch(entry['name'])):
             raise ContractError('provider_runtime_marker_invalid')
         identifier(entry['id']); identifier(entry['parent'])
@@ -96,7 +98,10 @@ def _validate_runtime_scope(value):
             or not isinstance(compose['app_name'], str)
             or not re.fullmatch(r'[a-zA-Z0-9._-]{1,128}', compose['app_name'])):
         raise ContractError('provider_runtime_marker_invalid')
-    identifier(compose['server_id'])
+    server_id({'serverId': compose['server_id']}, placement(compose))
+    if placement(compose) == 'local' and (not isinstance(compose['manager_identity'], str)
+            or not re.fullmatch(r'[0-9a-f]{64}', compose['manager_identity'])):
+        raise ContractError('provider_runtime_marker_invalid')
 
 
 def _runtime_anchor(state):
@@ -267,7 +272,7 @@ def _load(path):
         raise ContractError('provider_private_journal_invalid')
     value = read(path)
     required = {'schema_version', 'workflow', 'selection', 'nonce', 'operation_id', 'phase', 'resources', 'intents', 'server_id'}
-    if (set(value) - (required | {'decommission', 'claim', 'description_originals', 'rebuilt', 'runtime_identity_unavailable'}) or not required <= set(value)
+    if (set(value) - (required | {'decommission', 'claim', 'description_originals', 'rebuilt', 'runtime_identity_unavailable', 'manager_identity'}) or not required <= set(value)
             or value['workflow'] != 'provider-provision' or not re.fullmatch(r'[0-9a-f]{32}', value.get('nonce', ''))
             or not isinstance(value['operation_id'], str) or not IDENTIFIER.fullmatch(value['operation_id'])
             or not isinstance(value['resources'], dict) or not isinstance(value['intents'], dict)):
@@ -294,7 +299,8 @@ def _receipt(operation, state_path, state, *, phase, task, source, mutations, ac
               'binding': selection['binding'], 'runtime_activated': False,
               'mutations_requested': mutations, 'actions': list(actions),
               'operation_digest': 'sha256:' + _hash({'selection': selection, 'nonce': state['nonce'],
-                  'server_id': state['server_id'], 'image_variable_keys': state['intents'].get('compose-image-keys', [])}),
+                  'server_id': state['server_id'], 'image_variable_keys': state['intents'].get('compose-image-keys', []),
+                  **({'manager_identity': state['manager_identity']} if 'manager_identity' in state else {})}),
               'private_journal_sha256': hashlib.sha256(state_path.read_bytes()).hexdigest(), **extra}
     # pz operator receipts are distinct from generic adw quality evidence.
     from .task_evidence import record_operator
@@ -302,7 +308,7 @@ def _receipt(operation, state_path, state, *, phase, task, source, mutations, ac
     return result
 
 
-def _entry(role, row, *, created, parent=None):
+def _entry(role, row, *, created, parent=None, binding=None, manager=None):
     key = {'project': 'projectId', 'environment': 'environmentId', 'default_environment': 'environmentId', 'compose': 'composeId'}[role]
     result = {'id': identifier(row.get(key)), 'name': row.get('name'), 'created': created, 'deleted': False}
     if not isinstance(result['name'], str) or not NAME.fullmatch(result['name']):
@@ -318,7 +324,12 @@ def _entry(role, row, *, created, parent=None):
         app_name = row.get('appName')
         if not isinstance(app_name, str) or not APP_NAME.fullmatch(app_name):
             raise ContractError('provider_runtime_scope_invalid')
-        result.update(app_name=app_name, server_id=identifier(row.get('serverId')))
+        selected = placement(binding or {})
+        result.update(app_name=app_name, server_id=server_id(row, selected))
+        if selected == 'local':
+            if not isinstance(manager, str) or not re.fullmatch(r'[0-9a-f]{64}', manager):
+                raise ContractError('provider_manager_identity_unproven')
+            result.update(placement='local', manager_identity=manager)
     return result
 
 
@@ -343,7 +354,7 @@ def _identity(role, row, entry, marker):
         raise ContractError('provider_default_environment_changed')
     if entry['created'] and not implicit_default and row.get('description') != marker:
         raise ContractError('provider_resource_ownership_changed')
-    if role == 'compose' and (row.get('appName') != entry['app_name'] or row.get('serverId') != entry['server_id']):
+    if role == 'compose' and (row.get('appName') != entry['app_name'] or server_id(row, placement(entry)) != entry['server_id']):
         raise ContractError('provider_runtime_scope_changed')
     if entry.get('ancestor_claim') and row.get('description') != entry['ancestor_claim']:
         raise ContractError('provider_ancestor_claim_conflict')
@@ -360,6 +371,17 @@ def _server(api, selector_key):
     if len(matches) != 1:
         raise ContractError('provider_server_selection_ambiguous')
     return identifier(matches[0].get('serverId'))
+
+
+def _manager_scope(api, state):
+    if placement(state['selection']['binding']) == 'local':
+        if state.get('server_id') is not None:
+            raise ContractError('provider_runtime_scope_changed')
+        check_manager(api.transport, state.get('manager_identity'))
+        entry = state['resources'].get('compose')
+        if entry is not None and (entry.get('placement') != 'local' or entry.get('server_id') is not None
+                                 or entry.get('manager_identity') != state['manager_identity']):
+            raise ContractError('provider_runtime_scope_changed')
 
 
 def _image_slot_keys(repo, adapter, binding):
@@ -394,7 +416,7 @@ def _initialize_created_compose(api, state, image_keys, save):
     images_pending = intents.get('compose-images') == 'empty-requested'
     if source_pending or images_pending:
         if (actual.get('sourceType') != 'raw' or (images_pending and actual.get('env') != expected)
-                or actual.get('composeFile') != '' or api.containers(entry['app_name'], entry['server_id'])):
+                or actual.get('composeFile') != '' or api.containers(entry['app_name'], entry['server_id'], placement=placement(entry))):
             raise ContractError('provider_initialization_outcome_unproven')
         if source_pending:
             intents['compose-source'] = 'raw-confirmed'
@@ -409,7 +431,7 @@ def _initialize_created_compose(api, state, image_keys, save):
         return 0  # Never change an adopted or already-configured Environment.
     if (actual.get('sourceType') not in {'github', 'raw'} or actual.get('composeFile') != ''
             or 'env' not in actual or actual['env'] not in (None, '')
-            or api.containers(entry['app_name'], entry['server_id'])):
+            or api.containers(entry['app_name'], entry['server_id'], placement=placement(entry))):
         raise ContractError('provider_created_initialization_not_pristine')
     payload = {'composeId': entry['id'], 'sourceType': 'raw'}
     if needs_raw:
@@ -422,7 +444,7 @@ def _initialize_created_compose(api, state, image_keys, save):
     actual = api.compose(entry['id'])
     _identity('compose', actual, entry, _marker(state, 'compose'))
     if (actual.get('sourceType') != 'raw' or (needs_images and actual.get('env') != expected)
-            or actual.get('composeFile') != '' or api.containers(entry['app_name'], entry['server_id'])):
+            or actual.get('composeFile') != '' or api.containers(entry['app_name'], entry['server_id'], placement=placement(entry))):
         raise ContractError('provider_created_initialization_readback_differs')
     if needs_raw:
         intents['compose-source'] = 'raw-confirmed'
@@ -445,6 +467,9 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
             profile_root=profile_root, operation_dir=operation_dir, adopt=adopt, plan=plan,
             server_name_env=server_name_env, source_sha=source)
     target, binding = _binding(adapter, environment, target)
+    selected_placement = placement(binding)
+    if selected_placement == 'local' and server_name_env is not None:
+        raise ContractError('provider_local_server_selector_refused')
     shared = _shared_roles(adapter, binding)
     image_keys = _image_slot_keys(repo, adapter, binding)
     if server_name_env is not None and not ENV_KEY.fullmatch(server_name_env):
@@ -466,6 +491,10 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
             'description_originals': {}}
         if state['selection'] != selection:
             raise ContractError('provider_operation_selection_changed')
+        if selected_placement == 'local':
+            if previous is None:
+                state['manager_identity'] = manager_identity(api.transport)
+            _manager_scope(api, state)
         prior_keys = state['intents'].get('compose-image-keys')
         if prior_keys is not None and prior_keys != list(image_keys):
             raise ContractError('provider_image_key_selection_changed')
@@ -481,8 +510,8 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
                               if project_before is not None else None)
         compose_before = (one_named(api.composes(identifier(environment_before['environmentId'])), binding['resource'])
                           if environment_before is not None else None)
-        server = (identifier(api.compose(identifier(compose_before['composeId'])).get('serverId'))
-                  if compose_before is not None else _server(api, server_name_env))
+        server = (server_id(api.compose(identifier(compose_before['composeId'])), selected_placement)
+                  if compose_before is not None else None if selected_placement == 'local' else _server(api, server_name_env))
         if server_name_env and server != _server(api, server_name_env):
             raise ContractError('provider_server_selection_changed')
         if state['server_id'] not in {None, server}:
@@ -560,7 +589,8 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
                     raise ContractError('provider_adoption_requires_explicit_flag')
                 if intent and not created:
                     raise ContractError('provider_create_readback_conflict')
-                resources[role] = _entry(role, existing, created=created, parent=parent)
+                resources[role] = _entry(role, existing, created=created, parent=parent,
+                                         binding=binding, manager=state.get('manager_identity'))
                 state['description_originals'][role] = existing.get('description')
                 save()
                 actions.append('create-confirmed' if created else 'adopt')
@@ -579,7 +609,8 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
             row = value.get('project') if role == 'project' and isinstance(value, dict) else value
             if not isinstance(row, dict):
                 raise ContractError('provider_create_response_invalid')
-            resources[role] = _entry(role, row, created=True, parent=parent)
+            resources[role] = _entry(role, row, created=True, parent=parent,
+                                     binding=binding, manager=state.get('manager_identity'))
             state['description_originals'][role] = payload['description']
             _identity(role, row, {**resources[role], 'created': False}, '')
             if row.get('description') != payload['description']:
@@ -622,10 +653,11 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
                 existing = one_named(api.composes(env_id), binding['resource'])
                 if existing is not None:
                     existing = api.compose(identifier(existing.get('composeId')))
-                if existing is not None and existing.get('serverId') != server:
+                if existing is not None and server_id(existing, selected_placement) != server:
                     raise ContractError('provider_server_selection_changed')
                 ensure('compose', existing, ('compose.create', {
-                    'name': binding['resource'], 'environmentId': env_id, 'serverId': server,
+                    'name': binding['resource'], 'environmentId': env_id,
+                    **({} if selected_placement == 'local' else {'serverId': server}),
                     'description': '', 'composeType': 'docker-compose'}), parent=env_id)
         if not plan:
             resolved = discover_binding(api, ProviderNames(binding['project'], binding['environment'],
@@ -664,6 +696,7 @@ def _empty_environment(api, entry, owned_compose=None):
 
 
 def _cleanup_scope(api, state):
+    _manager_scope(api, state)
     from .provider_ancestors import verify
     verify(api, state)
     resources = state['resources']
@@ -687,8 +720,9 @@ def runtime_absence(api, state):
     entry = state['resources'].get('compose')
     if not entry:
         raise ContractError('provider_runtime_scope_unproven')
+    _manager_scope(api, state)
     return {'resource': _get_resource(api, 'compose', entry),
-            'containers': api.containers(entry['app_name'], entry['server_id']),
+            'containers': api.containers(entry['app_name'], entry['server_id'], placement=placement(entry)),
             'app_name': entry['app_name'], 'server_id': entry['server_id']}
 
 
@@ -703,6 +737,7 @@ def _live_scopes(api, adapter):
             if declaration.get('provider') != 'dokploy':
                 continue
             _, binding = _binding(adapter, environment, target)
+            manager = manager_identity(api.transport) if placement(binding) == 'local' else None
             project = one_named(projects, binding['project'])
             if project is None:
                 continue
@@ -724,7 +759,8 @@ def _live_scopes(api, adapter):
                 if ours:
                     verify_live(row.get('description'), repository, role, row)
                 parent = (project['projectId'] if role == 'environment' else env['environmentId'] if role == 'compose' else None)
-                entry = _entry(role, row, created=ours and role == 'compose', parent=parent)
+                entry = _entry(role, row, created=ours and role == 'compose', parent=parent,
+                               binding=binding, manager=manager)
                 if ours:
                     owned.append(role)
                     entry['origin'] = 'claimed'
@@ -745,6 +781,8 @@ def _live_scopes(api, adapter):
                      'operation_id': operation, 'nonce': nonce, 'phase': 'complete', 'resources': resources,
                      'intents': {}, 'server_id': resources.get('compose', {}).get('server_id'),
                      'description_originals': originals, 'rebuilt': True}
+            if manager is not None:
+                state['manager_identity'] = manager
             if 'compose' not in owned:
                 state['runtime_identity_unavailable'] = True
             yield state
@@ -770,6 +808,7 @@ def _discover_operation(api, adapter, operation, previous=None):
         if (selection['repository'] != adapter['repository']['id'] or selection['binding'] != binding
                 or selection['target'] != target or previous['operation_id'] != operation):
             raise ContractError('provider_operation_selection_changed')
+        _manager_scope(api, previous)
         # Surviving private history carries acknowledged create/delete outcomes.
         # Verify every still-present identity and exact full description before use.
         for role, entry in previous['resources'].items():
@@ -911,6 +950,7 @@ def _examine_state(repo, adapter, environment, target, profile_root, operation_d
     if not private.exists():
         raise ContractError('provider_claim_journal_required')
     state = _load(private)
+    _manager_scope(api, state)
     selection = state['selection']
     if (selection['repository'] != adapter['repository']['id'] or selection['environment'] != environment
             or selection['target'] != target or selection['binding'] != binding):
@@ -949,7 +989,7 @@ def _examine_state(repo, adapter, environment, target, profile_root, operation_d
         if not entry['created'] and isinstance(row.get('description'), str) and row['description'].startswith(MARKER):
             raise ContractError('provider_claim_foreign_marker')
         rows[role] = row
-        identities[role] = {k: entry.get(k) for k in ('id', 'name', 'parent', 'is_default', 'app_name', 'server_id')
+        identities[role] = {k: entry.get(k) for k in ('id', 'name', 'parent', 'is_default', 'app_name', 'server_id', 'placement', 'manager_identity')
                             if k in entry} | {'description_sha256': _description_sha(row),
                                               'configuration_sha256': _configuration_sha(row)}
     adopted = [role for role in CLAIM_ROLES if role in resources and not resources[role]['created']
@@ -969,7 +1009,7 @@ def _examine_state(repo, adapter, environment, target, profile_root, operation_d
     runtime = {'containers': None, 'data_bearing': None, 'domains': None}
     if compose is not None:
         detail = api.compose(compose['id'])
-        runtime['containers'] = len(api.containers(compose['app_name'], compose['server_id']))
+        runtime['containers'] = len(api.containers(compose['app_name'], compose['server_id'], placement=placement(compose)))
         definition = detail.get('composeFile')
         if isinstance(definition, str) and detail.get('sourceType') == 'raw':
             runtime['data_bearing'] = bool(re.search(r'(?m)^\s*volumes\s*:', definition))
@@ -1191,7 +1231,7 @@ def deprovision(repo: Path, adapter: dict, *, profile_root: Path, operation_dir:
                 api.post('compose.delete' if role == 'compose' else role + '.remove', payload)
                 if _get_resource(api, role, entry) is not None:
                     raise ContractError('provider_delete_readback_differs')
-            if role == 'compose' and api.containers(entry['app_name'], entry['server_id']):
+            if role == 'compose' and api.containers(entry['app_name'], entry['server_id'], placement=placement(entry)):
                 raise ContractError('provider_runtime_leftovers')
             if role not in cleanup['deleted']:
                 cleanup['deleted'].append(role)

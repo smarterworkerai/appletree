@@ -51,7 +51,7 @@ def _get(client: DokployClient, route: str, reason: str) -> Any:
 
 
 def verify_runtime(client: DokployClient, resource: str, expected: dict[str, str],
-                   services: dict[str, str]) -> None:
+                   services: dict[str, str], *, placement: str = 'remote') -> None:
     first = _get(client, '/api/compose.one?' + urlencode({'composeId': resource}),
                  'runtime-container-discovery-failed')
     if not isinstance(first, dict) or not isinstance(first.get('appName'), str) or not PROJECT.fullmatch(first['appName']):
@@ -64,7 +64,7 @@ def verify_runtime(client: DokployClient, resource: str, expected: dict[str, str
         blocked('runtime-image-pointer-invalid')
     if any(values.get(key) != image for key, image in expected.items()):
         blocked('runtime-environment-image-identity-differs')
-    seen = observe_runtime(client, resource, services, first=first)
+    seen = observe_runtime(client, resource, services, first=first, placement=placement)
     for service, key in services.items():
         metadata = seen[service][0]
         state = metadata.get('State')
@@ -141,7 +141,8 @@ def dispatch(repo: Path, adapter: dict, operation: str, request: dict) -> dict:
                            temporary=environment in adapter['hotfix']['supported_environments'])
     definition = ensure_contained(repo, binding['compose_path']).read_bytes()
     services = service_variables(definition, set(expected))
-    verify_runtime(client, resource, expected, services)
+    from ..dokploy_lifecycle_api import placement
+    verify_runtime(client, resource, expected, services, placement=placement(binding))
     if operation == 'runtime-proof':
         if request['phase'] != 'operator-release':
             http_probe(binding, 'health')

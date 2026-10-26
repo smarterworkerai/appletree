@@ -1,6 +1,7 @@
 """Bounded Dokploy lifecycle observations and transport; no ownership decisions."""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -226,11 +227,65 @@ class API:
             raise ContractError('provider_inventory_invalid')
         return value
 
-    def containers(self, app_name, server_id):
+    def containers(self, app_name, server_id, *, placement='remote'):
         if not isinstance(app_name, str) or not APP_NAME.fullmatch(app_name):
             raise ContractError('provider_runtime_scope_invalid')
         return rows(self.get('docker.getContainersByAppLabel', appName=app_name,
-                             serverId=identifier(server_id), type='standalone'))
+                             **server_query(server_id, placement), type='standalone'))
 
     def servers(self):
         return rows(self.get('server.all'))
+
+
+_FINGERPRINT = re.compile(r'^[0-9a-f]{64}$')
+_SETTINGS_QUERY = '/api/trpc/settings.getWebServerSettings?input=%7B%22json%22%3Anull%7D'
+
+
+def placement(binding):
+    value = binding.get('placement', 'remote')
+    if not isinstance(value, str) or value not in {'local', 'remote'}:
+        raise ContractError('provider_placement_invalid')
+    return value
+
+
+def placement_server_id(row, selected='remote'):
+    """Require an explicit nullable field locally and a real registered ID remotely."""
+    if not isinstance(selected, str) or selected not in {'local', 'remote'}:
+        raise ContractError('provider_placement_invalid')
+    if not isinstance(row, dict) or 'serverId' not in row:
+        raise ContractError('provider_runtime_scope_invalid')
+    value = row['serverId']
+    if selected == 'local':
+        if value is not None:
+            raise ContractError('provider_placement_changed')
+    elif not isinstance(value, str) or not REMOTE_ID.fullmatch(value):
+        raise ContractError('provider_placement_changed')
+    return value
+
+
+def server_query(value, selected='remote'):
+    placement_server_id({'serverId': value}, selected)
+    return {} if selected == 'local' else {'serverId': value}
+
+
+def manager_identity(client):
+    """Discard sensitive settings immediately; only a domain-separated fingerprint survives."""
+    value = (client.request('GET', _SETTINGS_QUERY) if hasattr(client, 'request')
+             else client._get(_SETTINGS_QUERY))
+    for _ in range(4):
+        if not isinstance(value, dict):
+            break
+        key = next((key for key in ('result', 'data', 'json') if key in value), None)
+        if key is None:
+            break
+        value = value[key]
+    identity = value.get('id') if isinstance(value, dict) else None
+    if not isinstance(identity, str) or not REMOTE_ID.fullmatch(identity):
+        raise ContractError('provider_manager_identity_unproven')
+    return hashlib.sha256(('dokploy-local-manager/v1\0' + identity).encode()).hexdigest()
+
+
+def check_manager(client, expected):
+    if (not isinstance(expected, str) or not _FINGERPRINT.fullmatch(expected)
+            or manager_identity(client) != expected):
+        raise ContractError('provider_manager_identity_changed')

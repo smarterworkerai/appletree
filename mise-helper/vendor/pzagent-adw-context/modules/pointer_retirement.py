@@ -204,6 +204,27 @@ def _kubernetes_absence(repo, adapter, profile, state, target, observer, cluster
     return _digest(_bytes(state))
 
 
+def _local_manager_matches(provider, expected):
+    """Validate raw manager identity here; observation helpers do not grant absence."""
+    if not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected):
+        raise ContractError('pointer_retirement_manager_identity_unproven')
+    value = provider.transport.request('GET',
+        '/api/trpc/settings.getWebServerSettings?input=%7B%22json%22%3Anull%7D')
+    for _ in range(4):
+        if not isinstance(value, dict):
+            break
+        key = next((key for key in ('result', 'data', 'json') if key in value), None)
+        if key is None:
+            break
+        value = value[key]
+    identity = value.get('id') if isinstance(value, dict) else None
+    if not isinstance(identity, str) or not REMOTE_ID.fullmatch(identity):
+        raise ContractError('pointer_retirement_manager_identity_unproven')
+    actual = hashlib.sha256(('dokploy-local-manager/v1\0' + identity).encode()).hexdigest()
+    if actual != expected:
+        raise ContractError('pointer_retirement_manager_identity_changed')
+
+
 def absence(repo, adapter, profile, operation, target, provider=None, *, cluster_retired=False):
     """Independently validate ownership scope and fresh raw provider absence."""
     state = _read_private(_decommission(repo, adapter, profile, operation))
@@ -237,18 +258,32 @@ def absence(repo, adapter, profile, operation, target, provider=None, *, cluster
                 or (entry['created'] and entry.get('deleted') is not True)):
             raise ContractError('pointer_retirement_ownership_invalid')
     project, environment, compose = (resources[k] for k in ('project', 'environment', 'compose'))
+    placement = binding.get('placement', 'remote')
+    if not isinstance(placement, str) or placement not in {'local', 'remote'}:
+        raise ContractError('pointer_retirement_ownership_invalid')
+    if placement == 'local':
+        manager = state.get('manager_identity')
+        if (compose.get('placement') != 'local' or 'server_id' not in compose or compose['server_id'] is not None
+                or 'server_id' not in state or state['server_id'] is not None
+                or not isinstance(manager, str) or not re.fullmatch(r'[0-9a-f]{64}', manager)
+                or compose.get('manager_identity') != manager):
+            raise ContractError('pointer_retirement_ownership_invalid')
+    elif (compose.get('placement', 'remote') != 'remote'
+            or not isinstance(compose.get('server_id'), str) or not REMOTE_ID.fullmatch(compose['server_id'])
+            or compose['server_id'] != state.get('server_id')):
+        raise ContractError('pointer_retirement_ownership_invalid')
     if (not compose['created'] or compose.get('parent') != environment['id']
             or environment.get('parent') != project['id']
             or compose.get('name') != binding['resource'] or environment.get('name') != binding['environment']
             or project.get('name') != binding['project']
-            or not isinstance(compose.get('app_name'), str) or not APP_NAME.fullmatch(compose['app_name'])
-            or not isinstance(compose.get('server_id'), str) or not REMOTE_ID.fullmatch(compose['server_id'])
-            or compose['server_id'] != state.get('server_id')):
+            or not isinstance(compose.get('app_name'), str) or not APP_NAME.fullmatch(compose['app_name'])):
         raise ContractError('pointer_retirement_ownership_invalid')
     if provider is None:
         endpoint, credential = profile_credentials(profile)
         provider = API(HTTP(endpoint, credential))
     provider.validate()  # Compatibility refusal only; never an absence decision.
+    if placement == 'local':
+        _local_manager_matches(provider, state['manager_identity'])
     # Refuse recreation of the logical resource under a new remote ID as well.
     for project_row in _rows(provider.projects()):
         if project_row.get('name') != binding['project']:
@@ -265,7 +300,7 @@ def absence(repo, adapter, profile, operation, target, provider=None, *, cluster
             if any(row.get('name') == binding['resource'] for row in _rows(provider.composes(env_id))):
                 raise ContractError('pointer_retirement_resource_recreated')
     # An HTTP 404 is scoped to the journaled resource; an empty inventory is
-    # scoped independently to the saved runtime label and registered server.
+    # scoped independently to the saved runtime label and selected execution scope.
     for role, entry in resources.items():
         if not entry['created']:
             continue
@@ -281,9 +316,12 @@ def absence(repo, adapter, profile, operation, target, provider=None, *, cluster
         else:
             # Even null/malformed success responses cannot prove absence.
             raise ContractError('pointer_retirement_resource_still_present')
-    containers = provider.containers(compose['app_name'], compose['server_id'])
+    containers = (provider.containers(compose['app_name'], None, placement='local') if placement == 'local'
+                  else provider.containers(compose['app_name'], compose['server_id']))
     if not isinstance(containers, list) or containers != []:
         raise ContractError('pointer_retirement_runtime_still_present')
+    if placement == 'local':
+        _local_manager_matches(provider, state['manager_identity'])
     return _digest(_bytes(state))
 
 

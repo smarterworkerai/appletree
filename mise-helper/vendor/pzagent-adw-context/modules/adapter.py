@@ -161,7 +161,7 @@ def expand(data: Any, manifest: Any) -> dict[str, Any]:
             raise ContractError("Dokploy bindings must be an object")
         expanded_bindings: dict[str, Any] = {}
         binding_keys = {"project", "environment", "resource", "child_binding", "compose_path", "environment_schema_path"}
-        optional_binding_keys = {"probes", "plan"}
+        optional_binding_keys = {"probes", "plan", "placement"}
         for name, binding in bindings.items():
             if not isinstance(binding, dict) or set(binding) - (binding_keys | optional_binding_keys) or not (binding_keys - {"project"}) <= set(binding):
                 raise ContractError(f"Dokploy binding {name} is not a closed object")
@@ -419,9 +419,12 @@ def validate(data: Any) -> dict[str, Any]:
             if not IDENTIFIER.fullmatch(name):
                 raise ContractError("provider binding name is invalid")
             required_binding = {"project", "environment", "resource", "child_binding", "compose_path", "environment_schema_path"}
-            if not isinstance(raw, dict) or not required_binding <= set(raw) or set(raw) - (required_binding | {'probes', 'plan'}):
+            if not isinstance(raw, dict) or not required_binding <= set(raw) or set(raw) - (required_binding | {'probes', 'plan', 'placement'}):
                 raise ContractError(f'Dokploy binding {name} is not a closed object')
             binding = raw
+            if 'placement' in binding and (not isinstance(binding['placement'], str)
+                                            or binding['placement'] not in {'local', 'remote'}):
+                raise ContractError('provider_placement_invalid')
             if 'probes' in binding:
                 probes = _exact(binding['probes'], {'base_url_env', 'health_path', 'readiness_path'}, 'provider probes')
                 if not isinstance(probes['base_url_env'], str) or not ENV_KEY.fullmatch(probes['base_url_env']):
