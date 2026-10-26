@@ -40,7 +40,7 @@ def _operation(selection, resource_id):
 
 
 def _append_created_marker(api, state, role, save):
-    """An acknowledged ID permits one append; a missing ACK never permits a retry."""
+    """Reconcile an acknowledged ID before appending its owned marker."""
     entry = state['resources'][role]
     if not entry['created'] or entry.get('is_default') or entry.get('ancestor_claim'):
         return 0
@@ -48,16 +48,19 @@ def _append_created_marker(api, state, role, save):
     if current is None:
         raise ContractError('provider_recorded_resource_absent')
     marker = _marker(state, role)
+    intent = role + '-marker'
     if current.get('description') == marker:
         _identity(role, current, entry, marker)
+        if state['intents'].get(intent) != 'complete':
+            state['intents'][intent] = 'complete'
+            save()
         return 0
     _identity(role, current, {**entry, 'created': False}, '')
     original = state['description_originals'].get(role, '')
     if current.get('description') != original:
         raise ContractError('provider_create_readback_conflict')
-    intent = role + '-marker'
-    if state['intents'].get(intent):
-        raise ContractError('provider_marker_write_outcome_unproven')
+    # The same ID, parent/name and recorded original description prove that a
+    # previous append did not land. A changed description still refuses above.
     state['intents'][intent] = 'requested'
     save()
     key = role + 'Id'
@@ -1177,9 +1180,10 @@ def deprovision(repo: Path, adapter: dict, *, profile_root: Path, operation_dir:
             current = _get_resource(api, role, entry)
             if current is not None:
                 _cleanup_scope(api, state)
-                if role in cleanup['requested']:
-                    raise ContractError('provider_delete_outcome_unproven')
-                cleanup['requested'].append(role)
+                # The complete ownership/scope readback above proves that this
+                # recorded ID still exists unchanged. Retry only that same delete.
+                if role not in cleanup['requested']:
+                    cleanup['requested'].append(role)
                 write(private, state)
                 payload = {'composeId': entry['id'], 'deleteVolumes': False} if role == 'compose' else {
                     'environmentId' if role == 'environment' else 'projectId': entry['id']}

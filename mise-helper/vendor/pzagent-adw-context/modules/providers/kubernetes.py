@@ -22,6 +22,23 @@ from ..operator_state import private_directory
 from . import DeploymentOperation, DeploymentState, ProviderConfiguration
 
 MAX_BYTES = 8 * 1024 * 1024
+
+
+class KubernetesCommandError(ContractError):
+    """A closed public reason with transient private inputs for the operator journal.
+
+    stderr and command values stay in memory until an operator lifecycle records
+    a sanitized diagnostic. str(error), receipts and evidence contain only reason.
+    """
+    def __init__(self, reason, arguments, stderr, *, sensitive=(), data=None, kubeconfig=None,
+                 operation_id=None, stage='selection'):
+        super().__init__(reason)
+        self.arguments = tuple(arguments)
+        self.stderr = stderr if isinstance(stderr, bytes) else b''
+        self.sensitive, self.data, self.kubeconfig = sensitive, data, kubeconfig
+        self.operation_id, self.stage = operation_id, stage
+
+
 MANAGER = 'adw'
 MANAGED = 'app.kubernetes.io/managed-by'
 TARGET = 'adw.pzagent.io/target'
@@ -123,6 +140,8 @@ class KubernetesProvider:
         self.namespace = ''
         self.kubeconfig: Path | None = None
         self.image_pull_secret: str | None = None
+        self._diagnostic_secrets: tuple[bytes, ...] = ()
+        self._diagnostic_state: dict | None = None
         release = self.binding.get('release', {})
         self.configuration = ProviderConfiguration(
             str(release.get('path', '')), str(binding.get('config_schema_path', '')),
@@ -145,18 +164,27 @@ class KubernetesProvider:
         env['KUBECONFIG'] = str(self.kubeconfig)
         command = ['kubectl', '--context', self.context, '--namespace', self.namespace,
                    '--request-timeout=30s', *arguments]
+
+        def failed(reason, stderr=b''):
+            values = (*arguments, self.context, self.namespace, str(self.kubeconfig),
+                      *os.environ.values())
+            state = self._diagnostic_state or {}
+            return KubernetesCommandError(reason, arguments, stderr, data=data, kubeconfig=self.kubeconfig,
+                sensitive=tuple(value.encode() for value in values if value) + self._diagnostic_secrets,
+                operation_id=state.get('operation_id'), stage=state.get('phase', 'selection'))
+
         try:
             result = subprocess.run(command, input=data, capture_output=True,
                                     env=env, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            raise ContractError('kubernetes_command_unavailable') from exc
+            raise failed('kubernetes_command_unavailable', getattr(exc, 'stderr', b'')) from None
         if result.returncode not in (accepted if accepted is not None else {0}):
             diagnostic = result.stderr[-65536:].lower()
             if b'conflict with' in diagnostic or b'fieldmanagerconflict' in diagnostic:
-                raise ContractError('kubernetes_field_conflict')
+                raise failed('kubernetes_field_conflict', result.stderr)
             if b'field is immutable' in diagnostic or b'immutable field' in diagnostic:
-                raise ContractError('kubernetes_immutable_field_refused')
-            raise ContractError('kubernetes_command_failed')
+                raise failed('kubernetes_immutable_field_refused', result.stderr)
+            raise failed('kubernetes_command_failed', result.stderr)
         if len(result.stdout) > MAX_BYTES:
             raise ContractError('kubernetes_output_unbounded')
         return result.stdout

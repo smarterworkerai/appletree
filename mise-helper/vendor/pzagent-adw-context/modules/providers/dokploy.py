@@ -61,17 +61,19 @@ def profile_credentials(profile_root:Path|None)->tuple[str,str]:
     if endpoint or credential:raise ContractError('Dokploy credentials require both DOKPLOY_URL and DOKPLOY_API_KEY (or DOKPLOY_TOKEN)')
     if profile_root is None:raise ContractError('missing DOKPLOY_URL and DOKPLOY_API_KEY (or DOKPLOY_TOKEN); configure environment, .env.deploy or --profile-root')
     config=profile_root/'config.yaml'
-    if not config.is_file() or config.is_symlink():raise ContractError('Hermes profile config is unavailable')
-    values={}; in_env=False; indent=0
+    if not config.is_file() or config.is_symlink():raise ContractError('operator profile config is unavailable')
+    values={}; in_env=False
     for raw in config.read_text(encoding='utf-8').splitlines():
         stripped=raw.strip(); current=len(raw)-len(raw.lstrip())
-        if stripped=='env:':in_env=True;indent=current;continue
-        if in_env and current<=indent and stripped:in_env=False
+        if not stripped or stripped.startswith('#'):continue
+        if current==0:
+            in_env=stripped=='env:'
+            continue
         if in_env and ':' in stripped:
             key,value=stripped.split(':',1)
             if key in {'DOKPLOY_URL','DOKPLOY_API_KEY'}:values[key]=value.strip().strip('"\'')
     endpoint=values.get('DOKPLOY_URL','');credential=values.get('DOKPLOY_API_KEY','')
-    if not endpoint or not credential:raise ContractError('Hermes profile lacks Dokploy operator inputs')
+    if not endpoint or not credential:raise ContractError('operator profile lacks Dokploy inputs')
     return endpoint,credential
 
 

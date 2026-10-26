@@ -400,12 +400,19 @@ def _reconcile_deleted(plan, registry, private):
         if package in plan['deleted']:
             continue
         try:
-            api('GET', location)
+            version = api('GET', location)
         except ContractError as exc:
             if str(exc) != 'GitHub operation rejected (HTTP 404)':
                 raise
         else:
-            raise ContractError('pointer_retirement_delete_outcome_unproven')
+            expected = _digest(_placeholder(plan, package))
+            if not isinstance(version, dict) or version.get('name') != expected:
+                raise ContractError('pointer_retirement_delete_identity_changed')
+            # The recorded version still exists: leave it pending so retire()
+            # rechecks absence, pointer positions and current deletion eligibility
+            # before issuing the same delete. A successful lost ACK takes the
+            # 404/readback path below instead and never recreates the placeholder.
+            continue
         if registry.resolve(package + '@' + _digest(_placeholder(plan, package))) is not None:
             raise ContractError('pointer_retirement_delete_readback_invalid')
         if any(registry.resolve(package + ':' + x['tag']) is not None for x in plan['positions'] if x['package'] == package):
@@ -511,6 +518,8 @@ def retire(repo, adapter, *, kind_name, target, profile_root, operation_dir,
             actual = next((v for v in versions if v.identifier == reference), None)
             if actual is None or set(actual.tags) != {x['tag'] for x in positions} or reference not in eligible:
                 raise ContractError('pointer_retirement_placeholder_not_eligible')
+            if package in plan['deleting'] and plan['deleting'][package] != locations[reference]:
+                raise ContractError('pointer_retirement_delete_identity_changed')
             plan['deleting'][package] = locations[reference]
             write(private, plan)
             api('DELETE', locations[reference])

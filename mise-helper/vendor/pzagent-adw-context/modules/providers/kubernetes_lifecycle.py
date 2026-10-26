@@ -5,18 +5,21 @@ public receipts contain counts and hashes, never contexts, UIDs or Secret data.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+import os
 import re
 import secrets
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 from ..common import ContractError, IDENTIFIER
 from ..cluster_bootstrap import Bootstrap, validate, facts, PULL_SECRET
-from ..operator_state import locked, read, write
+from ..operator_state import locked, private_directory, read, write
 from ..operator_credentials import private_profile_path
-from .kubernetes import KubernetesProvider
+from .kubernetes import KubernetesCommandError, KubernetesProvider
 from .kubernetes_metadata import metadata_api
 
 OPERATION = 'adw.pzagent.io/provision-operation'
@@ -24,6 +27,110 @@ NONCE = 'adw.pzagent.io/provision-nonce'
 IDENTITY = {'repository': 'adw.pzagent.io/repository', 'environment': 'adw.pzagent.io/environment',
             'target': 'adw.pzagent.io/target'}
 PROFILE_FILE = 'kubernetes-provisioning.json'
+COMMAND_FAILURES = {'kubernetes_command_failed', 'kubernetes_command_unavailable',
+                    'kubernetes_field_conflict', 'kubernetes_immutable_field_refused'}
+PHASES = {'planned', 'complete', 'deprovisioning', 'deprovisioned'}
+
+
+def _failure_valid(value):
+    return (isinstance(value, dict)
+            and set(value) in ({'reason', 'stage', 'tool', 'subcommands', 'at'},
+                               {'reason', 'stage', 'tool', 'subcommands', 'at', 'diagnostic'})
+            and isinstance(value['reason'], str) and value['reason'] in COMMAND_FAILURES
+            and isinstance(value['stage'], str) and value['stage'] in PHASES | {'selection'}
+            and value['tool'] == 'kubectl' and isinstance(value['subcommands'], list)
+            and len(value['subcommands']) <= 2
+            and all(isinstance(word, str) and re.fullmatch(r'[a-z][a-z-]{0,31}', word)
+                    for word in value['subcommands'])
+            and isinstance(value['at'], str) and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ', value['at'])
+            and ('diagnostic' not in value or (isinstance(value['diagnostic'], str)
+                 and re.fullmatch(r'kubectl-failed-[0-9a-f]{24}\.log', value['diagnostic']))))
+
+
+def _private_values(value):
+    if isinstance(value, str):
+        return (value.encode(),) if value else ()
+    if isinstance(value, dict):
+        return tuple(part for child in value.values() for part in _private_values(child))
+    if isinstance(value, (list, tuple)):
+        return tuple(part for child in value for part in _private_values(child))
+    return ()
+
+
+def _record_command_failure(private, operation_dir, error):
+    """Retain a closed stage/reason and a bounded private diagnostic, never raw stderr."""
+    from ..cluster_lifecycle import _sanitized
+    state = _state(private, root=private.parent) if private.exists() else None
+    if state is not None and error.operation_id != state['operation_id']:
+        # Provision's failing call releases its lock before this handler takes
+        # it again. Never attribute an old failure to a replacement operation.
+        state = None
+    # Only reviewed command words enter the journal/header; resource names,
+    # options, context handles, paths and stdin never do.
+    words = []
+    allowed = {'get', 'delete', 'wait', 'create', 'apply', 'replace', 'patch', 'api-resources',
+               'config', 'rollout', 'auth', 'version'}
+    if error.arguments and error.arguments[0] in allowed:
+        words.append(error.arguments[0])
+        children = {'config': {'get-contexts', 'view', 'current-context'},
+                    'rollout': {'status'}, 'auth': {'can-i'}}
+        if len(error.arguments) > 1 and error.arguments[1] in children.get(words[0], set()):
+            words.append(error.arguments[1])
+    failure = {'reason': str(error), 'stage': error.stage,
+               'tool': 'kubectl', 'subcommands': words,
+               'at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}
+    sensitive = error.sensitive + _private_values(state)
+    printable = bytes(c for c in error.stderr if c in b'\n\t' or 32 <= c < 127)
+    # Server-generated UUIDs and diagnostic addresses may not exist in a journal
+    # yet. Add their complete normalized forms before the shared union redaction
+    # and tail bound, so truncation cannot disclose a suffix.
+    for pattern in (rb'\b[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\b',
+                    rb'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',
+                    rb'(?<![A-Za-z0-9])(?:[0-9A-Fa-f]{0,4}:){2,}[0-9A-Fa-f:.]*(?![A-Za-z0-9])',
+                    rb'https?://[^\s"\']+',
+                    rb'\b(?:[A-Za-z0-9_-]+\.)+[A-Za-z][A-Za-z0-9_-]*\b'):
+        sensitive += tuple(re.findall(pattern, printable))
+    if error.data:
+        try:
+            sensitive += _private_values(json.loads(error.data))
+        except (ValueError, UnicodeError):
+            sensitive += (error.data,)
+    storage = private.parent if state else operation_dir
+    directory = storage / 'diagnostics'
+    try:
+        if error.kubeconfig:
+            # Config is private YAML or JSON. Redact every lexical value, its
+            # encoded forms and URL hostnames without invoking another command.
+            raw = error.kubeconfig.read_bytes()
+            tokens = re.findall(rb'[A-Za-z0-9_./:@+=-]+', raw)
+            sensitive += (raw, *tokens)
+            for token in tokens:
+                if len(token) >= 16:
+                    try:
+                        sensitive += (base64.b64decode(token + b'=' * (-len(token) % 4), validate=True),)
+                    except ValueError:
+                        pass
+                if token.startswith((b'https://', b'http://')):
+                    host = urlsplit(token.decode('ascii')).hostname
+                    if host:
+                        sensitive += (host.encode(),)
+        if directory.is_symlink():
+            raise OSError('linked diagnostic directory')
+        private_directory(directory)
+        directory.chmod(0o700)
+        name = 'kubectl-failed-' + secrets.token_hex(12) + '.log'
+        fd = os.open(directory / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(b'COMMAND ' + ' '.join(['kubectl', *words]).encode() + b'\nSTDERR\n'
+                         + _sanitized(error.stderr, sensitive))
+        failure['diagnostic'] = name
+    except (OSError, ValueError):
+        pass  # A diagnostic failure must not replace the original closed reason.
+    if state is not None:
+        state['last_failure'] = failure
+        write(private, state)
+    else:
+        write(operation_dir / 'last-failure.json', failure)
 
 
 def ownership_annotations(state):
@@ -62,7 +169,9 @@ def _private(path, *, root=None):
 def _state(path, *, root=None):
     value = _private(path, root=root)
     keys = {'schema_version', 'workflow', 'selection', 'profile', 'operation_id', 'nonce', 'resources', 'phase'}
-    if (set(value) - {'runtime'} != keys or ('runtime' in value and not _runtime_record(value['runtime']))
+    if (set(value) - {'runtime', 'last_failure'} != keys
+            or ('runtime' in value and not _runtime_record(value['runtime']))
+            or ('last_failure' in value and not _failure_valid(value['last_failure']))
             or value['schema_version'] != '1.0.0' or value['workflow'] != 'kubernetes-provision'
             or not isinstance(value['operation_id'], str) or not re.fullmatch(r'kube-provision-[0-9a-f]{24}', value['operation_id'])
             or not isinstance(value['nonce'], str) or not re.fullmatch(r'[0-9a-f]{32}', value['nonce'])
@@ -127,7 +236,12 @@ class TargetBootstrap(Bootstrap):
         self.state, self.save, self.plan = state, save, plan
         self.mutations = 0
         self.metadata = metadata
+        self.provider._diagnostic_secrets += _private_values(values)
+        self.provider._diagnostic_state = state
         super().__init__(self, values)
+
+    def register_secret(self, value):
+        self.provider._diagnostic_secrets += _private_values(value)
 
     def kube(self, arguments, **kw):
         return self.provider._run(arguments, **kw)
@@ -292,6 +406,22 @@ def _receipt(operation_dir, state, *, plan, cleanup, mutations, source_sha, boot
 
 def provision(repo, adapter, *, environment, target, profile_root, operation_dir, source_sha,
               adopt=False, plan=False, server_name_env=None):
+    from ..provider_lifecycle import ownership_path
+    try:
+        return _provision(repo, adapter, environment=environment, target=target, profile_root=profile_root,
+                          operation_dir=operation_dir, source_sha=source_sha, adopt=adopt, plan=plan,
+                          server_name_env=server_name_env)
+    except KubernetesCommandError as exc:
+        if not plan:
+            selected = target or adapter['targets'].get(environment, {}).get('default')
+            private = ownership_path(repo, profile_root, adapter['repository']['id'], environment, selected)
+            with locked(private.parent):
+                _record_command_failure(private, operation_dir, exc)
+        raise
+
+
+def _provision(repo, adapter, *, environment, target, profile_root, operation_dir, source_sha,
+               adopt=False, plan=False, server_name_env=None):
     from ..provider_lifecycle import _operator, archive_ownership, ownership_path
     _operator()
     if adopt or server_name_env:
@@ -600,10 +730,15 @@ def deprovision(repo, adapter, *, private, profile_root, operation_dir, source_s
         # Deployments and configuration sync hold the same logical target lock, so no apply
         # can interleave with the inventory, the ownership preflight or any deletion.
         with target_lock(repo, target):
-            return _deprovision_locked(repo, adapter, state, private=private, profile_root=profile_root,
-                                       operation_dir=operation_dir, source_sha=source_sha, plan=plan,
-                                       include_runtime=include_runtime, confirm_data_loss=confirm_data_loss,
-                                       backup_reference=backup_reference)
+            try:
+                return _deprovision_locked(repo, adapter, state, private=private, profile_root=profile_root,
+                                           operation_dir=operation_dir, source_sha=source_sha, plan=plan,
+                                           include_runtime=include_runtime, confirm_data_loss=confirm_data_loss,
+                                           backup_reference=backup_reference)
+            except KubernetesCommandError as exc:
+                if not plan:
+                    _record_command_failure(private, operation_dir, exc)
+                raise
 
 
 def _deprovision_locked(repo, adapter, state, *, private, profile_root, operation_dir, source_sha, plan,
@@ -638,9 +773,7 @@ def _deprovision_locked(repo, adapter, state, *, private, profile_root, operatio
         if (not owned_by(metadata.get('annotations', {}), state)
                 or entry.get('uid', metadata['uid']) != metadata['uid']):
             raise ContractError('kubernetes_provision_identity_changed')
-        if entry.get('delete_requested'):
-            if not metadata.get('deletionTimestamp'):
-                raise ContractError('kubernetes_provision_delete_outcome_unproven')
+        if entry.get('delete_requested') and metadata.get('deletionTimestamp'):
             if plan:
                 continue
             args = ['wait', '--for=delete', entry['kind'] + '/' + entry['name'], '--timeout=90s']
@@ -652,6 +785,9 @@ def _deprovision_locked(repo, adapter, state, *, private, profile_root, operatio
             entry['deleted'] = True
             save()
             continue
+        # A present, still-owned object with the same UID and no deletion
+        # timestamp proves a requested delete did not land. Use the freshly
+        # observed resourceVersion below; never relax ownership or UID checks.
         if entry['kind'] == 'Namespace':
             if not include_runtime:
                 _namespace_children(bootstrap, entry['name'], candidates)

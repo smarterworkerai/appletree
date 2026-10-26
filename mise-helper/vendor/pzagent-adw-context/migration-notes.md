@@ -1,5 +1,40 @@
 # Migration notes
 
+## 0.15.14
+
+- **Observable mutation outcomes resume (#158).** Kubernetes provisioning deletes
+  retry only a still-owned object with the recorded UID and no deletion timestamp,
+  using its newly observed resourceVersion. Terminating objects keep the wait path;
+  absent objects reconcile without another delete. Dokploy deprovision rechecks
+  owned IDs and the full scope before retrying a delete. Marker appends retry only
+  the unchanged original description; an expected landed line completes the intent.
+  Foreign markers, changed parents, replaced identities and foreign descriptions
+  continue to refuse. Server-assigned creates retain examine/adopt/claim recovery.
+- **Pointer retirement rechecks pending deletes (#158, trusted change).** A present
+  recorded package version must still have the exact placeholder identity. The
+  complete live pointer graph, resource absence and deletion eligibility are then
+  checked again before retrying that version's delete. A successful lost
+  acknowledgement reconciles by absence without recreating the placeholder.
+  `modules/pointer_retirement.py` and the normal `bundle.json` release artifact are
+  existing protected paths; the trust list and observation declaration are unchanged.
+  Sandbox proof and exact-head review remain required before release.
+- **Kubernetes failures retain private diagnostics (#158).** Provision/deprovision
+  journals keep closed reason/stage/tool/subcommand fields and a diagnostic basename.
+  Selection failures before journal selection use the operation's `last-failure.json`.
+  Mode-0600 diagnostics contain a bounded, union-redacted stderr tail; credentials,
+  submitted/generated values, context facts and addresses stay out of receipts and
+  evidence. Plans do not mutate an existing journal. Resume a journal containing
+  `last_failure` with this version or newer; no profile migration is required.
+- **Layer 2 handover is a documented input contract (#159, items 1–4).** The Dokploy
+  `profile/config.yaml` top-level `env:` subset, pair precedence and writer
+  preservation requirements have a mirrorable synthetic fixture and refusal tests.
+  Nested MCP `env:` blocks never override the top-level handover inputs.
+  Error messages use operator-neutral wording. Bootstrap references describe
+  serverbox's separate manager/deploy-server topology, per-server GHCR login and
+  remote-cluster `verify-existing` TLS. Remove every consumer's layer 3 resources
+  before tearing down shared layer 2 software. No registry or deployment behavior
+  changes; the fresh-home live handover proof follows the release.
+
 ## 0.15.13
 
 - **Deprovision ignores metrics-server views (live finding).** The ownership preflight of
