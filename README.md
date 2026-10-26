@@ -53,9 +53,11 @@ Routed readiness identifies page and asset requests consistently with the bundle
 probe, and verifies the page contract and actual compiled dependencies.
 
 Delivery uses the released context pin in `.adw/pzagent-context-lock.json`.
-The 0.15.14 runtime can resume a failed delete after rechecking the same owned
+The released runtime can resume a failed delete after rechecking the same owned
 resource, retains private Kubernetes failure diagnostics, and reads Dokploy handover
 credentials only from the top-level `env:` block in the operator profile.
+Diagnostics distinguish absent provider bindings from duplicate matches and name
+missing image-variable keys to restore before deployment.
 All three targets opt into routed source identity:
 the runtime image bakes the release recipe's selected source SHA into
 `/.well-known/adw-release.json`, served as JSON with `Cache-Control: no-store`.

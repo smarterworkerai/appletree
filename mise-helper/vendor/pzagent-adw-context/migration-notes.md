@@ -1,5 +1,18 @@
 # Migration notes
 
+## 0.15.15
+
+- **Dokploy errors name the actual problem (#161).** A project, environment or
+  Compose resource that does not exist now reports `provider <role> is absent`;
+  `… match is not unique` is reserved for duplicates. A deployment whose
+  Environment lost its image-variable slots names the missing keys and asks to
+  restore their empty `KEY=` lines. No behavior or trusted path changes.
+- **First-deploy and rehearsal guidance (#161).** Supply secrets to a freshly
+  provisioned Compose by appending to its Environment (Dokploy saves the block
+  as a whole) and confirm `adw:deploy:config:plan` shows no missing keys. A
+  rehearsal needs one operator home that reaches every default and active target,
+  and a target that the release's source commit declares.
+
 ## 0.15.14
 
 - **Observable mutation outcomes resume (#158).** Kubernetes provisioning deletes

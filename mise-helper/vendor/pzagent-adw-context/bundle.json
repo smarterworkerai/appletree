@@ -18,7 +18,7 @@
     },
     {
       "path": "migration-notes.md",
-      "sha256": "d4635222e723fdde805b962110f99fd443be4cdb941e84090aa557d2ba9b2af1"
+      "sha256": "b806a85da9d5a7517fe66dd0307196ff28a20ef626c0d63331d86f869283b7f4"
     },
     {
       "path": "modules/__init__.py",
@@ -306,7 +306,7 @@
     },
     {
       "path": "modules/providers/dokploy.py",
-      "sha256": "9dd10cd6268482b1e6689b8f428233ee142058a5b6d5fc21e91b35bcd126fcb1"
+      "sha256": "d538222c09573fa5cc46eef3f6005bc85d13b822ce71c09ca7ed2836883445dc"
     },
     {
       "path": "modules/providers/dokploy_hooks.py",
@@ -398,7 +398,7 @@
     },
     {
       "path": "policy.md",
-      "sha256": "f01d99d0d4d74b2f4f830fbad3642f7f06f9ab0ec903f9bacde3d1e4616de816"
+      "sha256": "2a425ef242e3511882111698171abad3789c50a20c36157f6a7537026512217d"
     },
     {
       "path": "pzagent_context.py",
@@ -586,7 +586,7 @@
     },
     {
       "path": "templates/pzagent-context-lock.json",
-      "sha256": "1a2a69b4089c6423ccfbc257c1b7ca475a85f4b5ce7d4bfae69b4e69935113bc"
+      "sha256": "c1d32f3a565bb2d05317837239038154eebffbad7b8b0948a88eea38f4a6ef4d"
     },
     {
       "path": "templates/repo-agents-snippet.md",
@@ -609,5 +609,5 @@
   "schema_version": "1.0.0",
   "stability": "experimental",
   "task_entrypoint": "tasks.toml",
-  "version": "0.15.14"
+  "version": "0.15.15"
 }

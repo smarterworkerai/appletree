@@ -77,37 +77,37 @@ def profile_credentials(profile_root:Path|None)->tuple[str,str]:
     return endpoint,credential
 
 
+def _single(matches:list,role:str)->Any:
+    """An absent role and an ambiguous one need different operator action."""
+    if not matches:raise ContractError(f'provider {role} is absent')
+    if len(matches)!=1:raise ContractError(f'provider {role} match is not unique')
+    return matches[0]
+
+
 def discover_binding(client:DokployClient,names:ProviderNames)->ResolvedBinding:
     payload=client.projects();items=payload.get('data',payload) if isinstance(payload,dict) else payload
     if not isinstance(items,list):raise ContractError('provider project inventory is malformed')
-    projects=[x for x in items if isinstance(x,dict) and x.get('name')==names.project]
-    if len(projects)!=1:raise ContractError('provider project match is not unique')
-    environments=projects[0].get('environments')
+    project=_single([x for x in items if isinstance(x,dict) and x.get('name')==names.project],'project')
+    environments=project.get('environments')
     if not isinstance(environments,list):raise ContractError('provider environment inventory is malformed')
-    matches=[x for x in environments if isinstance(x,dict) and x.get('name')==names.environment and isinstance(x.get('environmentId'),str)]
-    if len(matches)!=1:raise ContractError('provider environment match is not unique')
-    environment_id=matches[0]['environmentId'];payload=client.composes(environment_id)
+    environment_id=_single([x for x in environments if isinstance(x,dict) and x.get('name')==names.environment and isinstance(x.get('environmentId'),str)],'environment')['environmentId'];payload=client.composes(environment_id)
     records=payload.get('items',payload.get('data',payload)) if isinstance(payload,dict) else payload
     if not isinstance(records,list):raise ContractError('provider resource inventory is malformed')
-    resources=[x for x in records if isinstance(x,dict) and x.get('name')==names.resource and isinstance(x.get('composeId'),str)]
-    if len(resources)!=1:raise ContractError('provider resource match is not unique')
-    return ResolvedBinding(environment_id,resources[0]['composeId'])
+    resource=_single([x for x in records if isinstance(x,dict) and x.get('name')==names.resource and isinstance(x.get('composeId'),str)],'resource')
+    return ResolvedBinding(environment_id,resource['composeId'])
 
 
 def resolve_inventory(payload:Any,names:ProviderNames)->ResolvedBinding:
     items=payload.get('data',payload) if isinstance(payload,dict) else payload
     if not isinstance(items,list): raise ContractError('provider project inventory is malformed')
-    projects=[x for x in items if isinstance(x,dict) and x.get('name')==names.project]
-    if len(projects)!=1: raise ContractError('provider project match is not unique')
-    environments=projects[0].get('environments')
+    project=_single([x for x in items if isinstance(x,dict) and x.get('name')==names.project],'project')
+    environments=project.get('environments')
     if not isinstance(environments,list): raise ContractError('provider environment inventory is malformed')
-    envs=[x for x in environments if isinstance(x,dict) and x.get('name')==names.environment and isinstance(x.get('environmentId'),str) and x['environmentId']]
-    if len(envs)!=1: raise ContractError('provider environment match is not unique')
-    resources=envs[0].get('composes',envs[0].get('resources'))
+    environment=_single([x for x in environments if isinstance(x,dict) and x.get('name')==names.environment and isinstance(x.get('environmentId'),str) and x['environmentId']],'environment')
+    resources=environment.get('composes',environment.get('resources'))
     if not isinstance(resources,list): raise ContractError('provider resource inventory is malformed')
-    matches=[x for x in resources if isinstance(x,dict) and x.get('name')==names.resource and isinstance(x.get('composeId'),str) and x['composeId']]
-    if len(matches)!=1: raise ContractError('provider resource match is not unique')
-    return ResolvedBinding(envs[0]['environmentId'],matches[0]['composeId'])
+    resource=_single([x for x in resources if isinstance(x,dict) and x.get('name')==names.resource and isinstance(x.get('composeId'),str) and x['composeId']],'resource')
+    return ResolvedBinding(environment['environmentId'],resource['composeId'])
 
 
 def discover(*,capability:dict[str,Any],environment:str,target_provider:str,names:ProviderNames,client:InventoryClient)->ResolvedBinding:
@@ -171,7 +171,10 @@ def environment_entries(raw:bytes)->dict[str,bytes]:
 
 def replace_environment(raw:bytes,updates:dict[str,str])->bytes:
     entries=environment_entries(raw)
-    if not updates or set(updates)-set(entries): raise ContractError('Environment lacks an owned update key')
+    missing=sorted(set(updates)-set(entries))
+    if not updates or missing:
+        # Key names are not secret; provisioning writes them as empty image slots.
+        raise ContractError('Environment lacks owned update keys '+', '.join(missing)+'; restore their empty KEY= image slots' if missing else 'Environment update mapping is empty')
     if any(not KEY.fullmatch(key) or not isinstance(value,str) or not value or '\n' in value or '\r' in value for key,value in updates.items()): raise ContractError('Environment update mapping is invalid')
     output=[]
     for line in raw.splitlines(keepends=True):
