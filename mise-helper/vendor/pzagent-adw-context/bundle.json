@@ -18,7 +18,7 @@
     },
     {
       "path": "migration-notes.md",
-      "sha256": "b4229096e82b701100f890269d756980fed52e65e2fa3bfc6320012d0b1b7d17"
+      "sha256": "68fc8242abea872dbec4759e73edba0a7fdc594a53912077d933bb6e871b11b4"
     },
     {
       "path": "modules/__init__.py",
@@ -78,7 +78,7 @@
     },
     {
       "path": "modules/ci/github_api.py",
-      "sha256": "e2aab73a0e30af90514f23a49e740faa2ea6bcb119b39700789c7e912042cd82"
+      "sha256": "28a7aa38e5954ef977b31aee702851ecdba9c19f3555af105bdaa17ea66c8b23"
     },
     {
       "path": "modules/ci/greenfield.py",
@@ -94,7 +94,7 @@
     },
     {
       "path": "modules/ci/provenance.py",
-      "sha256": "7fdd7902eed125062da90603ce12d645a1c6fa931e684f1f37e058b6ee454ed5"
+      "sha256": "f88e7d63b91ce8c8a18940c6e4c64623730cf142cd6044c2e1a1a13d4065c7db"
     },
     {
       "path": "modules/ci/publication_proof.py",
@@ -122,7 +122,7 @@
     },
     {
       "path": "modules/ci/trusted_decisions.json",
-      "sha256": "3ba63095cf1982ba0d34f136ea3f035010b51e3bef6d544cc7ca0552977be5a1"
+      "sha256": "89aebfd8213d7cd710893d85608976690577c6a8fb2342cce5f7fff537ff95fc"
     },
     {
       "path": "modules/ci/vendor_integrity.py",
@@ -426,7 +426,7 @@
     },
     {
       "path": "policy.md",
-      "sha256": "11acaa650fe34995e9289b81ce6c8c1bfcf71e87122c7699b0c64339f4340173"
+      "sha256": "7388bb2e2e03cc241b7fc48e339db988b9946799594444f473a651329e0ae487"
     },
     {
       "path": "pzagent_context.py",
@@ -554,7 +554,7 @@
     },
     {
       "path": "templates/github/trust-root-bootstrap.yml",
-      "sha256": "3e139b62593f1c86fbf2e326390fa2b41da571fb259579bfb1958b82c090b24e"
+      "sha256": "d3c5db734503daa227619159d350b279ae1395aad742edc4afb43f10085496e4"
     },
     {
       "path": "templates/manifest-context-source.json",
@@ -626,7 +626,7 @@
     },
     {
       "path": "templates/pzagent-context-lock.json",
-      "sha256": "2da3e275b77bd0f17ba83c2e0d6b5a9348ba0df21117b53d4f5c7c5409ed4175"
+      "sha256": "7f3f658e245e0bdc110aa7161e7ccc65bf40f09ffcac73cefc509e61a6c1ae30"
     },
     {
       "path": "templates/repo-agents-snippet.md",
@@ -649,5 +649,5 @@
   "schema_version": "1.0.0",
   "stability": "experimental",
   "task_entrypoint": "tasks.toml",
-  "version": "0.17.0"
+  "version": "0.17.1"
 }

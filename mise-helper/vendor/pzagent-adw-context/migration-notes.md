@@ -1,5 +1,23 @@
 # Migration notes
 
+## 0.17.1
+
+- **No provider token (#181).** The `PZAGENT_PROVIDER_TOKEN` released-vendor path is
+  removed: `provenance` no longer reads this repository, the
+  `trust-root-bootstrap.yml` template no longer passes the secret, and the pinned
+  `_provider_get` process boundary is dropped from the trusted declaration. Exact
+  signed releases are approved offline by a 0.17.0+ default-branch controller;
+  everything else keeps the administrator decision, and a live denial still wins.
+  Repin consumers that run 0.17.0 on their default branch (the 0.17.0
+  controller approves this release automatically), then delete the obsolete
+  `PZAGENT_PROVIDER_TOKEN` repository secret.
+- **Promotion PR discovery in small pages.** `GitHub.promotion_pulls` read the
+  newest closed `demo` → `main` PRs 100 per page; with PR bodies such a page can
+  exceed the 1 MB response cap (`response_too_large`, seen on a consumer), which made
+  the destination proof fail and `main` pushes fall back to full quality. It now
+  reads pages of 10, still at most 300 records, newest first, stopping at the
+  page that holds the match.
+
 ## 0.17.0
 
 - **Signed provider releases (#181).** `modules/ci/release_signature.py` defines the
@@ -44,7 +62,7 @@
 - **Switch-over.** An installed updater older than 0.17.0 cannot fetch the signed
   record. Commit the canonical repin, run the same sync again with the newly
   installed updater, and commit its verified record before opening the PR.
-  The provider-token path remains a transition fallback until 0.17.1.
+  The provider-token path remained a fallback in 0.17.0 only; 0.17.1 removes it.
 - **Standing administrator pre-approval.** Effective with this release after the
   prior release's repins are complete, agent posters follow the exact standing
   rule in `policy.md` and the repository guidance: a non-author's approving

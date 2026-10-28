@@ -89,6 +89,9 @@ PATHS = tuple(re.compile('^' + s + '$') for s in (
     r'pulls',
 ))
 MAX_BYTES = 1_000_000
+# Closed promotion PRs are read in small pages (records carry PR bodies), up to 300 records.
+PROMOTION_PAGE = 10
+PROMOTION_RECORDS = 300
 # Reads addressed by a full commit or tree SHA can never change, so one proof run
 # fetches each of them once. Everything else (refs, PRs, checks, runs) stays live.
 IMMUTABLE = re.compile(rf'^(?:contents/.+\?ref={SHA}|git/commits/{SHA}|git/trees/{SHA}\?recursive=1)$')
@@ -213,7 +216,9 @@ class GitHub:
 
         The commit association does not list fast-forwarded promotion PRs reliably, so this
         is the normal discovery path for a promoted line. Pages newest-first and stops at the
-        first page that holds a match; only 300 records without one count as incomplete.
+        first page that holds a match; only 300 records without one count as incomplete. Small
+        pages keep the response volume low (PR records carry their bodies); MAX_BYTES still
+        refuses an oversized response.
         """
         for value,label in ((source,'source'),(target,'target')):
             if (not isinstance(value,str) or not re.fullmatch(BRANCH,value)
@@ -224,16 +229,16 @@ class GitHub:
         owner=self.repository.split('/',1)[0]
         base=('pulls?state=closed&base='+quote(target,safe='')
               +'&head='+quote(f'{owner}:{source}',safe='')
-              +'&sort=updated&direction=desc&per_page=100')
+              +f'&sort=updated&direction=desc&per_page={PROMOTION_PAGE}')
         matches:list[dict]=[]
-        for page in range(1,4):
+        for page in range(1,PROMOTION_RECORDS//PROMOTION_PAGE+1):
             result=self._fetch(f'{base}&page={page}')
             if (not isinstance(result,list) or not all(isinstance(x,dict) for x in result)):
                 raise ApiError('response_malformed')
             matches.extend(record for record in result
                            if record.get('merge_commit_sha')==head_sha
                            or (isinstance(record.get('head'),dict) and record['head'].get('sha')==head_sha))
-            if matches or len(result)<100:
+            if matches or len(result)<PROMOTION_PAGE:
                 return matches
         raise ApiError('promotion_inventory_limit')
 

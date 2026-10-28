@@ -347,14 +347,6 @@
       "validator": "modules.ci.provenance:trusted_source",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },
-    "modules.ci.provenance:_provider_get:subprocess.run": {
-      "call_sha256": [
-        "abad5c87e3d6bdb289839e71682993e0ea29e708913d062f397cd245fa4df8a2"
-      ],
-      "scope_sha256": "9a6b61f1abb8ef028071d299bfe0f3c7591f85b9c60ef6131d977cf6deb9d724",
-      "validator": "modules.ci.provenance:_released_vendor",
-      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
-    },
     "modules.ci_release:public_task:subprocess.run": {
       "call_sha256": [
         "7297c9e2e93ba67d925d599678084300bf0afff8777ec76d9da603a6e87001c6"
@@ -560,7 +552,7 @@
     },
     "modules.context_sync": {
       "classification": "observation/operational boundary outside decision closure",
-      "reason": "Installation dispatch; exact released vendor bytes and lock/source bindings are independently verified by trusted provenance._released_vendor and bundle validation."
+      "reason": "Installation dispatch; exact released vendor bytes and lock/source bindings are independently verified by trusted provenance._signed_vendor and bundle validation."
     },
     "modules.dokploy_preflight": {
       "classification": "observation/operational boundary outside decision closure",

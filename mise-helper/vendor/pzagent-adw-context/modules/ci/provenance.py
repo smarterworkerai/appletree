@@ -1,9 +1,7 @@
 """Fail closed when the PR edits the trusted CI/proof implementation."""
 from __future__ import annotations
-import base64
 import hashlib
 import json
-import os
 import re
 import subprocess
 import time
@@ -85,109 +83,10 @@ TRUSTED_PATHS = (
 
 
 VENDOR_PREFIX = 'mise-helper/vendor/pzagent-adw-context/'
-PROVIDER = 'smarterworkerai/pzagent-adw-context'
-PROVIDER_SNAPSHOT = 'skills/pzagent/pzagent-adw-context/assets/mise/v2/'
-PROVIDER_BUNDLE = PROVIDER_SNAPSHOT + 'bundle.json'
-# Consumer workflow files that must be byte-identical to the vendored templates.
-WORKFLOW_TEMPLATES = (
-    ('.github/workflows/ci.yml', 'templates/github/ci.yml'),
-    ('.github/workflows/trust-root-bootstrap.yml', 'templates/github/trust-root-bootstrap.yml'),
-    ('.github/workflows/publish-release.yml', 'templates/github/publish-release.yml'),
-    ('.github/workflows/cleanup-retention.yml', 'templates/github/cleanup-retention.yml'),
-)
 GENERIC_PREFIX = 'mise-helper/vendor/agentic-delivery/'
-# A released-vendor repin may change only the vendored context, the generic layer that release
-# pins, their manifest records and the byte-identical workflow templates; anything else keeps
-# the admin gate.
-RELEASED_VENDOR_PATHS = frozenset(
-    [path for path in TRUSTED_PATHS if path.startswith((VENDOR_PREFIX, GENERIC_PREFIX))]
-    + ['.hermes/adw-task-manifest.json', '.adw/adw-task-manifest.json'] + [path for path, _ in WORKFLOW_TEMPLATES])
 # The release key of this (default-branch) checkout. A head's own key never approves it.
 RELEASE_SIGNERS = Path(__file__).resolve().parent / 'release_signers'
 WORKFLOW_DIR = '.github/workflows/'
-
-
-def _released_generic_pin(ref: str, token: str) -> dict | None:
-    """The agentic-delivery pin of the published provider release itself, never the PR's copy."""
-    published = _provider_get(f'contents/{PROVIDER_SNAPSHOT}{generic_release.GENERIC_PIN}?ref={ref}', token)
-    try:
-        return generic_release.validate_generic_pin(json.loads(base64.b64decode(published.get('content', ''))))
-    except (ProofError, ValueError, TypeError):
-        return None
-
-
-def _provider_get(path: str, token: str):
-    """Read the provider through a dedicated read-only token, never the PR's."""
-    env = {**os.environ, 'GH_TOKEN': token}
-    env.pop('GITHUB_TOKEN', None)
-    result = subprocess.run(['gh', 'api', '--method', 'GET', f'repos/{PROVIDER}/{path}'],
-                            text=True, capture_output=True, check=False, timeout=60, env=env)
-    if result.returncode:
-        raise ApiError('provider_lookup_failed')
-    return json.loads(result.stdout)
-
-
-def _released_vendor(api, pull: Pull, changed: list[str]) -> str | None:
-    """Return the release tag when the PR vendors exactly a published provider release."""
-    token = os.environ.get('PZAGENT_PROVIDER_TOKEN')
-    if not token or not changed or not set(changed) <= RELEASED_VENDOR_PATHS:
-        return None
-    try:
-        metadata = project_files(api, pull.head_sha, 'adw-task-manifest.json', 'pzagent-context-lock.json')
-        manifest_path = metadata['adw-task-manifest.json'][0]
-        base_metadata = project_files(api, pull.base_sha, 'adw-task-manifest.json')
-        if base_metadata['adw-task-manifest.json'][0] != manifest_path:
-            return None  # A directory migration always needs an administrator decision.
-        lock = json.loads(metadata['pzagent-context-lock.json'][1])
-        ref, version = lock['source_ref'], lock['package_version']
-        bundle = api.content(VENDOR_PREFIX + 'bundle.json', pull.head_sha)[1]
-        if (not re.fullmatch(r'[0-9a-f]{40}', str(ref)) or not re.fullmatch(r'\d+\.\d+\.\d+', str(version))
-                or hashlib.sha256(bundle).hexdigest() != lock['bundle_sha256']):
-            return None
-        tag = f'v{version}'
-        release = _provider_get(f'releases/tags/{tag}', token)
-        target = _provider_get(f'git/ref/tags/{tag}', token)['object']
-        if target.get('type') == 'tag':
-            target = _provider_get(f"git/tags/{target['sha']}", token)['object']
-        if release.get('draft') or release.get('prerelease') or target.get('type') != 'commit' or target.get('sha') != ref:
-            return None
-        published = _provider_get(f'contents/{PROVIDER_BUNDLE}?ref={ref}', token)
-        if base64.b64decode(published.get('content', '')) != bundle:
-            return None
-        inventory = {item['path']: item['sha256'] for item in json.loads(bundle)['files']}
-        vendored = [path for path in changed if path.startswith(VENDOR_PREFIX)]
-        workflows = [pair for pair in WORKFLOW_TEMPLATES if pair[0] in changed]
-        head_blobs = _tree_blobs(api, pull.head_sha) if vendored or workflows else {}
-        provider_blobs = _provider_blobs(ref, token) if head_blobs is not None and (vendored or workflows) else {}
-        if head_blobs is not None and provider_blobs is not None:
-            # Blob SHAs identify bytes exactly: a vendored file equals the released snapshot
-            # file, and a workflow equals its template, when their blobs match. Two tree
-            # reads replace one download per changed file.
-            for path in vendored:
-                expected = provider_blobs.get(PROVIDER_SNAPSHOT + path.removeprefix(VENDOR_PREFIX))
-                if expected is None or head_blobs.get(path) != expected:
-                    return None
-            for workflow_path, template_path in workflows:
-                expected = provider_blobs.get(PROVIDER_SNAPSHOT + template_path)
-                if expected is None or head_blobs.get(workflow_path) != expected:
-                    return None
-        else:
-            for path in vendored:
-                if path == VENDOR_PREFIX + 'bundle.json':
-                    continue  # Already equal to the published release's bundle.json above.
-                expected = inventory.get(path.removeprefix(VENDOR_PREFIX))
-                if expected != hashlib.sha256(api.content(path, pull.head_sha)[1]).hexdigest():
-                    return None
-            for workflow_path, template_path in workflows:
-                workflow = api.content(workflow_path, pull.head_sha)[1]
-                if hashlib.sha256(workflow).hexdigest() != inventory.get(template_path):
-                    return None
-        if not _release_records(api, pull, changed, metadata, base_metadata, ref, inventory,
-                                lambda: _released_generic_pin(ref, token)):
-            return None
-        return tag
-    except (ApiError, KeyError, TypeError, ValueError, OSError, subprocess.TimeoutExpired):
-        return None  # Any doubt keeps the manual administrator decision.
 
 
 def _release_records(api, pull: Pull, changed: list[str], metadata: dict, base_metadata: dict,
@@ -388,15 +287,6 @@ def _tree_blobs(api, sha: str, wanted: set[str] | None = None) -> dict[str, str]
     return _blob_map(commit, lambda tree: api.get(f'git/trees/{tree}?recursive=1'), wanted)
 
 
-def _provider_blobs(ref: str, token: str) -> dict[str, str] | None:
-    """Blob SHAs of the provider release commit, read through the provider token only."""
-    try:
-        commit=_provider_get(f'git/commits/{ref}', token)
-    except (ApiError, KeyError, TypeError, ValueError, OSError, subprocess.TimeoutExpired):
-        return None
-    return _blob_map(commit, lambda tree: _provider_get(f'git/trees/{tree}?recursive=1', token), None)
-
-
 def _trusted_blobs(api, sha: str, paths=TRUSTED_PATHS) -> dict[str, str] | None:
     return _tree_blobs(api, sha, set(paths))
 
@@ -456,7 +346,7 @@ def _controller_binding(pull: Pull) -> str:
     return 'pzagent-trust-root-controller:v1:'+hashlib.sha256(encoded).hexdigest()
 
 
-def _message(result: dict, *, signed: bool = False, decline: str = '') -> str:
+def _message(result: dict, *, decline: str = '') -> str:
     if result['status']=='normal':
         return ('No extra approval is needed: this PR does not change the trusted '
                 'CI/provenance source.')
@@ -464,18 +354,13 @@ def _message(result: dict, *, signed: bool = False, decline: str = '') -> str:
     identity=(f"This decision is bound to PR #{result['pull_request']}, head "
               f"`{result['head_sha']}`, base `{result['base_sha']}`. Any head push "
               'or base update changes the fingerprint and invalidates the approval.')
-    if result['status']=='released-vendor' and signed:
+    if result['status']=='released-vendor':
         return (f"No administrator decision is needed: the trusted-path changes vendor exactly the "
                 f"signed provider release `{result['release']}` (signature verified offline against the "
                 "default branch's release key; tag commit, bundle bytes and trusted paths bound to the "
                 "context lock). Normal CI, exact-tree, merge and publication checks "
                 f"still apply. An administrator can decline it with a new PR comment containing exactly "
                 f"`BOOTSTRAP_DISABLED {decline}`.\n\n{identity}\n\nChanged trusted paths:\n{changed}")
-    if result['status']=='released-vendor':
-        return (f"No administrator decision is needed: the trusted-path changes vendor exactly the "
-                f"published provider release `{result['release']}` (tag, commit and bundle bytes verified "
-                "by the default-branch controller). Normal CI, exact-tree, merge and publication checks "
-                f"still apply.\n\n{identity}\n\nChanged trusted paths:\n{changed}")
     if result['status']=='enabled':
         decision=(f"Approved by repository administrator `@{result['approver']}`. "
                   'Normal CI, exact-tree, merge and publication checks still apply.')
@@ -696,8 +581,7 @@ def bootstrap_status(api, pull: Pull, *, allow_released_vendor: bool = True,
         'controller_external_id':_controller_binding(pull),
         'approver':None,
     }
-    signed=_signed_vendor(api,pull,changed,statement,tree) if changed and allow_released_vendor else None
-    released=signed or (_released_vendor(api,pull,changed) if changed and allow_released_vendor else None)
+    released=_signed_vendor(api,pull,changed,statement,tree) if changed and allow_released_vendor else None
     if released and not _denied(api,pull,changed):
         result.update(status='released-vendor',allowed=True,release=released)
     elif changed:
@@ -710,7 +594,7 @@ def bootstrap_status(api, pull: Pull, *, allow_released_vendor: bool = True,
             result['status']='enabled' if decision=='ENABLED' else 'disabled'
             result['allowed']=decision=='ENABLED'
             result['approver']=actor
-    result['message']=_message(result,signed=bool(signed),
+    result['message']=_message(result,
                                decline=_fingerprint(pull,changed) if result['status']=='released-vendor' else '')
     return result
 
