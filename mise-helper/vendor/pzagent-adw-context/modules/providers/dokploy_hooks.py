@@ -141,7 +141,7 @@ def dispatch(repo: Path, adapter: dict, operation: str, request: dict) -> dict:
                            temporary=environment in adapter['hotfix']['supported_environments'])
     definition = ensure_contained(repo, binding['compose_path']).read_bytes()
     services = service_variables(definition, set(expected))
-    from ..dokploy_lifecycle_api import placement
+    from modules.dokploy_lifecycle_api import placement
     verify_runtime(client, resource, expected, services, placement=placement(binding))
     if operation == 'runtime-proof':
         if request['phase'] != 'operator-release':

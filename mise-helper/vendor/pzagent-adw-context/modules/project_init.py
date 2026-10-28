@@ -23,7 +23,7 @@ from modules.quality_tasks import engine
 BUNDLE = Path(__file__).resolve().parents[1]
 MARKER = 'pz:project:init'
 # Operations the bundled provider hooks serve (their OPERATIONS plus describe). A scaffold routes a
-# capability to bundle:<provider> only when that hook implements it; E2E and, on Dokploy, hotfix
+# capability through bundle:provider only when that provider implements it; E2E and, on Dokploy, hotfix
 # builds need a project hook, so the scaffold declares them unsupported.
 BUNDLED_OPERATIONS = {
     'dokploy': frozenset({'describe', 'config-plan', 'deploy-status', 'health', 'readiness', 'runtime-proof'}),
@@ -193,8 +193,9 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
         'adw:hotfix:apply': ('hotfix-build', ['images']),
         'adw:test:e2e:fast': ('e2e-fast', ['status', 'selected', 'executed', 'skipped']),
         'adw:test:e2e:full': ('e2e-full', ['status', 'selected', 'executed', 'skipped'])}
+    adapter['hooks']['dispatcher'] = {'command': 'bundle:provider'}
     adapter['hooks']['operations'] = {task: {'operation': operation, 'result_keys': keys,
-        'timeout_seconds': 180, 'command': 'bundle:' + args.provider} for task, (operation, keys) in operations.items()
+        'timeout_seconds': 180} for task, (operation, keys) in operations.items()
         if manifest['capabilities'][task]['status'] == 'supported'}
     for environment in args.environments:
         binding = environment + '-' + args.release_kind
@@ -226,10 +227,14 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
             'environment': environment, 'resource': slug + '-' + environment,
             'child_binding': 'PROJECT_DOKPLOY_COMPOSE_ID', 'compose_path': compose,
             'environment_schema_path': key_schema}
-        services = ''.join('  ' + c + ':\n    image: ${' + image_keys[c] + '}\n' for c in args.components)
+        services = ''.join('  ' + c + ':\n    image: ${' + image_keys[c] + ':?digest-pinned image required}\n' for c in args.components)
         files[compose] = (templates / 'providers/dokploy/compose.yml').read_text().replace('@SERVICES@', services)
         files['infra/dokploy/.env.' + environment + '.example'] = (templates / 'providers/dokploy/env.example').read_text().replace('@KEYS@', ''.join(key + '=\n' for key in image_keys.values()))
-        files[key_schema] = document({'keys': list(image_keys.values())})
+        files[key_schema] = document({'keys': list(image_keys.values()), 'optional_keys': []})
+    if args.provider == 'dokploy':
+        files['.env.deploy.example'] = (templates / 'providers/dokploy/operator-env.example').read_text().replace(
+            '@PROBE_KEYS@', ''.join('PROJECT_' + environment.upper().replace('-', '_') + '_BASE_URL=\n'
+                                   for environment in args.environments))
     if args.provider == 'kubernetes':
         resources = []
         for component in args.components:

@@ -3,6 +3,9 @@
 # Example commands = [{argv = ["./mvnw", "-B", "package"]}]
 # Example commands = [{argv = ["npm", "ci"]}, {argv = ["npm", "test"]}]
 # Example commands = [{argv = ["python3", "-m", "unittest", "discover"]}]
+# Release branches: add release_commands to adw:install as well as adw:build.
+# Build producer example argv = ["python3", "mise-helper/vendor/pzagent-adw-context/modules/release_build.py", "build"]
+# Each release command uses cwd = "repository"; ordinary commands stay project-owned.
 # Maven isolation: isolated_workspace = "maven"; shared full-quality outputs are reused.
 # Available substitutions: {workspace}, {repository}, {command_workspace}, {task}.
 schema_version = "1.0.0"

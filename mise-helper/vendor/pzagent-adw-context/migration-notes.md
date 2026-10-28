@@ -1,5 +1,51 @@
 # Migration notes
 
+## 0.15.17
+
+- **Script-mode Dokploy hooks (#167).** `hooks.dispatcher.command: bundle:dokploy`
+  (and per-operation `command: bundle:dokploy`) runs
+  `modules/providers/dokploy_hooks.py` as a script. Since 0.15.16 its
+  deploy-status and runtime-proof path imported the placement helper with a
+  package-relative import and crashed (`ImportError`), which the redacted hook
+  stderr reported only as "project hook process reported failure". Routed
+  health/readiness and the operator-preflight runtime-proof phase returned before
+  that import; post-deploy runtime-proof hit the same crash.
+  The import is absolute now, so
+  `bundle:dokploy` and `bundle:provider` behave the same. Consumers that select
+  `bundle:dokploy` for `adw:deploy:status` or `adw:validate-deployment` should
+  repin; `bundle:provider` consumers were not affected. A contract test runs the
+  hook the way the dispatcher does and refuses package-relative imports in every
+  bundled provider hook file.
+- **Maintainer-only approvals (#167).** `policy.md` states which approvals count:
+  the operator directly in the agent session (also for the operator's own PR and
+  an authorized self-merge), or a GitHub review or comment by an account whose
+  repository `role_name` is `maintain` or `admin`. The legacy `permission` field
+  reports Maintain as `write`, and unknown or unavailable roles count as no
+  approval. GitHub reviews or comments from Read, Triage or Write accounts,
+  guests or bots, and the PR author's own GitHub approval, never count; GitHub
+  Free gives private repositories no protection that would discount them. No
+  runtime check changed; trusted paths are unchanged.
+
+- **Onboarding defaults and operator handover (#167).** New projects use
+  `hooks.dispatcher.command: bundle:provider` with per-operation metadata only,
+  required digest-image substitutions in Compose, `optional_keys: []` in
+  Dokploy Environment key schemas, and an empty `.env.deploy.example`.
+  Both recorded scaffolds are regenerated. Existing consumers repin normally;
+  do not rerun init over customized files or rename established identities.
+- **Onboarding reference (#167).** The guide downloads the context first and
+  derives its pinned generic release, reuses the same version for greenfield
+  adoption, distinguishes the mandatory `demo` integration line from optional
+  deployment environments, and explains recipe/export constraints, unique
+  service/image mappings, exact plan grammar and renaming before publication.
+  Operator/bootstrap references list the maintainer-filled `.env.deploy` and
+  environment-named secret/private files, actual credential resolution, explicit
+  export of probe/server keys, the private server inventory, provider Environment
+  ownership (non-secret settings in Compose; secrets in authoritative Dokploy
+  Environment, updated key by key), provision → configuration → domain →
+  first-deploy order, 2xx probe
+  semantics and bounded rollout recovery. Agent/handover templates retain the
+  canonical task/promotion/vendor rules and supply the missing operational map.
+
 ## 0.15.16
 
 - **Explicit Dokploy placement (#163).** Bindings accept `placement: local` or
