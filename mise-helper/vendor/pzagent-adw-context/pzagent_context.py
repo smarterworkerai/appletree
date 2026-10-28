@@ -111,6 +111,8 @@ def parser() -> argparse.ArgumentParser:
     deploy_cmd.add_argument("--manifest-reference", required=True)
     deploy_cmd.add_argument("--expected-pointers", type=Path, required=True)
     deploy_cmd.add_argument("--restore-compose", type=Path)
+    deploy_cmd.add_argument('--config-ref')
+    deploy_cmd.add_argument('--config-snapshot', type=Path)
     e2e = sub.add_parser("e2e")
     e2e.add_argument("capability", choices=["adw:test:e2e:fast", "adw:test:e2e:full"])
     e2e.add_argument("--repo-root", type=Path, default=Path("."))
@@ -208,9 +210,9 @@ def parser() -> argparse.ArgumentParser:
                                  help='Remove the shared ACME cache entry for this cluster domain and environment instead of exporting it')
         cluster.add_argument('--operation', dest='operation_id', help='Resume this cluster operation')
         cluster.add_argument('--plan', action='store_true')
-    operator_commands = ('release-inspect', 'workflow-deploy-existing', 'workflow-status', 'workflow-resume', 'release-rollback',
+    operator_commands = ('release-inspect', 'workflow-deploy-existing', 'workflow-status', 'workflow-resume', 'workflow-abandon', 'release-rollback',
                          'release-package', 'release-publish', 'workflow-publish', 'workflow-publish-deploy',
-                         'release-promote', 'release-retention', 'release-prove-merged-branch')
+                         'release-promote', 'release-retention', 'release-prove-merged-branch', 'workflow-doctor')
     for name in operator_commands:
         command = sub.add_parser(name)
         command.add_argument('--repo-root', type=Path, default=Path('.'))
@@ -222,6 +224,13 @@ def parser() -> argparse.ArgumentParser:
             authorization_file=None, publication_pointer=None,
             expected_pointer_digest=None)
         command.add_argument('--profile-root', type=Path)
+        if name == 'workflow-abandon':
+            command.add_argument('--reason', required=True)
+            command.add_argument('--superseded-by')
+            command.add_argument('--acknowledge-unreconciled', action='store_true')
+            command.add_argument('--target-retired', action='store_true')
+        if name == 'workflow-status':
+            command.add_argument('--all', action='store_true')
         if name in {'release-inspect', 'workflow-deploy-existing', 'release-rollback',
                     'release-package', 'workflow-publish', 'workflow-publish-deploy', 'release-retention'}:
             command.add_argument('--kind', required=name != 'release-rollback')
@@ -257,6 +266,11 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument('--config-ref')
         if name == 'workflow-resume':
             command.add_argument('--reconcile-pointers', action='store_true')
+        if name == 'workflow-doctor':
+            command.add_argument('--environment')
+            command.add_argument('--target')
+            command.add_argument('--offline', action='store_true',
+                                 help='Journals and local Git only: no provider, registry or network access')
         if name in {'workflow-status', 'workflow-resume'}:
             command.add_argument('--environment')
             command.add_argument('--target')
@@ -477,6 +491,24 @@ def _main(args: argparse.Namespace) -> int:
             result = clean(prefix=args.prefix, dry_run=args.dry_run,
                            aggressive=args.aggressive, yes=args.yes,
                            protected=protected_volumes(repo, adapter))
+        elif args.command == 'workflow-doctor':
+            from modules.workflow_doctor import run as doctor
+            repo = args.repo_root.resolve()
+            result, code = doctor(repo, load_adapter(project_dir(repo) / 'pzagent-adapter.json'),
+                                  home=getattr(args, 'operator_home', None), profile_root=args.profile_root,
+                                  operation=args.operation_id, environment=args.environment, target=args.target,
+                                  offline=args.offline)
+            for line in result['summary']:
+                print(line, file=sys.stderr)
+            print(json_result(**result))
+            return code
+        elif args.command == 'workflow-abandon':
+            from modules.operator_abandon import abandon
+            from modules.operator_registry import authentication
+            from modules.operator_credentials import REGISTRY
+            repo = args.repo_root.resolve()
+            result = abandon(repo, load_adapter(project_dir(repo) / 'pzagent-adapter.json'), args,
+                registry_auth=lambda: authentication({key: os.environ[key] for key in REGISTRY if key in os.environ}))
         elif args.command in {'release-inspect', 'workflow-deploy-existing', 'workflow-resume', 'workflow-status', 'release-rollback'}:
             from modules import operator_workflows as workflows
             from modules.operator_state import read
@@ -485,7 +517,12 @@ def _main(args: argparse.Namespace) -> int:
                 raise UsageError('--config-ref requires --sync-config')
             adapter = load_adapter(project_dir(repo) / 'pzagent-adapter.json')
             if args.command == 'workflow-status':
-                result = read(args.operation_dir / 'operation.json')
+                if args.all:
+                    from modules.operator_listing import status_all
+                    result = status_all(repo, getattr(args, 'operator_home', None))
+                else:
+                    path = args.operation_dir / 'operation.json'
+                    result = read(path if path.exists() else args.operation_dir / 'deployment.json')
             elif args.command == 'release-inspect':
                 if not args.ref and not args.release_ref:
                     raise UsageError('select --ref or --release-ref')
@@ -500,7 +537,14 @@ def _main(args: argparse.Namespace) -> int:
                 else:
                     result = selected
             elif args.command == 'workflow-resume':
-                record = read(args.operation_dir / 'operation.json')
+                from modules.operator_state import require_resumable
+                path = args.operation_dir / 'operation.json'
+                if not path.exists():
+                    record = read(args.operation_dir / 'deployment.json')
+                    require_resumable(record)
+                    raise UsageError('child deployment resume requires adw:deploy:apply with its recorded release/configuration inputs')
+                record = read(path)
+                require_resumable(record)
                 if record.get('workflow') in {'publish', 'publish-deploy'}:
                     from modules.operator_publish import workflow
                     result = workflow(repo, adapter, args)
@@ -568,7 +612,12 @@ def _main(args: argparse.Namespace) -> int:
                 registry_auth=lambda: authentication({key: os.environ[key] for key in REGISTRY if key in os.environ}),
             )
         elif args.command == "deploy-apply":
-            from modules.operator_sources import resolve
+            if bool(args.config_ref) != bool(args.config_snapshot):
+                raise UsageError('--config-ref and --config-snapshot must be supplied together')
+            if args.config_ref and args.restore_compose:
+                raise UsageError('--config-ref and --restore-compose are mutually exclusive')
+            from contextlib import nullcontext
+            from modules.operator_sources import resolve, config_source
             from modules.operator_registry import inspect
             from modules.operator_state import write, locked
             repo = args.repo_root.resolve()
@@ -593,16 +642,21 @@ def _main(args: argparse.Namespace) -> int:
             with locked(args.operation_dir):
                 if selected is not None:
                     write(args.release_manifest, selected['manifest'])
-                result = deploy(
-                    repo, adapter, environment=args.environment, requested_target=args.target,
-                    approval_path=args.approval_file, profile_root=args.profile_root,
-                    release_kind=args.release_kind, release_source_sha=args.release_source_sha,
-                    manifest_path=args.release_manifest, manifest_reference=args.manifest_reference,
-                    expected_pointers_path=args.expected_pointers,
-                    state_path=args.operation_dir / 'deployment.json',
-                    restore_compose_path=args.restore_compose,
-                    reconcile_pointers=args.reconcile_pointers, on_failure=args.on_failure,
-                )
+                configuration = (config_source(repo, adapter, args.environment, args.target, args.config_ref, args.remote)
+                                 if args.config_ref else nullcontext((None, None)))
+                with configuration as (desired_root, config_sha):
+                    result = deploy(
+                        repo, adapter, environment=args.environment, requested_target=args.target,
+                        approval_path=args.approval_file, profile_root=args.profile_root,
+                        release_kind=args.release_kind, release_source_sha=args.release_source_sha,
+                        manifest_path=args.release_manifest, manifest_reference=args.manifest_reference,
+                        expected_pointers_path=args.expected_pointers,
+                        state_path=args.operation_dir / 'deployment.json',
+                        restore_compose_path=args.restore_compose,
+                        reconcile_pointers=args.reconcile_pointers, on_failure=args.on_failure,
+                        desired_root=desired_root, config_source_sha=config_sha,
+                        config_snapshot_path=args.config_snapshot,
+                    )
             result['operation_dir'] = str(args.operation_dir.resolve())
         elif args.command == "e2e":
             repo = args.repo_root.resolve()
@@ -675,7 +729,7 @@ class _Tee(io.TextIOBase):
 
 REMOVED_FLAGS = {'--operation-dir': '--operation <id>', '--deprovision-operation-dir': '--deprovision-operation <id>'}
 OPERATION_COMMANDS = {'release-pointers-retire', 'release-pointers-handover', 'cluster-up', 'cluster-teardown',
-                      'workflow-deploy-existing', 'workflow-status', 'workflow-resume', 'release-rollback',
+                      'workflow-deploy-existing', 'workflow-status', 'workflow-resume', 'workflow-abandon', 'release-rollback',
                       'workflow-publish', 'workflow-publish-deploy', 'release-promote', 'release-retention', 'deploy-apply'}
 
 
@@ -690,9 +744,22 @@ def _operator_paths(args: argparse.Namespace) -> None:
     if args.command not in OPERATION_COMMANDS:
         return
     repo = args.repo_root.resolve()
+    if args.command == 'workflow-status' and args.all:
+        if args.operation_id:
+            raise UsageError('--all and --operation are mutually exclusive')
+        args.operation_dir = None
+        return
+    if args.command == 'workflow-abandon' and not args.operation_id:
+        raise UsageError('abandon requires --operation')
+    if args.command == 'workflow-abandon':
+        from modules.operator_abandon import _reason
+        # The offline credential scope clears process secrets. Redact while
+        # their values are still available, without loading any credential file.
+        args.reason = _reason(args.reason)
     if getattr(args, 'operation_id', None):
         args.operation_dir = operation_path(repo, args.operation_id, getattr(args, 'operator_home', None))
-        if args.command in {'workflow-status', 'workflow-resume'} and not (args.operation_dir / 'operation.json').is_file():
+        if args.command in {'workflow-status', 'workflow-resume'} and not any(
+                (args.operation_dir / filename).is_file() for filename in ('operation.json', 'deployment.json')):
             raise ContractError('operator_home_operation_unknown')
         if args.command in {'workflow-status', 'workflow-resume'}:
             from modules.operator_home import select_operation
@@ -705,6 +772,13 @@ def _operator_paths(args: argparse.Namespace) -> None:
             environment=args.environment, target=args.target, line=args.line, pr_number=args.pr), home)
     else:
         args.operation_dir = None
+    if args.command in {'workflow-resume', 'workflow-deploy-existing', 'workflow-publish',
+                        'workflow-publish-deploy', 'deploy-apply', 'release-rollback',
+                        'release-retention', 'release-promote'} and args.operation_dir is not None:
+        from modules.operator_abandon import ensure_resumable
+        ensure_resumable(repo, args.operation_dir, getattr(args, 'operator_home', None))
+        if args.command == 'workflow-resume' and not (args.operation_dir / 'operation.json').is_file():
+            raise UsageError('child deployment resume requires adw:deploy:apply with its recorded release/configuration inputs')
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -820,12 +894,20 @@ def _dispatch(args: argparse.Namespace) -> int:
                                development=args.execution_mode == 'human' or local_simulation,
                                simulation=local_simulation)
             _operator_paths(args)
-            values = {} if args.command == 'workflow-status' else resolve(args.repo_root.resolve(), env_file=args.env_file, mode=args.execution_mode, profile_root=getattr(args, 'profile_root', None))
-            if getattr(args, 'operator_home', None) is not None and args.command != 'workflow-status':
+            offline_abandon = False
+            if args.command == 'workflow-abandon':
+                from modules.operator_abandon import tree, classification
+                from modules.operator_state import journals
+                offline_abandon = classification(tree(journals(args.repo_root.resolve(), getattr(args, 'operator_home', None)), args.operation_dir)) == {
+                    'classification': 'none', 'publication': 'none'}
+            offline_workflow = (args.command == 'workflow-status' or offline_abandon
+                                or (args.command == 'workflow-doctor' and args.offline))
+            values = {} if offline_workflow else resolve(args.repo_root.resolve(), env_file=args.env_file, mode=args.execution_mode, profile_root=getattr(args, 'profile_root', None))
+            if getattr(args, 'operator_home', None) is not None and not offline_workflow:
                 # Child processes and provider modules read the profile directory, not the home.
                 values['PZ_ADW_PROFILE_ROOT'] = str(args.profile_root)
             adapter_path = project_dir(args.repo_root.resolve()) / 'pzagent-adapter.json'
-            if args.execution_mode == 'human' and getattr(args, 'profile_root', None) is not None and adapter_path.is_file():
+            if not offline_workflow and args.execution_mode == 'human' and getattr(args, 'profile_root', None) is not None and adapter_path.is_file():
                 # Declared probe base URLs only; an explicit environment value wins.
                 from modules.probe_profile import probe_environment
                 stack.enter_context(probe_environment(load_adapter(adapter_path), args.profile_root))
@@ -835,14 +917,17 @@ def _dispatch(args: argparse.Namespace) -> int:
             source_resume = False
             if args.command == 'workflow-resume' and args.operation_dir:
                 from modules.operator_state import read
-                source_resume = read(args.operation_dir / 'operation.json').get('workflow') == 'source-line'
+                operation_record = args.operation_dir / 'operation.json'
+                source_resume = operation_record.is_file() and read(operation_record).get('workflow') == 'source-line'
                 if source_resume:
                     registry_commands.discard('workflow-resume')
             if args.command == 'release-rollback' and args.scope == 'release-line':
                 registry_commands.discard('release-rollback')
             if args.command == 'hotfix-apply' and args.transport == 'registry':
                 registry_commands.add('hotfix-apply')
-            allowed = set() if args.command == 'workflow-status' else DOKPLOY | SSH | KUBE
+            allowed = set() if offline_workflow else DOKPLOY | SSH | KUBE
+            if args.command == 'workflow-doctor' and not offline_workflow:
+                allowed |= REGISTRY
             if args.command == 'provider-servers':
                 allowed = DOKPLOY | {'PZ_ADW_PROFILE_ROOT'}
             if args.command == 'provider-provision':
@@ -865,6 +950,10 @@ def _dispatch(args: argparse.Namespace) -> int:
                 # Authentication happens inside the identity read, after health,
                 # so an unreachable registry still yields the combined report.
                 allowed |= REGISTRY
+            if args.command == 'workflow-abandon':
+                # No-write retirement stays offline. Authenticate lazily only
+                # if the trusted guard actually needs live observations.
+                allowed |= REGISTRY
             if args.command == 'release-retention' and args.execution_mode == 'ci':
                 allowed = set()
             if args.command in registry_commands:
@@ -876,6 +965,11 @@ def _dispatch(args: argparse.Namespace) -> int:
             stack.enter_context(credentials(values, allowed))
             if args.command in registry_commands:
                 stack.enter_context(authentication(values))
+            if args.command == 'workflow-doctor' and not offline_workflow:
+                try:
+                    stack.enter_context(authentication(values))
+                except ContractError:
+                    pass  # Each identity read then reports the registry as unavailable for its target.
             return _main(args)
     except (ContractError, OSError, ValueError, KeyError, TypeError) as exc:
         reason = str(exc) if isinstance(exc, ContractError) else 'required local tool or file is unavailable'

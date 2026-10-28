@@ -15,7 +15,7 @@ import secrets
 
 from .common import ContractError, IDENTIFIER
 from .operator_credentials import private_profile_path
-from .operator_state import OPERATION_ID, REPOSITORY, operator_home
+from .operator_state import OPERATION_ID, REPOSITORY, operator_home, terminal
 
 LAYOUT = ('profile', 'journals', 'releases')
 VERSION = re.compile(r'^[0-9]+\.[0-9]+\.[0-9]+$')
@@ -110,6 +110,8 @@ def operations(root: Path) -> list[dict]:
         if not OPERATION_ID.fullmatch(entry.name) or entry.is_symlink() or not entry.is_dir():
             continue
         path = entry / 'operation.json'
+        if not path.exists() and not path.is_symlink() and (entry / 'deployment.json').exists():
+            path = entry / 'deployment.json'
         if not path.exists() and not path.is_symlink():
             continue  # A receipt-only directory has no resumable workflow.
         record = _private_record(path)
@@ -117,6 +119,8 @@ def operations(root: Path) -> list[dict]:
             raise ContractError('operator_home_operation_invalid: ' + entry.name)
         selection = record.get('selection') if isinstance(record.get('selection'), dict) else {}
         result.append({'operation': entry.name, 'kind': entry.name.rsplit('-', 2)[0],
+                       'implicit': path.name == 'operation.json',
+                       'terminal': terminal(record),
                        'phase': record.get('phase') if isinstance(record.get('phase'), str) else None,
                        **{key: record.get(key, selection.get(key)) for key in ('environment', 'target', 'line', 'pr_number')
                           if isinstance(record.get(key, selection.get(key)), (str, int))}})
@@ -133,13 +137,14 @@ def select_operation(root: Path, *, operation: str | None = None, kind: str | No
         if any(selected.get(key) != value for key, value in match.items() if value is not None):
             raise ContractError('operator_home_operation_selection_changed')
         return operation
-    candidates = [row['operation'] for row in rows if row['phase'] not in TERMINAL
+    candidates = [row['operation'] for row in rows if not row['terminal'] and row['implicit']
                   and (kind is None or row['kind'] == kind)
                   and all(row.get(key) == value for key, value in match.items() if value is not None)]
     if not candidates:
         raise ContractError('operator_home_operation_missing')
     if len(candidates) > 1:
-        raise ContractError('operator_home_operation_ambiguous: ' + ', '.join(candidates))
+        raise ContractError('operator_home_operation_ambiguous: ' + ', '.join(candidates)
+                            + '; inspect them with pz:workflow:doctor')
     return candidates[0]
 
 

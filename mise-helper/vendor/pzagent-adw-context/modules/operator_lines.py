@@ -11,7 +11,7 @@ from .common import ContractError, FULL_SHA
 from .execution import human
 from .operator_github import api
 from .operator_sources import resolve
-from .operator_state import locked, new_operation, read, write
+from .operator_state import locked, new_operation, read, write_journal as write
 
 MERGE_POLL_ATTEMPTS = 15
 MERGE_POLL_SECONDS = 2

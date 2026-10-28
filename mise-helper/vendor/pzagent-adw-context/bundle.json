@@ -18,7 +18,7 @@
     },
     {
       "path": "migration-notes.md",
-      "sha256": "e1eac3b1f09577b154f9190dabc5bfbde952df174c0d8cf79c6312b182f21c0e"
+      "sha256": "b4229096e82b701100f890269d756980fed52e65e2fa3bfc6320012d0b1b7d17"
     },
     {
       "path": "modules/__init__.py",
@@ -78,11 +78,11 @@
     },
     {
       "path": "modules/ci/github_api.py",
-      "sha256": "14521addc2ea2b6f9aec47fdb98d7a075deb861a5015f65893a61f65b0cf23e0"
+      "sha256": "e2aab73a0e30af90514f23a49e740faa2ea6bcb119b39700789c7e912042cd82"
     },
     {
       "path": "modules/ci/greenfield.py",
-      "sha256": "e09d7f05fe091f1f56859002729bc8e8fffacf7ac074df2ca685585670ca33c9"
+      "sha256": "90a0335b1cf6e2c8e0475f83062bf85d6524e59ccaa2080406305067cb15be6a"
     },
     {
       "path": "modules/ci/live_pr.py",
@@ -94,7 +94,7 @@
     },
     {
       "path": "modules/ci/provenance.py",
-      "sha256": "fbd98def978fcbc690b444e1882c24418caf932542b4f6195e4f47bf5974756b"
+      "sha256": "7fdd7902eed125062da90603ce12d645a1c6fa931e684f1f37e058b6ee454ed5"
     },
     {
       "path": "modules/ci/publication_proof.py",
@@ -109,12 +109,20 @@
       "sha256": "7a63e04f67231326307e0af62d34d046cb78b91ec5dd27b0e1fbe239f0dc171e"
     },
     {
+      "path": "modules/ci/release_signature.py",
+      "sha256": "7dac11bce629621f4a595ee659292a6c3ee18e762294d8021d199fae08363684"
+    },
+    {
+      "path": "modules/ci/release_signers",
+      "sha256": "6ae94dcf170e5e00d4b373f7938a0c5f78e660678006746cc7a047dc11f154d7"
+    },
+    {
       "path": "modules/ci/reuse.py",
       "sha256": "1c45535cc11d945997937c9f499c0d94945cffa944bcc54bf576b4226706cc1d"
     },
     {
       "path": "modules/ci/trusted_decisions.json",
-      "sha256": "7c77b4cdcd1cccbb36c747a0b265fd0c2ef37c6bccc21db77d0eb4b8ce5f250f"
+      "sha256": "3ba63095cf1982ba0d34f136ea3f035010b51e3bef6d544cc7ca0552977be5a1"
     },
     {
       "path": "modules/ci/vendor_integrity.py",
@@ -142,7 +150,7 @@
     },
     {
       "path": "modules/context_sync.py",
-      "sha256": "2a5b6aea872fe0bb985f3828e979b21b4c5eea621dfc1c820e4b1e3bfbff0767"
+      "sha256": "b7ef6d32069f5aec9046fdc460a7965555129613ec6e73e4e5cab76a11e0da08"
     },
     {
       "path": "modules/dependency_cache.py",
@@ -182,7 +190,7 @@
     },
     {
       "path": "modules/hotfix.py",
-      "sha256": "671a8df115f8c39a91dcf2e64f278835a76d501d40f734159db8a43ae012a856"
+      "sha256": "dfb690955858dcce77440dd2ee875303a80b5bffbbab83592d8f78cf859ab9d3"
     },
     {
       "path": "modules/hotfix_registry.py",
@@ -225,6 +233,10 @@
       "sha256": "4e9fe5898ee5d9f5a10625737ae11de56381698a53868648b315a211d052e057"
     },
     {
+      "path": "modules/operator_abandon.py",
+      "sha256": "bd74079733d17b0227364b0143196b1b94daafc85a4ebc0b95b60d4222c9a0e0"
+    },
+    {
       "path": "modules/operator_credentials.py",
       "sha256": "a3fdbb57fcc3686c4096499acb4bcbdfe99d2bab906a4befbbf0b00508772dfa"
     },
@@ -234,15 +246,19 @@
     },
     {
       "path": "modules/operator_home.py",
-      "sha256": "5b8b200db58009d478e673ea85413167a9af775720dea37e5ec223544bdf0b94"
+      "sha256": "fb8b789fd3c4ea4cfe3f460613502b9bddc53b299def0f893f67b031cfa2e610"
     },
     {
       "path": "modules/operator_lines.py",
-      "sha256": "b36033f9b7bfdb98e6a1d32e913ea9c0d210352c674230b088a5139025b1f10c"
+      "sha256": "01ba593bac5da94d43ac7227254fabd4857ddd577c8f06c4d00689d720144ec6"
+    },
+    {
+      "path": "modules/operator_listing.py",
+      "sha256": "92090da263751193ea0834d00676b100ecb72e4bb09b4cc083da473dbe30f489"
     },
     {
       "path": "modules/operator_publish.py",
-      "sha256": "5ed8360f71ae921a202cae2e185da8c4c7832784b617b16748e582b22ce459d9"
+      "sha256": "58d45c280b4836dffe2ee28b6cc5824a431bb65d57ea1dca1de76497484b98d1"
     },
     {
       "path": "modules/operator_registry.py",
@@ -250,11 +266,11 @@
     },
     {
       "path": "modules/operator_retention.py",
-      "sha256": "83610299f2ee0f0b092d959eb230bd4584d3fed3d55e57b2d4755b53af7697e4"
+      "sha256": "6ed0eb128981e1f0d9816ea7629f1bd7851f9a7965b9a76f6a3fc9a7fc4ebe06"
     },
     {
       "path": "modules/operator_sources.py",
-      "sha256": "b5f54501c9dc6b5e11afdedf80bfd9fb0a432ed7568a8684e852190b072ac164"
+      "sha256": "c8c29f29c9dcf85727dcc20f47755ad861bcdf579e1c8810cbe106d593e25275"
     },
     {
       "path": "modules/operator_ssh.py",
@@ -262,11 +278,11 @@
     },
     {
       "path": "modules/operator_state.py",
-      "sha256": "6fc3c0ae26f1e22c2799f86e78dcc1cf34fc3ffea11ce650eda4b49eadec1972"
+      "sha256": "511670e5d34f86d1617d22f87e675d8e27e0dd14446622bb7490f9b7e0d2b9e7"
     },
     {
       "path": "modules/operator_workflows.py",
-      "sha256": "3f367c4c5872dc197c559cb73dd89fda10fd46c0d5fe4400773eb2081aa0f2a5"
+      "sha256": "c80c21c5ab0f4dc7449c61fdb0a850a839bc8b5613ea836d9dc6263722ff59db"
     },
     {
       "path": "modules/oras_registry.py",
@@ -286,7 +302,7 @@
     },
     {
       "path": "modules/project_init.py",
-      "sha256": "d3826b19466682afa4088b4bb9f7919d87bc9e59c3352f8be61e11e4193f1927"
+      "sha256": "f0a1c782b0745cffe864cccc6cb64f48f0da720c309a025b5e2b4d3b60ce382f"
     },
     {
       "path": "modules/project_tasks.py",
@@ -318,7 +334,7 @@
     },
     {
       "path": "modules/providers/kubernetes.py",
-      "sha256": "c46a7c5812431c8cd7830722d66e75e38a505d187173e20742a69a5486393d26"
+      "sha256": "20d30e31360757a28c6ff653418393a97b50791c6a4cc5269b9cbfb35390b979"
     },
     {
       "path": "modules/providers/kubernetes_hooks.py",
@@ -362,7 +378,7 @@
     },
     {
       "path": "modules/remote_deploy.py",
-      "sha256": "d28373019d1cb30e3fd413228690f73ab48cd547e980376bb262421f74bed94b"
+      "sha256": "c8a9319d5565bd47d138346a2d225efd221ae18c5489ae4a076a9d86f57be96e"
     },
     {
       "path": "modules/remote_probe.py",
@@ -397,16 +413,24 @@
       "sha256": "dc80c2e033f013cd7cbdf42f9cad7e487e118d39c0a55a7d04078ab0eff6f02c"
     },
     {
+      "path": "modules/workflow_doctor.py",
+      "sha256": "02c0b002c252cd234eb2f61f6e18d0f0629986719546589ba30fe5436b7b3f54"
+    },
+    {
+      "path": "modules/workflow_observation.py",
+      "sha256": "8ba11b9749635c335933173dc8dc0eaa22d8dbf3859060cf167e5c4f3ac03cef"
+    },
+    {
       "path": "modules/workflows_sync.py",
       "sha256": "b5a54abad786d8b15ed25614480c7d9fb8302e8d906d79e1160ae26109c8fc27"
     },
     {
       "path": "policy.md",
-      "sha256": "ec22447d57f5de50ae85e91fe65d5c8e11c31f5fc48832e0a1c9ad2d5c7840f6"
+      "sha256": "11acaa650fe34995e9289b81ce6c8c1bfcf71e87122c7699b0c64339f4340173"
     },
     {
       "path": "pzagent_context.py",
-      "sha256": "9f9ebf7e9578773f4151d68b01bf9c47c219ddda377298e2a62a487aec55da0d"
+      "sha256": "6182dbf4189b819d098e9eb813d831cf8e3536572daf612a83d74274bb52cca1"
     },
     {
       "path": "schemas/bundle.schema.json",
@@ -430,7 +454,7 @@
     },
     {
       "path": "tasks.toml",
-      "sha256": "2baa4a585abeb5be06a5be45bc744e885b8bda4db69947403c889ab7f7c6cdc7"
+      "sha256": "966b584ad1b437b83b29475bd088be58f72345a9bf4315785b0e28df35117d8b"
     },
     {
       "path": "templates/github/actions/authorize-publication/action.yml",
@@ -602,11 +626,11 @@
     },
     {
       "path": "templates/pzagent-context-lock.json",
-      "sha256": "17f7bd2a8baad28a81a82f5371deafbf8e3185616915be892fa5fe2ea2f670d3"
+      "sha256": "2da3e275b77bd0f17ba83c2e0d6b5a9348ba0df21117b53d4f5c7c5409ed4175"
     },
     {
       "path": "templates/repo-agents-snippet.md",
-      "sha256": "b9037b1bb4760c52650fc26946c0fa7c47b93e64122dee4917178bc7beb2c989"
+      "sha256": "d4f6f315fb75f645b663bd47e2abaa09ea28999887403d4f3f72106c6b093e3d"
     }
   ],
   "generic_contract": ">=2.0.0,<3.0.0",
@@ -625,5 +649,5 @@
   "schema_version": "1.0.0",
   "stability": "experimental",
   "task_entrypoint": "tasks.toml",
-  "version": "0.15.18"
+  "version": "0.17.0"
 }

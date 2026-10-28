@@ -169,6 +169,31 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
     files[directory + '/pzagent-context-lock.json'] = document({
         'schema_version': '1.0.0', 'source_ref': context_ref,
         'package_version': bundle['version'], 'bundle_sha256': checksum((BUNDLE / 'bundle.json').read_bytes())})
+    from modules.ci import release_signature
+    from modules.context_sync import validate_release_record
+    statement_path = getattr(args, 'release_statement', None)
+    signature_path = getattr(args, 'release_signature', None)
+    if bool(statement_path) != bool(signature_path):
+        raise ContractError('project_init_release_assets_required')
+    release_path = target_path(repo, directory + '/' + release_signature.RECORD)
+    record_data = None
+    if statement_path:
+        for path in (Path(statement_path), Path(signature_path)):
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > 1_048_576:
+                raise ContractError('project_init_release_asset_unsafe')
+        try:
+            record_data = document(release_signature.record(
+                Path(statement_path).read_bytes(), Path(signature_path).read_text(encoding='utf-8'))).encode()
+        except (UnicodeError, release_signature.ProofError):
+            raise ContractError('project_init_release_assets_invalid') from None
+    elif release_path.exists() or release_path.is_symlink():
+        if release_path.is_symlink() or not release_path.is_file() or release_path.stat().st_size > 1_048_576:
+            raise ContractError('project_init_release_asset_unsafe')
+        record_data = release_path.read_bytes()
+    if record_data is not None:
+        pinned_lock = json.loads(files[directory + '/pzagent-context-lock.json'])
+        validate_release_record(record_data, BUNDLE, pinned_lock)
+        files[directory + '/' + release_signature.RECORD] = record_data
     adapter = json.loads((templates / 'pzagent-adapter.json').read_text())
     adapter['repository']['id'] = args.repository
     adapter['providers'] = ({'dokploy': {'project': slug, 'bindings': {}}}
@@ -420,11 +445,14 @@ def main(argv=None):
     parser.add_argument('--force', action='store_true')
     parser.add_argument('--context-ref', help='Pinned context commit when no context lock exists')
     parser.add_argument('--generic-ref', help='Pinned generic commit when no manifest exists')
+    parser.add_argument('--release-statement', type=Path, help='Downloaded signed release statement for first adoption')
+    parser.add_argument('--release-signature', type=Path, help='Downloaded SSH signature for the release statement')
     args = parser.parse_args(argv)
     try:
         if args.refresh_manifest:
             if any((args.repository, args.release_kind, args.components, args.environments, args.force,
-                    args.java, args.node, args.tool, args.context_ref, args.generic_ref)):
+                    args.java, args.node, args.tool, args.context_ref, args.generic_ref,
+                    args.release_statement, args.release_signature)):
                 parser.error('manifest refresh cannot initialize a project')
             result = refresh_manifest(args.repo_root)
         else:

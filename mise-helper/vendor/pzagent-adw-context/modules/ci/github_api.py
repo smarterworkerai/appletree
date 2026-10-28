@@ -300,9 +300,10 @@ class GitHub:
         allowed={'mise-helper/vendor/agentic-delivery/adw_contract.py',
                  'mise-helper/vendor/agentic-delivery/tasks.toml',
                  '.github/workflows/ci.yml','.github/workflows/trust-root-bootstrap.yml'}
-        for name in ('adw-task-manifest.json', 'pzagent-context-lock.json', 'pzagent-adapter.json'):
+        for name in ('adw-task-manifest.json', 'pzagent-context-lock.json', 'pzagent-adapter.json',
+                     'pzagent-context-release.json'):
             allowed.update(project_paths(name))
-        vendor=r'mise-helper/vendor/pzagent-adw-context/(?:ci\.py|pzagent_context\.py|tasks\.toml|bundle\.json|modules/(?:__init__|ci/[a-z_]+|adapter|common|bundle|operator_publish|operator_retention|pointer_retirement|release_manifest|oras_registry)\.py|templates/github/(?:publish-release\.yml|cleanup-retention\.yml|actions/(?:classify-ci-event/action\.yml|authorize-publication/(?:action\.yml|authorize\.py)|publish-immutable-release/(?:action\.yml|publish\.py))))'
+        vendor=r'mise-helper/vendor/pzagent-adw-context/(?:ci\.py|pzagent_context\.py|tasks\.toml|bundle\.json|generic-release\.json|modules/(?:__init__|ci/[a-z_]+|adapter|common|bundle|operator_publish|operator_retention|pointer_retirement|release_manifest|oras_registry)\.py|templates/github/(?:publish-release\.yml|cleanup-retention\.yml|actions/(?:classify-ci-event/action\.yml|authorize-publication/(?:action\.yml|authorize\.py)|publish-immutable-release/(?:action\.yml|publish\.py))))'
         if path not in allowed and not re.fullmatch(vendor,path):
             raise ApiError('content_path_forbidden')
         if not isinstance(ref,str) or not re.fullmatch(SHA,ref):

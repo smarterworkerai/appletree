@@ -9,25 +9,31 @@
     "modules.ci.ci_only",
     "modules.ci.contract",
     "modules.ci.evidence",
+    "modules.ci.generic_release",
     "modules.ci.github_api",
+    "modules.ci.greenfield",
     "modules.ci.live_pr",
     "modules.ci.policy",
     "modules.ci.provenance",
     "modules.ci.publication_proof",
     "modules.ci.quality_proof",
     "modules.ci.release_authorization",
+    "modules.ci.release_signature",
     "modules.ci.reuse",
+    "modules.ci.vendor_integrity",
     "modules.ci.workflow_drift",
     "modules.ci_release",
     "modules.common",
     "modules.execution",
     "modules.merged_source_proof",
+    "modules.operator_abandon",
     "modules.operator_lines",
     "modules.operator_publish",
     "modules.operator_registry",
     "modules.operator_retention",
     "modules.operator_state",
     "modules.oras_registry",
+    "modules.pointer_retirement",
     "modules.providers",
     "modules.quality_outputs",
     "modules.quality_tasks",
@@ -35,11 +41,7 @@
     "modules.retention",
     "modules.workflows_sync",
     "templates.github.actions.authorize-publication.authorize",
-    "templates.github.actions.publish-immutable-release.publish",
-    "modules.pointer_retirement",
-    "modules.ci.greenfield",
-    "modules.ci.generic_release",
-    "modules.ci.vendor_integrity"
+    "templates.github.actions.publish-immutable-release.publish"
   ],
   "observations": {
     "modules.build_archive": {
@@ -236,6 +238,50 @@
           "Missing"
         ]
       }
+    },
+    "modules.workflow_observation": {
+      "validators": [
+        "modules.operator_abandon:guard",
+        "modules.operator_abandon:validate_observations"
+      ],
+      "reason": "Read-only target evidence. Trusted operator_abandon re-derives immutable manifest/source/expected image identities, validates scope and observation comparisons/coverage, and checks operation-specific effects before retirement releases roots. Observation labels alone are insufficient.",
+      "imports": {
+        "modules.operator_abandon": [
+          "target_checks"
+        ]
+      },
+      "symbols": {
+        "modules.operator_abandon": [
+          "target_checks"
+        ]
+      }
+    },
+    "modules.status_identity": {
+      "validators": [
+        "modules.operator_abandon:guard",
+        "modules.operator_abandon:validate_observations"
+      ],
+      "reason": "Read-only target evidence. Trusted operator_abandon re-derives immutable manifest/source/expected image identities, validates scope and observation comparisons/coverage, and checks operation-specific effects before retirement releases roots. Observation labels alone are insufficient.",
+      "imports": {},
+      "symbols": {}
+    },
+    "modules.routed_content": {
+      "validators": [
+        "modules.operator_abandon:guard",
+        "modules.operator_abandon:validate_observations"
+      ],
+      "reason": "Read-only target evidence. Trusted operator_abandon re-derives immutable manifest/source/expected image identities, validates scope and observation comparisons/coverage, and checks operation-specific effects before retirement releases roots. Observation labels alone are insufficient.",
+      "imports": {},
+      "symbols": {}
+    },
+    "modules.http_probe": {
+      "validators": [
+        "modules.operator_abandon:guard",
+        "modules.operator_abandon:validate_observations"
+      ],
+      "reason": "Read-only target evidence. Trusted operator_abandon re-derives immutable manifest/source/expected image identities, validates scope and observation comparisons/coverage, and checks operation-specific effects before retirement releases roots. Observation labels alone are insufficient.",
+      "imports": {},
+      "symbols": {}
     }
   },
   "dynamic_imports": {
@@ -489,6 +535,14 @@
       "scope_sha256": "1518637a2279e018cc158d354db31ba7ffe0ce81ebf0148161c89c8c1198ca1e",
       "validator": "modules.merged_source_proof:prove",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+    },
+    "modules.ci.release_signature:_ssh_keygen:subprocess.run": {
+      "call_sha256": [
+        "ad02b59fcc0d4c3c76b0608b29963c92560eb88e4cc2b1fd9433baf7313e06a9"
+      ],
+      "scope_sha256": "dac00cb59a8e74bdf8b80cca3409c5d3458409c37c8a83805d717f41fda2c76e",
+      "validator": "modules.ci.release_signature:verify",
+      "reason": "Fixed ssh-keygen argv with a minimal environment: sign/verify of the canonical release statement only. verify accepts only exit 0 against the checkout's own release_signers file and the exact namespace and principal; the statement is parsed and bound to the lock by provenance before it grants authority. Child success alone does not confer CI authority."
     }
   },
   "historical_31_module_classification": {

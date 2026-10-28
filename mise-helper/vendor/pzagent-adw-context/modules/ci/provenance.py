@@ -15,6 +15,8 @@ from .github_api import project_files, ApiError
 from .quality_proof import ProofError, Pull
 from . import greenfield
 from . import generic_release
+from . import release_signature
+from ..common import PROJECT_DIRECTORIES
 
 BOOTSTRAP_COMMAND = re.compile(r'^BOOTSTRAP_(ENABLED|DISABLED) ([0-9a-f]{64})$')
 
@@ -76,6 +78,9 @@ TRUSTED_PATHS = (
     'mise-helper/vendor/pzagent-adw-context/modules/ci/generic_release.py',
     'mise-helper/vendor/pzagent-adw-context/modules/ci/vendor_integrity.py',
     'mise-helper/vendor/pzagent-adw-context/bundle.json',
+    'mise-helper/vendor/pzagent-adw-context/modules/operator_abandon.py',
+    'mise-helper/vendor/pzagent-adw-context/modules/ci/release_signature.py',
+    'mise-helper/vendor/pzagent-adw-context/modules/ci/release_signers',
 )
 
 
@@ -97,6 +102,9 @@ GENERIC_PREFIX = 'mise-helper/vendor/agentic-delivery/'
 RELEASED_VENDOR_PATHS = frozenset(
     [path for path in TRUSTED_PATHS if path.startswith((VENDOR_PREFIX, GENERIC_PREFIX))]
     + ['.hermes/adw-task-manifest.json', '.adw/adw-task-manifest.json'] + [path for path, _ in WORKFLOW_TEMPLATES])
+# The release key of this (default-branch) checkout. A head's own key never approves it.
+RELEASE_SIGNERS = Path(__file__).resolve().parent / 'release_signers'
+WORKFLOW_DIR = '.github/workflows/'
 
 
 def _released_generic_pin(ref: str, token: str) -> dict | None:
@@ -174,45 +182,142 @@ def _released_vendor(api, pull: Pull, changed: list[str]) -> str | None:
                 workflow = api.content(workflow_path, pull.head_sha)[1]
                 if hashlib.sha256(workflow).hexdigest() != inventory.get(template_path):
                     return None
-        generic_changed = [path for path in changed if path.startswith(GENERIC_PREFIX)]
-        # Generic bytes are judged together with the head manifest that must record them,
-        # whether or not the manifest file itself changed.
-        head = (json.loads(metadata['adw-task-manifest.json'][1])
-                if manifest_path in changed or generic_changed else None)
-        base = json.loads(base_metadata['adw-task-manifest.json'][1]) if head is not None else None
-
-        def generic_record(manifest):
-            return (manifest.get('sources', {}).get('generic'), manifest.get('schema_version'),
-                    manifest.get('contract', {}).get('version'))
-        pin = None
-        if generic_changed or (head is not None and generic_record(head) != generic_record(base)):
-            # Only the pin the published release itself carries may move the generic layer.
-            pin = _released_generic_pin(ref, token)
-            if pin is None:
-                return None
-            modes = _blob_modes(api, pull.head_sha, set(generic_changed))
-            if modes is None:
-                return None
-            for path in generic_changed:
-                expected = pin['files'].get(path.removeprefix(GENERIC_PREFIX))
-                if (expected is None or modes.get(path) != expected['mode']
-                        or expected['sha256'] != hashlib.sha256(api.content(path, pull.head_sha)[1]).hexdigest()):
-                    return None
-            if generic_record(head) != (generic_release.generic_source(pin), pin['version'], pin['version']):
-                return None
-        if head is not None:
-            record = head.get('sources', {}).pop('context', None)
-            base.get('sources', {}).pop('context', None)
-            if pin is not None:
-                for manifest in (head, base):
-                    manifest['sources'].pop('generic', None)
-                    manifest.pop('schema_version', None)
-                    manifest.get('contract', {}).pop('version', None)
-            if head != base or record != {'layer': 'context', 'ref': ref, 'path': VENDOR_PREFIX + 'tasks.toml',
-                                          'checksum': 'sha256:' + str(inventory.get('tasks.toml'))}:
-                return None
+        if not _release_records(api, pull, changed, metadata, base_metadata, ref, inventory,
+                                lambda: _released_generic_pin(ref, token)):
+            return None
         return tag
     except (ApiError, KeyError, TypeError, ValueError, OSError, subprocess.TimeoutExpired):
+        return None  # Any doubt keeps the manual administrator decision.
+
+
+def _release_records(api, pull: Pull, changed: list[str], metadata: dict, base_metadata: dict,
+                     ref: str, inventory: dict, released_pin) -> bool:
+    """The generic layer and manifest records move exactly as the release defines them."""
+    manifest_path = metadata['adw-task-manifest.json'][0]
+    generic_changed = [path for path in changed if path.startswith(GENERIC_PREFIX)]
+    # Generic bytes are judged together with the head manifest that must record them,
+    # whether or not the manifest file itself changed.
+    head = (json.loads(metadata['adw-task-manifest.json'][1])
+            if manifest_path in changed or generic_changed else None)
+    base = json.loads(base_metadata['adw-task-manifest.json'][1]) if head is not None else None
+
+    def generic_record(manifest):
+        return (manifest.get('sources', {}).get('generic'), manifest.get('schema_version'),
+                manifest.get('contract', {}).get('version'))
+    pin = None
+    if generic_changed or (head is not None and generic_record(head) != generic_record(base)):
+        # Only the pin the published release itself carries may move the generic layer.
+        pin = released_pin()
+        if pin is None:
+            return False
+        modes = _blob_modes(api, pull.head_sha, set(generic_changed))
+        if modes is None:
+            return False
+        for path in generic_changed:
+            expected = pin['files'].get(path.removeprefix(GENERIC_PREFIX))
+            if (expected is None or modes.get(path) != expected['mode']
+                    or expected['sha256'] != hashlib.sha256(api.content(path, pull.head_sha)[1]).hexdigest()):
+                return False
+        if generic_record(head) != (generic_release.generic_source(pin), pin['version'], pin['version']):
+            return False
+    if head is not None:
+        record = head.get('sources', {}).pop('context', None)
+        base.get('sources', {}).pop('context', None)
+        if pin is not None:
+            for manifest in (head, base):
+                manifest['sources'].pop('generic', None)
+                manifest.pop('schema_version', None)
+                manifest.get('contract', {}).pop('version', None)
+        if head != base or record != {'layer': 'context', 'ref': ref, 'path': VENDOR_PREFIX + 'tasks.toml',
+                                      'checksum': 'sha256:' + str(inventory.get('tasks.toml'))}:
+            return False
+    return True
+
+
+def _release_statement(api, sha: str, tree: dict[str, str] | None) -> dict | None:
+    """The head's release statement when this checkout's release key signed it and the lock binds it.
+
+    `tree` is the head's full blob map (None when unusable): it answers "no record" without
+    content reads; without it the lookup falls back to content reads.
+    """
+    if tree is not None and not any(directory + '/' + release_signature.RECORD in tree
+                                    for directory in PROJECT_DIRECTORIES):
+        return None
+    try:
+        lock_path, lock = project_files(api, sha, 'pzagent-context-lock.json')['pzagent-context-lock.json']
+        record = _content_at(api, lock_path.rpartition('/')[0] + '/' + release_signature.RECORD, sha)
+        if record is None:
+            return None
+        raw, signature = release_signature.load_record(record[1])
+        statement = release_signature.verify(raw, signature, RELEASE_SIGNERS)
+        lock = json.loads(lock)
+    except (ApiError, ProofError, KeyError, TypeError, ValueError, OSError):
+        return None  # No verified statement: the scope stays this checkout's own.
+    if (not isinstance(lock, dict) or lock.get('source_ref') != statement['commit']
+            or lock.get('package_version') != statement['version']
+            or lock.get('bundle_sha256') != statement['bundle_sha256']):
+        return None
+    return statement
+
+
+def _trusted_scope(api, pull: Pull, tree: dict[str, str] | None) -> tuple[list[str], dict | None]:
+    """This checkout's trusted paths, then those a verified release statement adds.
+
+    TRUSTED_PATHS is append-only, so a newer release's list extends this one in the same
+    order and every checker computes the same ordered scope. A statement only ever adds
+    paths; it never removes one.
+    """
+    statement = _release_statement(api, pull.head_sha, tree)
+    if statement is None:
+        return list(TRUSTED_PATHS), None
+    return [*TRUSTED_PATHS, *(path for path in statement['trusted_paths'] if path not in TRUSTED_PATHS)], statement
+
+
+def _signed_vendor(api, pull: Pull, changed: list[str], statement: dict | None,
+                   tree: dict[str, str] | None) -> str | None:
+    """Return the tag when the PR vendors exactly the signed release its lock names.
+
+    Release-owned files are compared by git blob SHA against the signed statement, using
+    the head tree already read for the scope; only the lock, the bundle descriptor, the
+    manifests and, when the generic layer moves, its pin and files are read as content.
+    """
+    if statement is None or not changed or tree is None:
+        return None
+    try:
+        metadata = project_files(api, pull.head_sha, 'adw-task-manifest.json', 'pzagent-context-lock.json')
+        manifest_path = metadata['adw-task-manifest.json'][0]
+        base_metadata = project_files(api, pull.base_sha, 'adw-task-manifest.json')
+        if base_metadata['adw-task-manifest.json'][0] != manifest_path:
+            return None  # A directory migration always needs an administrator decision.
+        blobs = statement['blobs']
+        blob, bundle = api.content(VENDOR_PREFIX + 'bundle.json', pull.head_sha)
+        if (blob != blobs.get('bundle.json') or tree.get(VENDOR_PREFIX + 'bundle.json') != blob
+                or hashlib.sha256(bundle).hexdigest() != statement['bundle_sha256']):
+            return None
+        inventory = {item['path']: item['sha256'] for item in json.loads(bundle)['files']}
+        for path in changed:
+            if path in (manifest_path, VENDOR_PREFIX + 'bundle.json') or path.startswith(GENERIC_PREFIX):
+                continue  # The descriptor is checked above; the rest with the manifest records and the pin below.
+            if path.startswith(VENDOR_PREFIX):
+                relative = path.removeprefix(VENDOR_PREFIX)
+            elif path.startswith(WORKFLOW_DIR) and '/' not in path.removeprefix(WORKFLOW_DIR):
+                relative = 'templates/github/' + path.removeprefix(WORKFLOW_DIR)
+            else:
+                return None  # Outside the release-owned surface.
+            if relative not in blobs or relative not in inventory or tree.get(path) != blobs[relative]:
+                return None
+
+        def vendored_pin():
+            pin_blob, raw = api.content(VENDOR_PREFIX + generic_release.GENERIC_PIN, pull.head_sha)
+            if (blobs.get(generic_release.GENERIC_PIN) != pin_blob
+                    or tree.get(VENDOR_PREFIX + generic_release.GENERIC_PIN) != pin_blob):
+                return None
+            return generic_release.validate_generic_pin(json.loads(raw))
+        if not _release_records(api, pull, changed, metadata, base_metadata, statement['commit'],
+                                inventory, vendored_pin):
+            return None
+        return statement['tag']
+    except (ApiError, ProofError, KeyError, TypeError, ValueError, OSError):
         return None  # Any doubt keeps the manual administrator decision.
 
 
@@ -292,18 +397,30 @@ def _provider_blobs(ref: str, token: str) -> dict[str, str] | None:
     return _blob_map(commit, lambda tree: _provider_get(f'git/trees/{tree}?recursive=1', token), None)
 
 
-def _trusted_blobs(api, sha: str) -> dict[str, str] | None:
-    return _tree_blobs(api, sha, set(TRUSTED_PATHS))
+def _trusted_blobs(api, sha: str, paths=TRUSTED_PATHS) -> dict[str, str] | None:
+    return _tree_blobs(api, sha, set(paths))
 
 
 def _changed_paths(api, pull: Pull) -> list[str]:
-    head_blobs=_trusted_blobs(api,pull.head_sha)
-    base_blobs=_trusted_blobs(api,pull.base_sha) if head_blobs is not None else None
+    return _scope_changes(api, pull)[0]
+
+
+def _scope_changes(api, pull: Pull) -> tuple[list[str], dict | None, dict[str, str] | None]:
+    """Changed trusted paths over the release-defined scope, the verified statement and the head tree."""
+    tree=_tree_blobs(api,pull.head_sha)
+    paths,statement=_trusted_scope(api,pull,tree)
+    return _changed_in(api,pull,paths,tree),statement,tree
+
+
+def _changed_in(api, pull: Pull, paths: list[str], tree: dict[str, str] | None = None) -> list[str]:
+    head_blobs=({path:tree[path] for path in paths if path in tree} if tree is not None
+                else _trusted_blobs(api,pull.head_sha,paths))
+    base_blobs=_trusted_blobs(api,pull.base_sha,paths) if head_blobs is not None else None
     if head_blobs is not None and base_blobs is not None:
-        return [path for path in TRUSTED_PATHS if head_blobs.get(path)!=base_blobs.get(path)]
+        return [path for path in paths if head_blobs.get(path)!=base_blobs.get(path)]
     try:
         changed=[]
-        for path in TRUSTED_PATHS:
+        for path in paths:
             head=_content_at(api,path,pull.head_sha)
             base=_content_at(api,path,pull.base_sha)
             if head!=base:
@@ -339,7 +456,7 @@ def _controller_binding(pull: Pull) -> str:
     return 'pzagent-trust-root-controller:v1:'+hashlib.sha256(encoded).hexdigest()
 
 
-def _message(result: dict) -> str:
+def _message(result: dict, *, signed: bool = False, decline: str = '') -> str:
     if result['status']=='normal':
         return ('No extra approval is needed: this PR does not change the trusted '
                 'CI/provenance source.')
@@ -347,6 +464,13 @@ def _message(result: dict) -> str:
     identity=(f"This decision is bound to PR #{result['pull_request']}, head "
               f"`{result['head_sha']}`, base `{result['base_sha']}`. Any head push "
               'or base update changes the fingerprint and invalidates the approval.')
+    if result['status']=='released-vendor' and signed:
+        return (f"No administrator decision is needed: the trusted-path changes vendor exactly the "
+                f"signed provider release `{result['release']}` (signature verified offline against the "
+                "default branch's release key; tag commit, bundle bytes and trusted paths bound to the "
+                "context lock). Normal CI, exact-tree, merge and publication checks "
+                f"still apply. An administrator can decline it with a new PR comment containing exactly "
+                f"`BOOTSTRAP_DISABLED {decline}`.\n\n{identity}\n\nChanged trusted paths:\n{changed}")
     if result['status']=='released-vendor':
         return (f"No administrator decision is needed: the trusted-path changes vendor exactly the "
                 f"published provider release `{result['release']}` (tag, commit and bundle bytes verified "
@@ -520,9 +644,43 @@ def _controller_decision(api, pull: Pull) -> bool | None:
     return decision if state=='completed' else None
 
 
+def _admin_decision(api, pull: Pull, token: str) -> tuple[str, str] | None:
+    """The latest administrator command for this exact fingerprint: ('ENABLED'|'DISABLED', login)."""
+    decisions=[];permissions={}
+    try:
+        comments=api.list(f'issues/{pull.number}/comments')
+        for comment in comments:
+            body=comment.get('body')
+            match=BOOTSTRAP_COMMAND.fullmatch(body.strip() if isinstance(body,str) else '')
+            actor=(comment.get('user') or {}).get('login')
+            comment_id=comment.get('id')
+            if (not match or match.group(2)!=token or not isinstance(actor,str)
+                or type(comment_id) is not int or comment_id<1):
+                continue
+            if actor not in permissions:
+                record=api.get(f'collaborators/{actor}/permission')
+                permissions[actor]=record.get('permission') if isinstance(record,dict) else None
+            if permissions[actor]=='admin':
+                decisions.append((comment_id,match.group(1),actor))
+    except ApiError:
+        raise ProofError('bootstrap_authorization_unavailable') from None
+    if not decisions:
+        return None
+    _,decision,actor=max(decisions)
+    return decision,actor
+
+
+def _denied(api, pull: Pull, changed: list[str]) -> bool:
+    """An administrator's live BOOTSTRAP_DISABLED outranks every automatic approval."""
+    decision=_admin_decision(api,pull,_fingerprint(pull,changed)) if changed else None
+    return decision is not None and decision[0]=='DISABLED'
+
+
 def bootstrap_status(api, pull: Pull, *, allow_released_vendor: bool = True,
                      changed: list[str] | None = None) -> dict:
-    changed=_changed_paths(api,pull) if changed is None else changed
+    statement=tree=None
+    if changed is None:
+        changed,statement,tree=_scope_changes(api,pull)
     result={
         'schema_version':'1.0.0',
         'repository':pull.repository,
@@ -538,37 +696,22 @@ def bootstrap_status(api, pull: Pull, *, allow_released_vendor: bool = True,
         'controller_external_id':_controller_binding(pull),
         'approver':None,
     }
-    released=_released_vendor(api,pull,changed) if changed and allow_released_vendor else None
-    if released:
+    signed=_signed_vendor(api,pull,changed,statement,tree) if changed and allow_released_vendor else None
+    released=signed or (_released_vendor(api,pull,changed) if changed and allow_released_vendor else None)
+    if released and not _denied(api,pull,changed):
         result.update(status='released-vendor',allowed=True,release=released)
     elif changed:
         token=_fingerprint(pull,changed)
         result['fingerprint']=token
         result['expected_comment']=f'BOOTSTRAP_ENABLED {token}'
-        decisions=[];permissions={}
-        try:
-            comments=api.list(f'issues/{pull.number}/comments')
-            for comment in comments:
-                body=comment.get('body')
-                match=BOOTSTRAP_COMMAND.fullmatch(body.strip() if isinstance(body,str) else '')
-                actor=(comment.get('user') or {}).get('login')
-                comment_id=comment.get('id')
-                if (not match or match.group(2)!=token or not isinstance(actor,str)
-                    or type(comment_id) is not int or comment_id<1):
-                    continue
-                if actor not in permissions:
-                    record=api.get(f'collaborators/{actor}/permission')
-                    permissions[actor]=record.get('permission') if isinstance(record,dict) else None
-                if permissions[actor]=='admin':
-                    decisions.append((comment_id,match.group(1),actor))
-        except ApiError:
-            raise ProofError('bootstrap_authorization_unavailable') from None
-        if decisions:
-            _,decision,actor=max(decisions)
+        latest=_admin_decision(api,pull,token)
+        if latest:
+            decision,actor=latest
             result['status']='enabled' if decision=='ENABLED' else 'disabled'
             result['allowed']=decision=='ENABLED'
             result['approver']=actor
-    result['message']=_message(result)
+    result['message']=_message(result,signed=bool(signed),
+                               decline=_fingerprint(pull,changed) if result['status']=='released-vendor' else '')
     return result
 
 
@@ -602,6 +745,10 @@ def trust_root_gate(api, pull: Pull, *, wait_seconds: int = 300,
     while True:
         state,decision=_controller_artifact_state(api,pull,changed)
         if state=='completed':
+            if decision and _denied(api,pull,changed):
+                # Comment-triggered controller runs are not read here, so check the live denial.
+                return {'allowed':False,'decided_by':'admin-comment','reason':'bootstrap_disabled',
+                        'message':'An administrator declined this exact PR revision after the controller approved it.'}
             if decision:
                 return {'allowed':True,'decided_by':'controller','reason':'controller_approved',
                         'message':'The exact PR revision was approved by the trust-root controller artifact.'}
@@ -628,6 +775,8 @@ def trusted_source(api, pull: Pull) -> None:
             return
     state,decision=_controller_artifact_state(api,pull,changed)
     if state=='completed':
+        if decision and _denied(api,pull,changed):
+            raise ProofError('bootstrap_disabled')
         if decision:
             return
         raise ProofError('bootstrap_required')

@@ -88,7 +88,8 @@ def apply(repo:Path,adapter:dict,*,environment:str,requested_target:str|None,app
  except Exception as restore_failure:reason=_safe_failure('restore-runtime-proof',restore_failure);_trace('runtime-proof','failed',phase='automatic-restore',reason=reason);raise ContractError(primary+'; '+reason) from restore_failure
  raise ContractError(primary+'; prior digests restored and redeployed')
 def _read_private(path:Path)->bytes:
- flags=os.O_RDONLY|getattr(os,'O_NOFOLLOW',0);fd=os.open(path,flags)
+ # Non-blocking open: a FIFO is refused by the regular-file check instead of waiting for a writer.
+ flags=os.O_RDONLY|os.O_NONBLOCK|getattr(os,'O_NOFOLLOW',0);fd=os.open(path,flags)
  try:
   info=os.fstat(fd)
   if not stat.S_ISREG(info.st_mode) or info.st_mode&0o077 or info.st_size>16*1024*1024:raise ContractError('restore artifact is not a bounded private regular file')

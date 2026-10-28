@@ -9,10 +9,12 @@ from .hooks import HookFailure,invoke,prove_source,request
 from .runtime_proof import parse_environment,prove as prove_runtime
 from .release_manifest import image_variables,release_kind,validate as validate_manifest
 from .execution import human
-from .operator_state import write as write_state,read as read_state
+from .operator_state import write_journal as write_state,read as read_state,require_resumable,resolved_scope,require_scope
 from .oras_registry import OrasRegistry
 from .target_pointers import pointer_set,promote,reconcile
 from .routed_content import declaration as content_declaration, verify as verify_content
+from .remote_config import _desired
+from .operator_abandon import ensure_resumable
 def _release_updates(adapter:dict,release_kind_name:str,manifest_path:Path,control_source_sha:str,artifact_source_sha:str|None=None)->dict[str,str]:
  artifact_source_sha=artifact_source_sha or control_source_sha
  if not FULL_SHA.fullmatch(control_source_sha) or not FULL_SHA.fullmatch(artifact_source_sha):raise ContractError('control or artifact source SHA is invalid')
@@ -59,7 +61,27 @@ def deploy(repo:Path,adapter:dict,*,environment:str,requested_target:str|None,
            approval_path:Path|None,profile_root:Path|None,release_kind:str,
            release_source_sha:str,manifest_path:Path,manifest_reference:str,
            expected_pointers_path:Path|None=None,state_path:Path|None=None,
-           restore_compose_path:Path|None=None,reconcile_pointers:bool=False,on_failure:str='stop')->dict:
+           restore_compose_path:Path|None=None,reconcile_pointers:bool=False,on_failure:str='stop',
+           desired_root:Path|None=None,config_source_sha:str|None=None,
+           config_snapshot_path:Path|None=None)->dict:
+ if state_path is not None:ensure_resumable(repo,state_path.parent)
+ state=read_state(state_path) if state_path and state_path.exists() else None
+ saved_scope=None
+ if state is not None:
+  require_resumable(state)
+  saved_scope=require_scope(adapter,state)
+  if saved_scope is not None and (environment!=saved_scope.get('environment')
+      or release_kind!=saved_scope.get('release_kind')
+      or requested_target not in {None,saved_scope.get('target')}):
+   raise ContractError('operation_scope_changed')
+ resuming=state is not None
+ if (desired_root is None)!=(config_source_sha is None) or (desired_root is None)!=(config_snapshot_path is None):
+  raise ContractError('configuration source and snapshot inputs must be supplied together')
+ if desired_root is not None:
+  if not human():raise ContractError('guarded configuration sync requires human mode')
+  config_cap=adapter['capabilities'].get('adw:deploy:config:apply',{})
+  if config_cap.get('status')!='supported' or environment not in config_cap.get('environments',[]):
+   raise ContractError('configuration apply is unsupported for environment')
  if on_failure not in {'stop','restore'}:raise ContractError('invalid failure policy')
  if (reconcile_pointers or on_failure=='restore') and not human():raise ContractError('operator recovery options require human mode')
  capability='adw:deploy:apply';cap=adapter['capabilities'][capability]
@@ -67,7 +89,7 @@ def deploy(repo:Path,adapter:dict,*,environment:str,requested_target:str|None,
   raise ContractError('deploy is unsupported for environment')
  source=prove_source(repo,adapter);group=adapter['targets'].get(environment)
  if not group:raise ContractError('environment has no target inventory')
- name=requested_target or group['default']
+ name=requested_target or (saved_scope or {}).get('target') or group['default']
  if name not in group['items']:raise ContractError('logical target is not allowlisted')
  target=group['items'][name]
  if target['mode']!='active':raise ContractError('target mode or provider is unsupported')
@@ -88,7 +110,6 @@ def deploy(repo:Path,adapter:dict,*,environment:str,requested_target:str|None,
  for pointer in pointers:
   if registry.resolve(pointer.source)!=pointer.source.split('@',1)[1]:
    raise ContractError('selected release or component is unavailable')
- state=read_state(state_path) if state_path and state_path.exists() else None
  selection={'environment':environment,'target':name,'release_kind':release_kind,'manifest_reference':manifest_reference,'source_sha':release_source_sha}
  if state is not None and state.get('selection')!=selection:
   raise ContractError('resume selection differs from recorded deployment')
@@ -114,6 +135,7 @@ def deploy(repo:Path,adapter:dict,*,environment:str,requested_target:str|None,
   state={'schema_version':'1.0.0','selection':selection,'phase':'selected','previous':current,
          'prior_rollback':{p.repository:registry.resolve(p.rollback) for p in pointers},
          'deployment_operation':'operation-'+secrets.token_hex(16)}
+  state['scope']=resolved_scope(adapter,release_kind,environment,name)
   if restore_digest is not None:state['restore_compose_sha256']=restore_digest
  def save(phase):
   state['phase']=phase
@@ -124,7 +146,29 @@ def deploy(repo:Path,adapter:dict,*,environment:str,requested_target:str|None,
  provider_env=provider.probe(capability)
  before=provider.snapshot()
  rollback_compose=restore_compose if restore_compose is not None else before.definition
- desired=provider.plan(updates,current=before)
+ config_options={}
+ config_identity=None
+ if desired_root is not None:
+  definition,required,allowed=_desired(provider,desired_root)
+  renderer=provider.configuration.render_definition
+  definition_bytes=renderer(definition) if renderer is not None else definition.read_bytes()
+  config_identity={'source_sha':config_source_sha,'definition_sha256':hashlib.sha256(definition_bytes).hexdigest(),
+                   'required':sorted(required),'allowed':sorted(allowed)}
+  if not FULL_SHA.fullmatch(config_source_sha or ''):raise ContractError('configuration source identity is invalid')
+  desired=provider.plan(updates,definition=definition_bytes,current=before)
+  config_options={'current':before,'required':required,'allowed':allowed,'snapshot_path':config_snapshot_path}
+  # A retry recovers the original provider snapshot, never the newly read state.
+  if config_snapshot_path is not None and config_snapshot_path.exists():
+   if config_snapshot_path.is_symlink() or not config_snapshot_path.is_file():raise ContractError('recorded configuration snapshot is invalid')
+   rollback_compose=config_snapshot_path.read_bytes()
+ else:
+  desired=provider.plan(updates,current=before)
+ if resuming and state.get('config_identity')!=config_identity:
+  raise ContractError('recorded configuration identity differs')
+ if config_identity is not None:
+  state['config_identity']=config_identity
+  if target['provider']=='dokploy' and not rollback_compose:
+   raise ContractError('recorded Compose snapshot is empty')
  identity=prove_runtime(adapter=adapter,release_kind_name=release_kind,manifest_path=manifest_path,
                        manifest_reference=manifest_reference,source_sha=release_source_sha,
                        observed_images=provider.readback(desired))
@@ -205,8 +249,10 @@ def deploy(repo:Path,adapter:dict,*,environment:str,requested_target:str|None,
    variable=next(key for key,value in image_variables(kind).items() if value==component)
    if digest and previous_values.get(variable)!=item['package']+'@'+digest and phase=='selected' and not restoring_current and state.get('previous_runtime')!='empty':
     raise ContractError('runtime and current pointers differ; reconcile before replacing the runtime')
-  if phase=='selected':save('selected')
-  try:provider.config_apply(desired,set(updates));save('configured')
+  if phase=='selected':
+   state['write_intent']={'provider_configuration':True,'owned_images':True}
+   save('selected')
+  try:provider.config_apply(desired,set(updates),**config_options);save('configured')
   except Exception:
    if state.get('previous_runtime')=='empty' and (not human() or on_failure=='restore'):
     restore_previous_runtime()

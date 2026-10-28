@@ -20,7 +20,8 @@ from .execution import human
 from .operator_credentials import clean_environment
 from .operator_registry import inspect, read_manifest, oras
 from .operator_sources import object_repository, resolve
-from .operator_state import locked, new_operation, read, write
+from .operator_state import locked, new_operation, read, write_journal as write, require_resumable, resolved_scope, require_scope
+from .operator_abandon import ensure_resumable
 from .oras_registry import OrasRegistry
 from .release_manifest import DIGEST_REF, release_kind, validate
 
@@ -250,9 +251,14 @@ def workflow(repo: Path, adapter, args):
         raise ContractError('publication workflows require human mode')
     directory = (args.operation_dir or new_operation(repo)).resolve()
     with locked(directory):
+        ensure_resumable(repo, directory)
         path = directory / 'operation.json'
         if path.exists():
             record = read(path)
+            require_resumable(record)
+            scope = require_scope(adapter, record)
+            if scope is not None:
+                record['target'] = scope.get('target')
             if args.command != 'workflow-resume' or record.get('workflow') not in {'publish', 'publish-deploy'}:
                 raise ContractError('existing publication operation requires workflow resume')
         else:
@@ -272,6 +278,9 @@ def workflow(repo: Path, adapter, args):
                       'environment': args.environment, 'target': args.target, 'remote': args.remote,
                       'sync_config': args.sync_config, 'config_ref': args.config_ref,
                       'verify': args.verify, 'phase': 'selected', 'results': {}}
+            record['scope'] = resolved_scope(adapter, args.kind,
+                args.environment if record['workflow'] == 'publish-deploy' else None, args.target)
+            record['target'] = record['scope'].get('target')
             record['on_failure'] = getattr(args, 'on_failure', 'stop')
             write(path, record)
         try:

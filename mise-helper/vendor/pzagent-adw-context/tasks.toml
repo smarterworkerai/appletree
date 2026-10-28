@@ -39,8 +39,8 @@ run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py config-
 ["adw:deploy:apply"]
 description = "Run an shared deployment transaction"
 dir = "{{config_root}}"
-usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--remote <remote>\"\nflag \"--ref <ref>\"\nflag \"--kind <value>\"\nflag \"--release-ref <value>\"\nflag \"--operation <value>\"\nflag \"--reconcile-pointers\"\nflag \"--on-failure <value>\"\nflag \"--restore-compose <path>\""
-run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py deploy-apply --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${usage_remote:+--remote "$usage_remote"} ${PZ_ADW_APPROVAL_FILE:+--approval-file "$PZ_ADW_APPROVAL_FILE"} ${usage_approval_file:+--approval-file "$usage_approval_file"} ${usage_ref:+--ref "$usage_ref"} ${usage_kind:+--kind "$usage_kind"} ${usage_release_ref:+--release-ref "$usage_release_ref"} ${usage_operation:+--operation "$usage_operation"} ${usage_reconcile_pointers:+--reconcile-pointers} ${usage_on_failure:+--on-failure "$usage_on_failure"} ${usage_restore_compose:+--restore-compose "$usage_restore_compose"} ${PZ_ADW_RELEASE_KIND:+--release-kind "$PZ_ADW_RELEASE_KIND"} ${PZ_ADW_RELEASE_SOURCE_SHA:+--release-source-sha "$PZ_ADW_RELEASE_SOURCE_SHA"} ${PZ_ADW_RELEASE_MANIFEST:+--release-manifest "$PZ_ADW_RELEASE_MANIFEST"} ${PZ_ADW_MANIFEST_REFERENCE:+--manifest-reference "$PZ_ADW_MANIFEST_REFERENCE"} ${PZ_ADW_EXPECTED_POINTERS:+--expected-pointers "$PZ_ADW_EXPECTED_POINTERS"}'
+usage = "arg \"<environment>\" help=\"Target environment\"\nflag \"--target <target>\"\nflag \"--env-file <path>\"\nflag \"--profile-root <path>\"\nflag \"--approval-file <path>\"\nflag \"--execution-mode <mode>\"\nflag \"--remote <remote>\"\nflag \"--ref <ref>\"\nflag \"--kind <value>\"\nflag \"--release-ref <value>\"\nflag \"--operation <value>\"\nflag \"--reconcile-pointers\"\nflag \"--on-failure <value>\"\nflag \"--restore-compose <path>\"\nflag \"--config-ref <ref>\"\nflag \"--config-snapshot <path>\""
+run = 'python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py deploy-apply --environment "$usage_environment" ${usage_target:+--target "$usage_target"} ${usage_env_file:+--env-file "$usage_env_file"} ${PZ_ADW_PROFILE_ROOT:+--profile-root "$PZ_ADW_PROFILE_ROOT"} ${usage_profile_root:+--profile-root "$usage_profile_root"} ${usage_execution_mode:+--execution-mode "$usage_execution_mode"} ${usage_remote:+--remote "$usage_remote"} ${PZ_ADW_APPROVAL_FILE:+--approval-file "$PZ_ADW_APPROVAL_FILE"} ${usage_approval_file:+--approval-file "$usage_approval_file"} ${usage_ref:+--ref "$usage_ref"} ${usage_kind:+--kind "$usage_kind"} ${usage_release_ref:+--release-ref "$usage_release_ref"} ${usage_operation:+--operation "$usage_operation"} ${usage_reconcile_pointers:+--reconcile-pointers} ${usage_on_failure:+--on-failure "$usage_on_failure"} ${usage_restore_compose:+--restore-compose "$usage_restore_compose"} ${usage_config_ref:+--config-ref "$usage_config_ref"} ${usage_config_snapshot:+--config-snapshot "$usage_config_snapshot"} ${PZ_ADW_RELEASE_KIND:+--release-kind "$PZ_ADW_RELEASE_KIND"} ${PZ_ADW_RELEASE_SOURCE_SHA:+--release-source-sha "$PZ_ADW_RELEASE_SOURCE_SHA"} ${PZ_ADW_RELEASE_MANIFEST:+--release-manifest "$PZ_ADW_RELEASE_MANIFEST"} ${PZ_ADW_MANIFEST_REFERENCE:+--manifest-reference "$PZ_ADW_MANIFEST_REFERENCE"} ${PZ_ADW_EXPECTED_POINTERS:+--expected-pointers "$PZ_ADW_EXPECTED_POINTERS"}'
 
 ["adw:deploy:status"]
 description = "Read redacted deployment status"
@@ -209,6 +209,16 @@ run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py workflo
 description = "Human-operated workflow-resume"
 dir = "{{config_root}}"
 run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py workflow-resume"
+
+["pz:workflow:doctor"]
+description = "Human-operated read-only workflow-doctor"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py workflow-doctor"
+
+["pz:workflow:abandon"]
+description = "Retire a locked operation tree without resuming provider writes (human only)"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py workflow-abandon"
 
 ["pz:quality:export"]
 description = "Export sealed verified component outputs (local-write)"

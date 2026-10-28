@@ -142,6 +142,9 @@ class KubernetesProvider:
         self.image_pull_secret: str | None = None
         self._diagnostic_secrets: tuple[bytes, ...] = ()
         self._diagnostic_state: dict | None = None
+        # Observation-only callers redirect kubectl's discovery cache and Helm's
+        # homes into private scratch they remove; None keeps the user's defaults.
+        self.cache_dir: Path | None = None
         release = self.binding.get('release', {})
         self.configuration = ProviderConfiguration(
             str(release.get('path', '')), str(binding.get('config_schema_path', '')),
@@ -162,8 +165,9 @@ class KubernetesProvider:
             raise ContractError('kubernetes_context_not_discovered')
         env = self._environment()
         env['KUBECONFIG'] = str(self.kubeconfig)
+        cache = ['--cache-dir', str(self.cache_dir)] if self.cache_dir is not None else []
         command = ['kubectl', '--context', self.context, '--namespace', self.namespace,
-                   '--request-timeout=30s', *arguments]
+                   '--request-timeout=30s', *cache, *arguments]
 
         def failed(reason, stderr=b''):
             values = (*arguments, self.context, self.namespace, str(self.kubeconfig),
@@ -329,6 +333,10 @@ class KubernetesProvider:
             raw = self._run(['kustomize', str(path), '--load-restrictor=LoadRestrictionsRootOnly'])
         else:
             env = self._environment()
+            if self.cache_dir is not None:
+                env.update({key: str(self.cache_dir / name) for key, name in (
+                    ('HELM_CACHE_HOME', 'helm-cache'), ('HELM_CONFIG_HOME', 'helm-config'),
+                    ('HELM_DATA_HOME', 'helm-data'))})
             try:
                 run = subprocess.run(['helm', 'template', self.target, str(path), '--namespace', self.namespace],
                                      env=env, capture_output=True, timeout=45)

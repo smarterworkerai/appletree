@@ -1,5 +1,126 @@
 # Migration notes
 
+## 0.17.0
+
+- **Signed provider releases (#181).** `modules/ci/release_signature.py` defines the
+  canonical release statement (identity, tag commit, bundle checksum and the
+  release's trusted paths), its SSH signature (`ssh-keygen -Y`, namespace
+  `pzagent-release`) and the consumer record `<project dir>/pzagent-context-release.json`.
+  `modules/ci/release_signers` pins the release key.
+- **Release signature decision owner (#181).** `modules/ci/release_signature.py` and
+  `modules/ci/release_signers` are appended to the trusted paths without changing
+  prior order; the declaration pins one fixed `ssh-keygen -Y` process boundary.
+  Adopting 0.17.0 under an older controller therefore needs one administrator
+  decision for the current fingerprint per affected consumer PR.
+- **Offline released-vendor approval (#181).** The default-branch controller approves
+  an exact signed release without `PZAGENT_PROVIDER_TOKEN`: it verifies the head's
+  `pzagent-context-release.json` against its own release key, requires the context
+  lock to bind it, and compares every changed trusted path's git blob SHA with the
+  blob the statement signs (workflows with their templates, the generic layer through
+  the signed generic pin). A verified
+  statement adds the release's own trusted paths to the scope, so a signed release
+  that adds trusted paths needs no comment once the consumer's default branch runs
+  0.17.0 or later. The token path remains a fallback in this release only.
+- **Live denial outranks automatic approval (#181).** An administrator's
+  `BOOTSTRAP_DISABLED <fingerprint>` for the exact revision now blocks a signed or
+  token released-vendor approval in the controller, and the gate and
+  `trusted_source` check it after an approving controller artifact, because the
+  comment-triggered controller run is never read by them. The released-vendor
+  message names the exact decline line.
+
+- **Producer and updater.** Releases fail closed without the signing key and
+  upload the exact signed statement plus SSH signature as two extra assets.
+  `adw:context:sync` verifies tagged release assets against the new bundle's
+  signers and binds version, source commit and bundle checksum before writing
+  the record next to the lock. Raw-SHA and unsigned older sources remove a stale
+  record. An existing record must bind to the lock; local development candidates
+  ignore it, and local integrity checks do not require a valid signature.
+- **First adoption.** Download the two signature assets outside the checkout and
+  pass `--release-statement PATH --release-signature PATH` to `pz:project:init`.
+  The initializer verifies and binds them before any scaffold write, or retains
+  a matching sync-created record. Offline unsigned fixtures are unchanged. The
+  independent greenfield launcher verifies signatures only after complete runtime
+  and immutable-source verification, in an isolated interpreter.
+- **Switch-over.** An installed updater older than 0.17.0 cannot fetch the signed
+  record. Commit the canonical repin, run the same sync again with the newly
+  installed updater, and commit its verified record before opening the PR.
+  The provider-token path remains a transition fallback until 0.17.1.
+- **Standing administrator pre-approval.** Effective with this release after the
+  prior release's repins are complete, agent posters follow the exact standing
+  rule in `policy.md` and the repository guidance: a non-author's approving
+  exact-head PR verdict, independent current fingerprint recomputation, only
+  the stated released-provider/promotion or consumer-manifest changes, and no
+  administrator denial. `BOOTSTRAP_DISABLED` and revocation stay human-only.
+  Adopt the rule in existing consumer `AGENTS.md` before this repin; project init
+  does not replace project-authored guidance. Unreleased provider code stays
+  local and is never pushed to a consumer.
+
+## 0.16.0
+
+- **Retirement decision owner (#176).** `modules.operator_abandon` now owns
+  journal retirement and the release of operation-specific retention roots.
+  Its trusted path is appended without changing prior order. The shared target
+  observation module and its status/content/probe dependencies remain observation
+  boundaries: the owner validates manifest/source/image identities, immutable
+  scope, evidence comparisons and coverage, and bounded operation-specific
+  effects. Doctor reports never authorize retirement. This trust expansion
+  requires a fresh administrator decision for each affected consumer PR.
+- **Explicit operation retirement (#176).** `pz:workflow:abandon --operation ID
+  --reason TEXT` locks and retires the complete linked journal tree without
+  resuming provider writes. Retired parents and directly addressed children
+  refuse resume before credentials/registry/provider access. An interrupted
+  retirement blocks the whole tree and is recoverable by repeating abandon.
+  The terminal contract is `cancelled` plus a bounded `reason_code`; successful
+  retention journals now record `phase=complete` as well as `status=ok`.
+- **Recovery roots remain protected (#176).** No-write retirement is offline.
+  Possible writes need current observations of running release identity,
+  configured owned images, tracked definition and required key names, plus a
+  stable pointer and an immutable matching scope. The retirement validator
+  compares the digests against a freshly verified current manifest and requires
+  operation-specific effect coverage. All-pass target checks cannot clear
+  unknown legacy scope, interrupted pointer stages or publication/settings/data
+  effects. Publication trees retain their roots; target parity does not prove
+  their registry effects.
+  `--acknowledge-unreconciled` cancels with `needs_reconcile=true`; repeat abandon
+  after repair. Explicit `--target-retired` requires a declared non-active
+  target. Retention revalidates the full linked terminal tree and receipt before
+  dropping its operation roots; unrelated roots and grace periods stay intact.
+- **Recorded scope and offline listing (#176).** New deployment/publication
+  journals bind repository, release kind, environment, resolved logical target
+  and a provider-binding fingerprint, with immutable `created_at` and refreshed
+  `updated_at`. Resume uses the recorded logical target and refuses provider
+  rebinding; it never switches a new journal to a later default. Raw bindings
+  are not persisted. Legacy scope/age stays unknown.
+  `pz:workflow:status --all` is a plain offline parent/child listing, without
+  recommendations or fabricated lock/age facts. `--superseded-by ID` on abandon
+  revalidates same immutable scope, recorded timestamps and a newer completed
+  deployment; supersession is never automatic.
+- **Guarded configuration writes (#175).** New `deploy-existing --sync-config`
+  operations keep configuration planning read-only and pass the immutable
+  configuration source and private snapshot to the nested deployment. The
+  deployment renders that definition and applies it together with owned images
+  only after rechecking current pointers and the previous runtime identity. A
+  pointer/runtime refusal preserves both providers' configuration, including
+  an active hotfix. The existing human-mode current-release restore is retained.
+  Pre-change operations retain their saved `config-apply` results and provider
+  snapshot/readback recovery; they are never converted to the new sequence.
+  The short check-to-write race remains accepted; this adds no remote CAS.
+  `adw:deploy:apply` accepts paired `--config-ref` and `--config-snapshot` options.
+  Guarded sync is human-only and also requires the configuration-apply capability
+  for that environment. Configuration identity is bound in both resume directions,
+  and the non-empty Dokploy restoration snapshot requirement remains enforced.
+- **Workflow doctor (#177).** New read-only `pz:workflow:doctor` reports open
+  operations (linked journal tree, write classification, scope, recorded
+  timestamps, lock state, source ancestry) and four independent target checks
+  (running identity, configured owned images, tracked definition, required key
+  names) with hotfix candidates and recommended next steps. It launches no
+  hooks and writes nothing; `--offline` uses journals and local Git only. Exit
+  0 healthy, 1 findings, 20 checks unknown or nothing in scope. The shared
+  observation module `modules/workflow_observation.py` is observation only and
+  not a trusted root.
+  `operator_home_operation_ambiguous` now points to the doctor. No trusted
+  path changes beyond the CLI dispatch in `pzagent_context.py`; no consumer action.
+
 ## 0.15.18
 
 - **Review state is not readable (#169).** The unused `live_pr._approval`

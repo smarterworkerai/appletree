@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,59 @@ from .common import ContractError, load_json, project_dir
 
 OPERATION_ID = re.compile(r'^[a-z][a-z0-9-]{0,40}-[0-9]{8}-[0-9a-f]{12}$')
 REPOSITORY = re.compile(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')
+TERMINAL_PHASES = {'complete', 'deprovisioned', 'retired', 'cancelled'}
+
+
+def timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+
+
+def terminal(record: dict) -> bool:
+    return record.get('phase') in TERMINAL_PHASES or record.get('status') in {'ok', 'cancelled'}
+
+
+def require_resumable(record: dict) -> None:
+    # Completed operations remain readable/idempotent. Retirement is irreversible.
+    if record.get('phase') in {'cancelled', 'retired', 'deprovisioned'} or record.get('status') == 'cancelled':
+        raise ContractError('operation_terminal_resume_refused')
+
+
+def resolved_scope(adapter: dict, kind: str, environment: str | None, target: str | None) -> dict:
+    """Capture immutable logical scope, hashing the binding instead of storing it."""
+    scope = {'repository': adapter['repository']['id'], 'release_kind': kind}
+    if environment is None:
+        return scope
+    group = adapter['targets'].get(environment)
+    name = target or (group or {}).get('default')
+    if not group or name not in group['items']:
+        raise ContractError('operation_scope_target_invalid')
+    item = group['items'][name]
+    binding = adapter['providers'][item['provider']]['bindings'][item['provider_binding']]
+    identity = {'provider': item['provider'], 'provider_binding': item['provider_binding'], 'binding': binding}
+    digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    return {**scope, 'environment': environment, 'target': name,
+            'provider': item['provider'], 'provider_binding': item['provider_binding'],
+            'binding_sha256': 'sha256:' + digest}
+
+
+def require_scope(adapter: dict, record: dict) -> dict | None:
+    """New journals cannot silently resume against a rebound provider or default."""
+    if 'scope' not in record:
+        return None  # Legacy identity is unknown, never reconstructed from today's defaults.
+    scope = record['scope']
+    selection = record.get('selection') if isinstance(record.get('selection'), dict) else {}
+    if not isinstance(scope, dict):
+        raise ContractError('operation_scope_changed')
+    kind = record.get('kind', selection.get('release_kind'))
+    environment = record.get('environment', selection.get('environment'))
+    target = scope.get('target')
+    try:
+        expected = resolved_scope(adapter, kind, environment, target)
+    except (ContractError, KeyError, TypeError):
+        raise ContractError('operation_scope_changed') from None
+    if scope != expected or record.get('target', selection.get('target')) not in {None, target}:
+        raise ContractError('operation_scope_changed')
+    return scope
 
 
 def private_directory(directory: Path) -> None:
@@ -24,6 +78,30 @@ def private_directory(directory: Path) -> None:
         missing.append(candidate)
     for candidate in reversed(missing):
         candidate.mkdir(mode=0o700, exist_ok=True)
+
+
+def write_journal(path: Path, value: dict) -> None:
+    """Stamp operator journals without changing closed provider/evidence schemas."""
+    if path.is_symlink():
+        raise ContractError('operation state must not be a symlink')
+    operator_journal = (value.get('workflow') in {'deploy-existing', 'publish', 'publish-deploy', 'retention', 'source-line'}
+                        or (path.name == 'deployment.json' and isinstance(value.get('selection'), dict)))
+    if operator_journal and path.name in {'operation.json', 'deployment.json'} and value.get('schema_version') == '1.0.0':
+        now = timestamp()
+        if not path.exists():
+            value.setdefault('created_at', now)
+        elif path.is_file():
+            previous = read(path)
+            # These identities may never be repaired from today's adapter or clock.
+            for key in ('scope', 'created_at'):
+                if key in previous:
+                    if key in value and value[key] != previous[key]:
+                        raise ContractError('operation_immutable_identity_changed')
+                    value[key] = previous[key]
+                elif key in value:
+                    raise ContractError('operation_legacy_identity_unknown')
+        value['updated_at'] = now
+    write(path, value)
 
 
 def write(path: Path, value: dict) -> None:

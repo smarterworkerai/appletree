@@ -25,6 +25,7 @@ import tarfile
 
 from .github_api import ApiError, GitHub, project_files
 from .quality_proof import ProofError
+from . import release_signature
 from ..common import PROJECT_DIRECTORIES
 
 PROVIDER = 'smarterworkerai/pzagent-adw-context'
@@ -187,9 +188,15 @@ def released(repository, version):
     launcher = repository == PROVIDER and tuple(int(part) for part in version.split('.')) >= (0, 15, 2)
     artifacts = (name, 'pzagent-greenfield') if launcher else (name,)
     assets = release.get('assets')
-    require(isinstance(assets, list) and len(assets) == len(artifacts) + 1
+    expected = {*artifacts, 'SHA256SUMS'}
+    # A signed provider release (#181) adds its self-authenticating statement and signature,
+    # outside SHA256SUMS; the greenfield decision neither needs nor trusts them.
+    signed = expected | {release_signature.STATEMENT_ASSET, release_signature.SIGNATURE_ASSET}
+    require(isinstance(assets, list)
             and all(isinstance(a, dict) and isinstance(a.get('name'), str) for a in assets)
-            and {a['name'] for a in assets} == {*artifacts, 'SHA256SUMS'}, 'greenfield_release_assets_invalid')
+            and len({a['name'] for a in assets}) == len(assets)
+            and ({a['name'] for a in assets} == expected
+                 or (launcher and {a['name'] for a in assets} == signed)), 'greenfield_release_assets_invalid')
     payloads = {}
     for wanted in (*artifacts, 'SHA256SUMS'):
         matches = [a for a in assets if isinstance(a, dict) and a.get('name') == wanted]

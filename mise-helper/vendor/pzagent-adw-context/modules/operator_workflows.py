@@ -9,7 +9,8 @@ from .common import ContractError
 from .operator_credentials import clean_environment, DOKPLOY, SSH, REGISTRY, KUBE
 from .operator_registry import inspect
 from .operator_sources import resolve
-from .operator_state import locked, new_operation, read, write
+from .operator_state import locked, new_operation, read, write_journal as write, require_resumable, resolved_scope, require_scope
+from .operator_abandon import ensure_resumable
 from .oras_registry import OrasRegistry
 
 
@@ -42,9 +43,14 @@ def deploy_existing(repo: Path, adapter: dict, args) -> dict:
     directory = args.operation_dir or new_operation(repo, 'deploy')
     directory = directory.resolve()
     with locked(directory):
+        ensure_resumable(repo, directory)
         path = directory / 'operation.json'
         if path.exists():
             record = read(path)
+            require_resumable(record)
+            scope = require_scope(adapter, record)
+            if scope is not None:
+                record['target'] = scope.get('target')
             if args.command != 'workflow-resume':
                 raise ContractError('operation already exists; use workflow resume or start a new operation')
             if record.get('workflow') != 'deploy-existing':
@@ -57,9 +63,13 @@ def deploy_existing(repo: Path, adapter: dict, args) -> dict:
             record = {'schema_version': '1.0.0', 'workflow': 'deploy-existing',
                       'kind': args.kind, 'environment': args.environment, 'target': args.target,
                       'source_sha': selected['source_sha'], 'release_reference': selected['release_reference'],
-                      'sync_config': args.sync_config, 'config_ref': args.config_ref or selected['source_sha'],
+                      'sync_config': args.sync_config,
+                      'config_ref': resolve(repo, args.config_ref, args.remote) if args.config_ref else selected['source_sha'],
+                      'guarded_config': True,
                       'remote': args.remote,
                       'verify': args.verify, 'phase': 'selected', 'results': {}}
+            record['scope'] = resolved_scope(adapter, args.kind, args.environment, args.target)
+            record['target'] = record['scope']['target']
             record['on_failure'] = getattr(args, 'on_failure', 'stop')
             write(path, record)
         if not selected['available']:
@@ -89,13 +99,23 @@ def deploy_existing(repo: Path, adapter: dict, args) -> dict:
                 if record.get('remote', 'origin') != 'origin':
                     config_arguments += ['--remote', record['remote']]
                 run('config-plan', 'adw:deploy:config:plan', config_arguments)
-                run('config-apply', 'adw:deploy:config:apply', [*config_arguments,
-                    '--snapshot-path', str(directory / 'previous-compose.yml')])
+                # Legacy operations retain their snapshot/readback recovery.
+                # New operations defer the write to the guarded nested deploy.
+                if not record.get('guarded_config'):
+                    run('config-apply', 'adw:deploy:config:apply', [*config_arguments,
+                        '--snapshot-path', str(directory / 'previous-compose.yml')])
             # Re-enter a deployment with its journal when resuming; it reads back
             # uncertain provider writes and never blindly resubmits a deployment.
             recovery = ['--reconcile-pointers'] if getattr(args, 'reconcile_pointers', False) else []
-            config_restore = (['--restore-compose', str(directory / 'previous-compose.yml')]
-                              if record['sync_config'] else [])
+            config_restore = []
+            if record['sync_config']:
+                if record.get('guarded_config'):
+                    config_restore = ['--config-ref', record['config_ref'],
+                                      '--config-snapshot', str(directory / 'previous-compose.yml')]
+                    if record.get('remote', 'origin') != 'origin':
+                        config_restore += ['--remote', record['remote']]
+                else:
+                    config_restore = ['--restore-compose', str(directory / 'previous-compose.yml')]
             if 'deploy_operation' not in record:
                 # The nested deployment is its own addressable operation, recorded before it starts.
                 record['deploy_operation'] = new_operation(repo, 'deploy-apply').name

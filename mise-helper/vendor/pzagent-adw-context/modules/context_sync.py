@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .bundle import validate_bundle
-from .ci import generic_release
+from .ci import generic_release, release_signature
 from .ci.quality_proof import ProofError
 from .common import ContractError, FULL_SHA, project_dir, ensure_contained, load_json, sha256_file
 
@@ -28,6 +28,9 @@ ENGINE_SCHEMA = re.compile(r'^SCHEMA_VERSION\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*
 MAX_ENGINE_BYTES = 1_048_576
 MANIFEST = Path("adw-task-manifest.json")
 LOCK = Path("pzagent-context-lock.json")
+RELEASE_STATEMENT = "pzagent-release-statement.json"
+RELEASE_SIGNATURE = RELEASE_STATEMENT + ".sig"
+MAX_RELEASE_ASSET = 1_048_576
 # The bundle names the agentic-delivery release it was tested with in a separate inventory file
 # (generic_release.GENERIC_PIN), not a bundle.json key: installed updaters validate bundle.json as
 # a closed document, so a new key there would make every older consumer refuse the sync.
@@ -46,7 +49,8 @@ def current_branch(repo: Path) -> str:
 def managed_clean(repo: Path) -> None:
     result = subprocess.run(
         ["git", "status", "--porcelain", "--", str(VENDOR), str(GENERIC_ENGINE.parent),
-         str(project_dir(repo).relative_to(repo) / MANIFEST), str(project_dir(repo).relative_to(repo) / LOCK)],
+         str(project_dir(repo).relative_to(repo) / MANIFEST), str(project_dir(repo).relative_to(repo) / LOCK),
+         str(project_dir(repo).relative_to(repo) / release_signature.RECORD)],
         cwd=repo, text=True, capture_output=True, check=False,
     )
     if result.returncode or result.stdout.strip():
@@ -437,6 +441,14 @@ def check_consumer(
     descriptor_checksum = sha256_file(repo / VENDOR / "bundle.json")
     if lock["bundle_sha256"] != descriptor_checksum:
         raise ContractError("bundle descriptor differs from the trusted context lock")
+    if candidate is None:
+        release_path = project_dir(repo) / release_signature.RECORD
+        if release_path.exists() or release_path.is_symlink():
+            if (release_path.is_symlink() or not release_path.is_file()
+                    or release_path.stat().st_size > MAX_RELEASE_ASSET):
+                raise ContractError("release record is unsafe")
+            validate_release_record(release_path.read_bytes(), repo / VENDOR, lock,
+                                    verify_signature=False)
     if candidate is not None:
         if (candidate.get('schema_version') != '1.0.0' or candidate.get('kind') != 'local-development'
                 or candidate.get('source_ref') != lock['source_ref']
@@ -614,6 +626,69 @@ def _write_generic(target: Path, files: dict[str, tuple[bytes, str]]) -> None:
         path.chmod(0o755 if mode == "100755" else 0o644)
 
 
+def validate_release_record(data: bytes, bundle_root: Path, lock: dict[str, Any],
+                            *, verify_signature: bool = True) -> dict[str, Any]:
+    """Bind carried provenance to the lock; local checks do not grant CI authority."""
+    try:
+        raw, signature = release_signature.load_record(data)
+        statement = (release_signature.verify(raw, signature, bundle_root / "modules/ci/release_signers")
+                     if verify_signature else release_signature.parse_statement(raw))
+    except (ProofError, UnicodeError):
+        raise ContractError("release record is invalid") from None
+    if (statement["repository"] != REPOSITORY
+            or statement["version"] != lock["package_version"]
+            or statement["commit"] != lock["source_ref"]
+            or statement["bundle_sha256"] != lock["bundle_sha256"]):
+        raise ContractError("release record differs from context lock")
+    return (release_signature.record(raw, signature) if verify_signature else
+            {"schema_version": "1.0.0", "statement": raw.decode("utf-8"), "signature": signature})
+
+
+def fetch_release_record(source: str, bundle_root: Path, lock: dict[str, Any]) -> dict[str, Any] | None:
+    """Operator-only release I/O; unsigned old releases and raw SHAs carry no record."""
+    if not TAG.fullmatch(source):
+        return None
+    result = subprocess.run(["gh", "release", "view", source, "--repo", REPOSITORY,
+                             "--json", "tagName,isDraft,isPrerelease,assets"],
+                            capture_output=True, text=True, check=False)
+    if result.returncode:
+        raise ContractError("release signature metadata lookup failed")
+    try:
+        metadata = json.loads(result.stdout)
+        if (not isinstance(metadata, dict) or metadata.get("tagName") != source
+                or metadata.get("isDraft") is not False or metadata.get("isPrerelease") is not False
+                or not isinstance(metadata.get("assets"), list)):
+            raise ValueError
+        names = [item["name"] for item in metadata["assets"]]
+        if not all(isinstance(name, str) for name in names):
+            raise ValueError
+    except (ValueError, KeyError, TypeError):
+        raise ContractError("release signature metadata is invalid") from None
+    if RELEASE_STATEMENT not in names and RELEASE_SIGNATURE not in names:
+        return None
+    if names.count(RELEASE_STATEMENT) != 1 or names.count(RELEASE_SIGNATURE) != 1:
+        raise ContractError("release signature assets are incomplete or ambiguous")
+    with tempfile.TemporaryDirectory(prefix="pzagent-release-signature-") as raw_dir:
+        directory = Path(raw_dir)
+        downloaded = subprocess.run(["gh", "release", "download", source, "--repo", REPOSITORY,
+                                     "--pattern", RELEASE_STATEMENT, "--pattern", RELEASE_SIGNATURE,
+                                     "--dir", str(directory)], capture_output=True, check=False)
+        if downloaded.returncode:
+            raise ContractError("release signature download failed")
+        paths = [directory / name for name in (RELEASE_STATEMENT, RELEASE_SIGNATURE)]
+        if any(path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_RELEASE_ASSET
+               for path in paths):
+            raise ContractError("release signature asset is missing or unsafe")
+        try:
+            record = release_signature.record(paths[0].read_bytes(), paths[1].read_text(encoding="utf-8"))
+        except (UnicodeError, ProofError):
+            raise ContractError("release signature asset is invalid") from None
+        validated = validate_release_record(json.dumps(record).encode(), bundle_root, lock)
+        if source != "v" + lock["package_version"]:
+            raise ContractError("release tag differs from context lock")
+        return validated
+
+
 def _stage_consumer(
     repo: Path, staged: Path, bundle_root: Path, manifest: dict[str, Any],
     lock: dict[str, Any], generic_files: dict[str, tuple[bytes, str]] | None = None,
@@ -725,8 +800,12 @@ def sync(
             "package_version": descriptor["version"],
             "bundle_sha256": bundle_sha256,
         }
+        release_record = fetch_release_record(source, bundle_root, lock)
         staged = temp / "consumer"
         _stage_consumer(repo, staged, bundle_root, manifest, lock, generic_files)
+        if release_record is not None:
+            (project_dir(staged) / release_signature.RECORD).write_text(
+                json.dumps(release_record, indent=2, sort_keys=True) + "\n")
         check_consumer(staged, mise_version=mise_version)
 
         if (repo / VENDOR).exists():
@@ -739,6 +818,11 @@ def sync(
             shutil.copytree(staged / GENERIC_ENGINE.parent, repo / GENERIC_ENGINE.parent)
         shutil.copy2(project_dir(staged) / MANIFEST, project_dir(repo) / MANIFEST)
         shutil.copy2(project_dir(staged) / LOCK, project_dir(repo) / LOCK)
+        release_path = project_dir(repo) / release_signature.RECORD
+        if release_record is None:
+            release_path.unlink(missing_ok=True)
+        else:
+            shutil.copy2(project_dir(staged) / release_signature.RECORD, release_path)
     result = check_consumer(repo, mise_version=mise_version)
     from .workflows_sync import sync as sync_workflows
     sync_workflows(repo)

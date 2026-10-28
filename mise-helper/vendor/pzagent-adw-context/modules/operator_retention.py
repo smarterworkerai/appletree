@@ -13,9 +13,10 @@ from .execution import human
 from .providers import bind, binding_for
 from .operator_github import api, pages
 from .operator_registry import read_manifest
-from .operator_state import journals, locked, new_operation, read, write
+from .operator_state import journals, locked, new_operation, read, write_journal as write
 from .release_manifest import release_kind, validate
 from .retention import Version, candidates
+from .operator_abandon import retirement_releases
 
 
 MAX_OPERATION_JOURNALS = 2048
@@ -76,7 +77,11 @@ def _active_operation_roots(repo, kind_name, versions):
                     or (workflow is None and name != 'deployment.json')):
                 continue
             status, phase = record.get('status'), record.get('phase')
-            if status == 'ok' or (phase == 'complete' and status in {None, 'ok'}):
+            if phase == 'cancelled' or status == 'cancelled' or record.get('retirement'):
+                if retirement_releases(base, path, record):
+                    continue
+            elif (not record.get('needs_reconcile') and not record.get('retirement_pending')
+                  and (status == 'ok' or (phase == 'complete' and status is None))):
                 continue
             declared_kinds = {child for key, child in _walk_values(record)
                               if key in {'kind', 'release_kind'} and isinstance(child, str)}
@@ -184,6 +189,9 @@ def run(repo, adapter, args):
     directory = (args.operation_dir or new_operation(repo)).resolve()
     with locked(directory):
         previous = read(directory / 'operation.json') if (directory / 'operation.json').exists() else None
+        if previous:
+            from .operator_state import require_resumable
+            require_resumable(previous)
         if previous and (previous.get('workflow') != 'retention' or previous.get('kind') != args.kind):
             raise ContractError('retention operation selection differs')
         if previous and previous.get('status') == 'ok':
@@ -245,5 +253,5 @@ def run(repo, adapter, args):
                 else:
                     raise ContractError('retention deletion readback still present')
                 record['deleted'].append(identifier); write(directory / 'operation.json', record)
-            record['status'] = 'ok'; write(directory / 'operation.json', record)
+            record['status'] = 'ok'; record['phase'] = 'complete'; write(directory / 'operation.json', record)
         return record
