@@ -11,3 +11,9 @@ kubeconfig, actual probe URL values and credentials belong to the operator
 profile, never to these files. The Kubernetes provider rejects cluster-scoped
 objects and Secret manifests; supply external Secrets through the separately
 approved provisioning scope.
+
+`deploy/k8s/.env.<environment>.example` lists only the application secret
+source key names for that environment, with empty values. The maintainer fills a
+private `.env.<environment>` copy and passes it to `pz:provider:provision` with
+`--env-file`, which creates the target's Secrets from it on top of
+`.env.deploy`.

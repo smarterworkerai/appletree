@@ -1,5 +1,44 @@
 # Migration notes
 
+## 0.15.18
+
+- **Review state is not readable (#169).** The unused `live_pr._approval`
+  reader is removed, and the CI GitHub transport no longer allowlists
+  `pulls/{n}/reviews`. A plain `APPROVED` review never counted as authority
+  (every pull record carries no reviewed head, and the quality proof ignores
+  review state); now trusted CI code cannot fetch it either. A guard test
+  refuses review paths, `APPROVED` literals and reviewed heads in trusted CI
+  modules. Approvals stay as `policy.md` states: the operator in the session,
+  or a maintainer/admin `role_name`. Trusted paths changed (`modules/ci/live_pr.py`,
+  `modules/ci/github_api.py`) without expanding `TRUSTED_PATHS`.
+- **Per-environment secret files for Kubernetes (#172).** `--env-file PATH` now
+  adds to `.env.deploy` instead of replacing it. The layers are `.env.deploy`,
+  then the process environment, then the explicit file, each overriding the
+  one before. A repeated key is noted by name on stderr. `.env.deploy` keeps
+  operator credentials, and one private `.env.<environment>` per environment
+  holds its secrets. `pz:provider:provision -- ENV --target <kube-target>
+  --env-file .env.<environment>` creates that target's Secrets from it, so the
+  same `{env: KEY}` source carries each environment's own value. Move
+  application secret source keys out of `.env.deploy` into those files.
+  Precedence change: an explicit `--env-file` now beats an exported value of
+  the same key, and an older full-replacement env file still works but gains
+  `.env.deploy` underneath. Rehearsal refusal checks set
+  `PZ_ADW_CREDENTIAL_FREE=1`, which loads no credentials from any layer.
+  `pz:project:init --provider kubernetes` now writes a commented
+  `deploy/k8s/.env.<environment>.example` for secret source keys, and moves
+  the probe base keys to a new `.env.deploy.example`. Existing consumers keep
+  their files; do not rerun init over them.
+
+- **Read-only Dokploy server inventory (#170).** `pz:provider:servers` lists
+  registered names for first provisioning, including `serverbox-<machine>` names.
+  Add `ENV --target TARGET` to locate the server of a declared, marker-owned
+  Compose. The task reads `compose.one` for placement and refuses ambiguous,
+  malformed, unregistered or foreign resources. Local manager placement is
+  explicit. Names appear only in operator stdout; persisted receipts contain
+  counts and logical target facts, never names, remote IDs, endpoints or values.
+  The selected operator home governs both the profile and the receipt location.
+  CI refuses before credentials. This observation grants no mutation authority.
+
 ## 0.15.17
 
 - **Script-mode Dokploy hooks (#167).** `hooks.dispatcher.command: bundle:dokploy`

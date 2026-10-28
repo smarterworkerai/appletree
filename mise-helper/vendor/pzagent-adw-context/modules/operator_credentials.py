@@ -19,6 +19,7 @@ CLOUDFLARE = {'CF_DNS_API_TOKEN'}
 CLUSTER_ONLY = {'ACME_EMAIL', 'PZ_ADW_K3D_BIND_ADDRESS'}
 BOOTSTRAP = CLOUDFLARE | CLUSTER_ONLY | {'GHCR_USERNAME', 'GHCR_PULL_TOKEN'}
 KEYS = DOKPLOY | REGISTRY | SSH | KUBE | BOOTSTRAP
+CREDENTIAL_FREE = 'PZ_ADW_CREDENTIAL_FREE'
 
 
 CLUSTER_SEED = Path('infra/k8s/cluster-profile.json')
@@ -205,14 +206,30 @@ def dotenv(path: Path, *, required: bool = False) -> dict[str, str]:
 
 def resolve(repo: Path, *, env_file: Path | None = None, mode: str = 'human',
             environ: dict[str, str] | None = None, profile_root: Path | None = None) -> dict[str, str]:
+    """Layer human operator inputs: `.env.deploy`, then the environment, then `--env-file` (#172).
+
+    The explicit file, for example `.env.pr-preview`, adds one environment's secrets on top of
+    the operator credentials in `.env.deploy`, so the same key name can carry a different value
+    for each target. `PZ_ADW_CREDENTIAL_FREE=1` loads no credentials at all, neither from files
+    nor from the environment (rehearsal refusal checks).
+    """
     parent = dict(os.environ if environ is None else environ)
     if mode == 'ci' and env_file is not None:
         raise ContractError('CI does not accept a deployment environment file')
-    values = dotenv(env_file if env_file is not None else repo / '.env.deploy',
-                    required=env_file is not None) if mode == 'human' else {}
-    result = {key: parent.get(key, values.get(key, '')) for key in KEYS | bootstrap_keys(profile_root, parent)}
+    free = parent.get(CREDENTIAL_FREE) == '1'
+    files = mode == 'human' and not free
+    # The explicit file first: a missing one refuses before any file is read.
+    explicit = dotenv(env_file, required=True) if files and env_file is not None else {}
+    base = dotenv(repo / '.env.deploy') if files else {}
+    if explicit and env_file.resolve() != (repo / '.env.deploy').resolve():
+        shadowed = sorted(set(base) & set(explicit))
+        if shadowed:
+            print(f'NOTE: {env_file.name} overrides .env.deploy for ' + ', '.join(shadowed), file=sys.stderr)
+    layers = () if free else (explicit, parent, base)
+    result = {key: next((layer[key] for layer in layers if key in layer), '')
+              for key in KEYS | bootstrap_keys(profile_root, parent)}
     for group in GROUPS:
-        layer = parent if any(key in parent for key in group) else values
+        layer = next((layer for layer in layers if any(key in layer for key in group)), {})
         selected = {layer[key] for key in group if layer.get(key)}
         if len(selected) > 1:
             raise ContractError('conflicting credential aliases: ' + ', '.join(group))

@@ -79,7 +79,7 @@ NUM = r'[1-9][0-9]*'
 BRANCH = r'[A-Za-z0-9._/-]+'
 PATHS = tuple(re.compile('^' + s + '$') for s in (
     r'',  # Live repository metadata, including the actual default branch.
-    rf'pulls/{NUM}', rf'pulls/{NUM}/reviews', rf'pulls/{NUM}/commits',
+    rf'pulls/{NUM}', rf'pulls/{NUM}/commits',
     rf'commits/{SHA}', rf'git/commits/{SHA}', rf'git/trees/{SHA}\?recursive=1', rf'commits/{SHA}/pulls',
     rf'commits/{SHA}/check-runs', rf'check-runs/{NUM}',
     rf'actions/runs/{NUM}', rf'actions/jobs/{NUM}', rf'actions/runs/{NUM}/attempts/{NUM}',
@@ -149,7 +149,7 @@ class GitHub:
             raise ApiError('response_malformed', detail='malformed') from None
 
     def list(self, path: str, *, limit: int = 300) -> list[dict]:
-        if path not in {'pulls',} and not re.fullmatch(rf'pulls/{NUM}/reviews|pulls/{NUM}/commits|issues/{NUM}/comments|commits/{SHA}/pulls', path):
+        if path not in {'pulls',} and not re.fullmatch(rf'pulls/{NUM}/commits|issues/{NUM}/comments|commits/{SHA}/pulls', path):
             raise ApiError('list_path_not_allowlisted')
         if type(limit) is not int or not 1 <= limit <= 300:
             raise ApiError('pagination_limit')

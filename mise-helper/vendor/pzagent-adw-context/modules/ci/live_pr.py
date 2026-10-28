@@ -27,23 +27,6 @@ def _field(record, *keys):
         raise ProofError('live_response_invalid') from None
 
 
-def _approval(api: GitHub, number: int, head: str, author: str) -> str | None:
-    reviews=api.list(f'pulls/{number}/reviews')
-    effective={}
-    for review in reviews:
-        actor=_field(review,'user','login')
-        state=review.get('state')
-        if not isinstance(actor,str) or state not in ('APPROVED','CHANGES_REQUESTED','DISMISSED'):
-            continue
-        effective[actor]=(state,review.get('commit_id'))
-    if any(state=='CHANGES_REQUESTED' for state,commit in effective.values()):
-        return None
-    if any(actor!=author and state=='APPROVED' and commit==head
-           for actor,(state,commit) in effective.items()):
-        return head
-    return None
-
-
 def read_pr(api: GitHub, number: int, *, contract_ref: str) -> tuple[Pull, Revision]:
     if type(number) is not int or number<1 or not FULL_SHA.fullmatch(contract_ref):
         raise ProofError('request_invalid')

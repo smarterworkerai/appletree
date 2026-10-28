@@ -1,0 +1,11 @@
+# Private operator inputs: the maintainer copies to .env.deploy (mode 0600).
+# Fill missing values privately; never commit them. Application secrets go in
+# .env.<environment> (see deploy/k8s/.env.<environment>.example), not here.
+# Human-mode tasks read supported credential keys automatically.
+GITHUB_TOKEN=
+# Optional registry credential:
+REGISTRY_TOKEN=
+# Export probe origins explicitly or put them in the private profile/probes.json;
+# automatic credential loading does not import these keys. Rename PROJECT_* before
+# first publication.
+@PROBE_KEYS@

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import ContractError
-from .operator_credentials import KEYS
+from .operator_credentials import CREDENTIAL_FREE, KEYS
 from .release_manifest import DIGEST_REF
 
 REFUSAL_SECONDS = 30
@@ -98,6 +98,8 @@ class Rehearsal:
             if not credentials:
                 for key in KEYS:
                     environment.pop(key, None)
+                # --env-file layers on .env.deploy (#172); credential-free mode reads no file at all.
+                environment[CREDENTIAL_FREE] = "1"
                 command += ["--env-file", empty.name]
             environment.update(env or {})
             started = time.monotonic()

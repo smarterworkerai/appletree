@@ -42,6 +42,11 @@ lines in the target Compose page’s Environment tab in the Dokploy UI, then sav
 block or overwrite rotated values from a stale copy. Omit image keys from
 private files and pasted entries; deployment owns them. Both private file types
 are mode 0600. Target files are not automatically loaded or uploaded.
+For Kubernetes targets, the agent names secret source keys in
+`deploy/k8s/.env.<environment>.example` and the private
+`kubernetes-provisioning.json`. The maintainer fills `.env.<environment>` and
+passes it with `--env-file` to `pz:provider:provision`, which creates that
+target's Secrets from it on top of `.env.deploy`.
 Supported credential keys load automatically; arbitrary
 probe/server selectors require explicit export, with probe origins alternatively
 in private `profile/probes.json`. Consult the installed Dokploy bootstrap reference

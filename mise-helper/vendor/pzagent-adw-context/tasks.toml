@@ -135,6 +135,11 @@ description = "Approval-bound target pointer handover with CAS and a resumable j
 dir = "{{config_root}}"
 run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py release-pointers-handover"
 
+["pz:provider:servers"]
+description = "Read-only registered Dokploy server names and the placement of an owned target"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py provider-servers"
+
 ["pz:provider:provision"]
 description = "Provision one declared Dokploy or Kubernetes target with private ownership and redacted receipts"
 dir = "{{config_root}}"

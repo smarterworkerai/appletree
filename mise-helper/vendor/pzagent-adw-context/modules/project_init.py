@@ -217,7 +217,7 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
             files[overlay + '/kustomization.yaml'] = document({
                 'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization',
                 'namespace': namespace, 'resources': ['../../base']})
-            files['deploy/k8s/.env.' + environment + '.example'] = key + '=\n'
+            files['deploy/k8s/.env.' + environment + '.example'] = (templates / 'providers/kubernetes/env.example').read_text()
             continue
         adapter['targets'][environment] = {'default': None, 'items': {
             environment + '-dokploy': {'mode': 'shadow', 'provider': 'dokploy', 'provider_binding': binding}}}
@@ -231,8 +231,8 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
         files[compose] = (templates / 'providers/dokploy/compose.yml').read_text().replace('@SERVICES@', services)
         files['infra/dokploy/.env.' + environment + '.example'] = (templates / 'providers/dokploy/env.example').read_text().replace('@KEYS@', ''.join(key + '=\n' for key in image_keys.values()))
         files[key_schema] = document({'keys': list(image_keys.values()), 'optional_keys': []})
-    if args.provider == 'dokploy':
-        files['.env.deploy.example'] = (templates / 'providers/dokploy/operator-env.example').read_text().replace(
+    if args.provider in {'dokploy', 'kubernetes'}:
+        files['.env.deploy.example'] = (templates / 'providers' / args.provider / 'operator-env.example').read_text().replace(
             '@PROBE_KEYS@', ''.join('PROJECT_' + environment.upper().replace('-', '_') + '_BASE_URL=\n'
                                    for environment in args.environments))
     if args.provider == 'kubernetes':

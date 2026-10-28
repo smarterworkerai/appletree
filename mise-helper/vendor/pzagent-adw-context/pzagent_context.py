@@ -139,6 +139,11 @@ def parser() -> argparse.ArgumentParser:
     restore.add_argument("--approval-file", type=Path, required=True)
     restore.add_argument("--profile-root", type=Path, required=True)
     restore.add_argument("--artifact", type=Path, required=True)
+    servers = sub.add_parser('provider-servers')
+    servers.add_argument('--repo-root', type=Path, default=Path('.'))
+    servers.add_argument('--profile-root', type=Path)
+    servers.add_argument('environment', nargs='?')
+    servers.add_argument('--target')
     for name in ('provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
                  'provider-journal-rebuild'):
         lifecycle = sub.add_parser(name)
@@ -364,6 +369,12 @@ def _main(args: argparse.Namespace) -> int:
                     approve_operation_digest=args.approve_operation_digest, cluster_retired=args.cluster_retired)
                 from modules.task_evidence import record_operator
                 record_operator(args.operation_dir, result)
+        elif args.command == 'provider-servers':
+            from modules.dokploy_inventory import servers
+            repo = args.repo_root.resolve()
+            result = servers(repo, load_adapter(project_dir(repo) / 'pzagent-adapter.json'),
+                environment=args.environment, target=args.target, profile_root=args.profile_root,
+                operation_dir=new_operation(repo, 'servers'))
         elif args.command in {'provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
                               'provider-journal-rebuild'}:
             from modules import provider_lifecycle as lifecycle
@@ -794,7 +805,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     try:
         with ExitStack() as stack:
             stack.enter_context(execution(args.execution_mode))
-            if args.command in {'provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
+            if args.command in {'provider-servers', 'provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
                                 'provider-journal-rebuild', 'release-pointers-retire'} and args.execution_mode != 'human':
                 raise ContractError('provider_lifecycle_operator_only')
             if args.command.startswith('workflow-') and args.execution_mode != 'human':
@@ -832,6 +843,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.command == 'hotfix-apply' and args.transport == 'registry':
                 registry_commands.add('hotfix-apply')
             allowed = set() if args.command == 'workflow-status' else DOKPLOY | SSH | KUBE
+            if args.command == 'provider-servers':
+                allowed = DOKPLOY | {'PZ_ADW_PROFILE_ROOT'}
             if args.command == 'provider-provision':
                 adapter = load_adapter(project_dir(args.repo_root.resolve()) / 'pzagent-adapter.json')
                 group = adapter.get('targets', {}).get(args.environment)
