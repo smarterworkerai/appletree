@@ -53,6 +53,11 @@ Routed readiness identifies page and asset requests consistently with the bundle
 probe, and verifies the page contract and actual compiled dependencies.
 
 Delivery uses the released context pin in `.adw/pzagent-context-lock.json`.
+The v0.17.0 pin also includes `.adw/pzagent-context-release.json`: the signed
+provider statement and signature, verified by tagged sync and the offline
+trust-root controller. First adoption uses two canonical syncs with a repin
+commit between them; [.adw/ADW.md](.adw/ADW.md) records the transition.
+
 The released runtime can resume a failed delete after rechecking the same owned
 resource, retains private Kubernetes failure diagnostics, and reads Dokploy handover
 credentials only from the top-level `env:` block in the operator profile.

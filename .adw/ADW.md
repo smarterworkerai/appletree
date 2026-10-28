@@ -4,6 +4,13 @@ This project uses `pzagent-adw-context`. Machine facts are in
 `pzagent-adapter.json` and `adw-task-manifest.json`; exact released pins are in
 `pzagent-context-lock.json`. Read the vendored `policy.md` before delivery work.
 
+The v0.17.0 context pin includes `.adw/pzagent-context-release.json`, containing
+the signed provider statement and signature. Tagged context sync verifies it;
+local checks bind it to the lock, and the controller verifies it offline with
+the pinned provider key. The provider-token path remains a transition fallback
+until v0.17.1. First adoption uses two canonical syncs with a repin commit between
+them so the newly installed updater can create the signed record.
+
 ## Release lines
 
 Feature candidates target `demo`; a separately reviewed same-source companion
