@@ -348,7 +348,8 @@ def _time(value):
 
 
 def _supersedes(adapter, records, newer):
-    if classification(records) != {'classification': 'none', 'publication': 'none'}:
+    if (classification(records) != {'classification': 'none', 'publication': 'none'}
+            and not _covered_effects(records)):
         return False
     old_scope = _scope(adapter, records)
     new_scope = _scope(adapter, newer)
@@ -361,6 +362,31 @@ def _supersedes(adapter, records, newer):
         and _time(record.get('created_at')) is not None
         and _time(record['created_at']) > max(old_dates) for record in parents)
         and all(terminal(record) for record in newer.values()))
+
+
+def _current_superseder(repo, adapter, newer, *, profile_root, registry_auth):
+    """A completed journal alone cannot prove what the target runs now."""
+    scope = _scope(adapter, newer)
+    if scope is None:
+        return False
+    try:
+        from .workflow_observation import target_checks
+        observation = target_checks(repo, adapter, scope['environment'], scope['target'],
+                                   profile_root=profile_root, registry_auth=registry_auth or nullcontext)
+        digest = observation.get('manifest_digest')
+        if not isinstance(digest, str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', digest):
+            return False
+        kind = release_kind(adapter, scope['release_kind'])
+        reference = kind['manifest_package'] + '@' + digest
+        with (registry_auth() if registry_auth else nullcontext()):
+            manifest = validate(read_manifest(reference), adapter, scope['release_kind'])
+        parents = [record for record in newer.values()
+                   if record.get('workflow') in {'deploy-existing', 'publish-deploy'}]
+        return bool(parents and all(record.get('release_reference') == reference
+                    and record.get('source_sha') == manifest['source_sha'] for record in parents)
+                    and validate_observations(observation, adapter, scope, manifest))
+    except (ContractError, OSError, KeyError, ValueError, TypeError, AttributeError, ImportError):
+        return False
 
 
 def _reason(text):
@@ -461,7 +487,9 @@ def abandon(repo, adapter, args, *, registry_auth=None):
             raise ContractError('retirement_tree_changed')
         if extra is not None:
             current = tree(root, root / args.superseded_by)
-            if current != extra or not _supersedes(adapter, selected, current):
+            if (current != extra or not _supersedes(adapter, selected, current)
+                    or not _current_superseder(repo, adapter, current, profile_root=args.profile_root,
+                                               registry_auth=registry_auth)):
                 raise ContractError('retirement_superseder_unproven')
         if all(record.get('phase') == 'complete' and (
                 Path(key).name == 'deployment.json' or record.get('status') == 'ok')
@@ -469,6 +497,12 @@ def abandon(repo, adapter, args, *, registry_auth=None):
             raise ContractError('retirement_operation_already_complete')
         result = guard(repo, adapter, selected, profile_root=args.profile_root,
                        registry_auth=registry_auth, target_retired=args.target_retired)
+        if extra is not None:
+            expected = {record['release_reference'].rsplit('@', 1)[-1] for record in extra.values()
+                        if record.get('workflow') in {'deploy-existing', 'publish-deploy'}}
+            if (not result['reconciled'] or (result['basis'] == 'covered-config'
+                    and result.get('evidence', {}).get('manifest_digest') not in expected)):
+                raise ContractError('retirement_superseder_unproven')
         if not result['reconciled'] and not args.acknowledge_unreconciled:
             raise ContractError('retirement_requires_reconciliation: run pz:workflow:doctor')
         members = sorted(selected)

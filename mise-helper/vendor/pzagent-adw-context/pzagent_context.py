@@ -56,6 +56,8 @@ def parser() -> argparse.ArgumentParser:
     update.add_argument("--source", required=True)
     update.add_argument("--bundle-sha256", required=True)
     update.add_argument("--allow-downgrade", action="store_true")
+    update.add_argument('--env-file', type=Path)
+    update.add_argument('--allow-credential-fallback', action='store_true')
     clean = sub.add_parser("local-clean")
     clean.add_argument("--repo-root", type=Path, default=Path("."))
     clean.add_argument("--prefix")
@@ -146,6 +148,21 @@ def parser() -> argparse.ArgumentParser:
     servers.add_argument('--profile-root', type=Path)
     servers.add_argument('environment', nargs='?')
     servers.add_argument('--target')
+    for name in ('provider-domains', 'provider-env-apply', 'data-import'):
+        # #187: operator-only Dokploy tasks on one owned Compose.
+        ops = sub.add_parser(name)
+        ops.add_argument('--repo-root', type=Path, default=Path('.'))
+        ops.add_argument('--profile-root', type=Path)
+        ops.add_argument('environment')
+        ops.add_argument('--target')
+        ops.add_argument('--apply', action='store_true')
+        if name == 'provider-env-apply':
+            ops.add_argument('--secrets-file', help='Private .env.<name> in the repository root; default: binding env_file or .env.<environment>')
+            ops.add_argument('--generate', action='append', default=[], metavar='KEY')
+            ops.add_argument('--replace', action='append', default=[], metavar='KEY')
+        if name == 'data-import':
+            ops.add_argument('--file', type=Path, required=True)
+            ops.add_argument('--confirm', metavar='ENVIRONMENT')
     for name in ('provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
                  'provider-journal-rebuild'):
         lifecycle = sub.add_parser(name)
@@ -303,6 +320,8 @@ def parser() -> argparse.ArgumentParser:
         if name.startswith(('context-', 'quality-')) or name in {'local-clean', 'workflows-sync'}:
             continue
         command.add_argument('--env-file', type=Path)
+        command.add_argument('--allow-credential-fallback', action='store_true',
+                             help='Explicitly allow human credential fallback without a complete consumer .env.deploy')
         command.add_argument('--execution-mode', choices=('human', 'ci'),
                              default='ci' if os.environ.get('GITHUB_ACTIONS') == 'true' else 'human')
         command.add_argument('--remote', default='origin')
@@ -389,6 +408,21 @@ def _main(args: argparse.Namespace) -> int:
             result = servers(repo, load_adapter(project_dir(repo) / 'pzagent-adapter.json'),
                 environment=args.environment, target=args.target, profile_root=args.profile_root,
                 operation_dir=new_operation(repo, 'servers'))
+        elif args.command in {'provider-domains', 'provider-env-apply', 'data-import'}:
+            from modules import operator_compose_ops as ops
+            repo = args.repo_root.resolve()
+            adapter = load_adapter(project_dir(repo) / 'pzagent-adapter.json')
+            common = dict(environment=args.environment, target=args.target, profile_root=args.profile_root,
+                          apply=args.apply)
+            if args.command == 'provider-domains':
+                result = ops.domains(repo, adapter, operation_dir=new_operation(repo, 'domains'), **common)
+            elif args.command == 'provider-env-apply':
+                result = ops.env_apply(repo, adapter, operation_dir=new_operation(repo, 'env-apply'),
+                                       env_file=args.secrets_file, generate=args.generate,
+                                       replace=args.replace, **common)
+            else:
+                result = ops.data_import(repo, adapter, operation_dir=new_operation(repo, 'data-import'),
+                                         file=args.file, confirm=args.confirm, **common)
         elif args.command in {'provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
                               'provider-journal-rebuild'}:
             from modules import provider_lifecycle as lifecycle
@@ -861,7 +895,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         # Private provider retrieval uses the same operator credential loader as every human task.
         from modules.operator_credentials import resolve, credentials, REGISTRY
         try:
-            values = resolve(args.repo_root.resolve(), mode='human')
+            values = resolve(args.repo_root.resolve(), mode='human', env_file=args.env_file, allow_fallback=args.allow_credential_fallback)
         except ContractError as exc:
             print(json_result(status='blocked', reason=str(exc)))
             return EXIT_CONTRACT
@@ -880,7 +914,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         with ExitStack() as stack:
             stack.enter_context(execution(args.execution_mode))
             if args.command in {'provider-servers', 'provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
-                                'provider-journal-rebuild', 'release-pointers-retire'} and args.execution_mode != 'human':
+                                'provider-journal-rebuild', 'release-pointers-retire', 'provider-domains',
+                                'provider-env-apply', 'data-import'} and args.execution_mode != 'human':
                 raise ContractError('provider_lifecycle_operator_only')
             if args.command.startswith('workflow-') and args.execution_mode != 'human':
                 raise ContractError('local workflow commands require human mode; CI composes its own jobs')
@@ -898,11 +933,11 @@ def _dispatch(args: argparse.Namespace) -> int:
             if args.command == 'workflow-abandon':
                 from modules.operator_abandon import tree, classification
                 from modules.operator_state import journals
-                offline_abandon = classification(tree(journals(args.repo_root.resolve(), getattr(args, 'operator_home', None)), args.operation_dir)) == {
+                offline_abandon = not args.superseded_by and classification(tree(journals(args.repo_root.resolve(), getattr(args, 'operator_home', None)), args.operation_dir)) == {
                     'classification': 'none', 'publication': 'none'}
             offline_workflow = (args.command == 'workflow-status' or offline_abandon
                                 or (args.command == 'workflow-doctor' and args.offline))
-            values = {} if offline_workflow else resolve(args.repo_root.resolve(), env_file=args.env_file, mode=args.execution_mode, profile_root=getattr(args, 'profile_root', None))
+            values = {} if offline_workflow else resolve(args.repo_root.resolve(), env_file=args.env_file, mode=args.execution_mode, profile_root=getattr(args, 'profile_root', None), allow_fallback=args.allow_credential_fallback)
             if getattr(args, 'operator_home', None) is not None and not offline_workflow:
                 # Child processes and provider modules read the profile directory, not the home.
                 values['PZ_ADW_PROFILE_ROOT'] = str(args.profile_root)
@@ -928,7 +963,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             allowed = set() if offline_workflow else DOKPLOY | SSH | KUBE
             if args.command == 'workflow-doctor' and not offline_workflow:
                 allowed |= REGISTRY
-            if args.command == 'provider-servers':
+            if args.command in {'provider-servers', 'provider-domains', 'provider-env-apply', 'data-import'}:
                 allowed = DOKPLOY | {'PZ_ADW_PROFILE_ROOT'}
             if args.command == 'provider-provision':
                 adapter = load_adapter(project_dir(args.repo_root.resolve()) / 'pzagent-adapter.json')

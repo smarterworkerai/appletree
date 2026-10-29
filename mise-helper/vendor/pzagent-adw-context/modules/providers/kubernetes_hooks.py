@@ -50,7 +50,7 @@ def dispatch(repo: Path, adapter: dict, operation: str, request: dict) -> dict:
     if not group or not isinstance(name, str) or name not in group['items']:
         blocked('runtime-proof-target-differs')
     target = group['items'][name]
-    if target['mode'] != 'active' or target['provider'] != 'kubernetes':
+    if target['mode'] not in ({'active', 'shadow'} if operation == 'config-plan' else {'active'}) or target['provider'] != 'kubernetes':
         blocked('runtime-proof-target-differs')
     binding = dict(binding_for(adapter, target))
     if operation == 'hotfix-build':

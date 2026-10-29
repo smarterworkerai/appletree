@@ -171,7 +171,12 @@ def runtime_recipe(text: str, stages: dict[str, str], *, files=False) -> str:
     if not starts:
         raise ContractError('release recipe has no runtime stage')
     runtime = ''.join(lines[starts[-1]:])
-    references = set(re.findall(r'--from=([a-zA-Z0-9_-]+)', runtime))
+    references = {name.strip('\"\'') for name in re.findall(r'--from=(\S+)', runtime)}
+    # Docker resolves declared stage names locally; every other source is an
+    # external image (including untagged Docker Hub names such as nginx).
+    declared = {match[1] for index in starts[:-1]
+                if (match := re.search(r'\sAS\s+(\S+)\s*$', lines[index], re.I))}
+    references &= declared
     if references != set(stages):
         raise ContractError('runtime stage dependencies differ from project build declaration')
     syntax = lines[0] if lines and lines[0].startswith('# syntax=') else ''

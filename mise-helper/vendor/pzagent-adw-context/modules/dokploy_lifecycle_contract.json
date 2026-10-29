@@ -93,6 +93,33 @@
         ]
       }
     },
+    "/compose.saveEnvironment": {
+      "POST": {
+        "body": {
+          "properties": {
+            "composeId": {
+              "type": "string"
+            },
+            "env": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "composeId",
+            "env"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
     "/compose.search": {
       "GET": {
         "body": {},
@@ -530,6 +557,37 @@
         "query": []
       }
     },
+    "/deployment.allByType": {
+      "GET": {
+        "body": {},
+        "query": [
+          {
+            "name": "id",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "required": true,
+            "schema": {
+              "enum": [
+                "application",
+                "compose",
+                "server",
+                "schedule",
+                "previewDeployment",
+                "backup",
+                "volumeBackup"
+              ],
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/docker.getContainersByAppLabel": {
       "GET": {
         "body": {},
@@ -562,6 +620,173 @@
             }
           }
         ]
+      }
+    },
+    "/domain.byComposeId": {
+      "GET": {
+        "body": {},
+        "query": [
+          {
+            "name": "composeId",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/domain.create": {
+      "POST": {
+        "body": {
+          "properties": {
+            "applicationId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "certificateType": {
+              "enum": [
+                "letsencrypt",
+                "none",
+                "custom"
+              ],
+              "type": "string"
+            },
+            "composeId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "customCertResolver": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "customEntrypoint": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "domainType": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "compose",
+                    "application",
+                    "preview"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "host": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "https": {
+              "type": "boolean"
+            },
+            "internalPath": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "middlewares": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "path": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "port": {
+              "anyOf": [
+                {
+                  "maximum": 65535,
+                  "minimum": 1,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "previewDeploymentId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "serviceName": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "stripPath": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "host"
+          ],
+          "type": "object"
+        },
+        "query": []
       }
     },
     "/environment.byProjectId": {
@@ -767,6 +992,312 @@
           },
           "required": [
             "projectId"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/schedule.create": {
+      "POST": {
+        "body": {
+          "properties": {
+            "appName": {
+              "type": "string"
+            },
+            "applicationId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "command": {
+              "type": "string"
+            },
+            "composeId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "cronExpression": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": "string"
+            },
+            "scheduleId": {
+              "type": "string"
+            },
+            "scheduleType": {
+              "enum": [
+                "application",
+                "compose",
+                "server",
+                "dokploy-server"
+              ],
+              "type": "string"
+            },
+            "script": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "serverId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "serviceName": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "shellType": {
+              "enum": [
+                "bash",
+                "sh"
+              ],
+              "type": "string"
+            },
+            "timezone": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "userId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "cronExpression",
+            "command"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/schedule.delete": {
+      "POST": {
+        "body": {
+          "properties": {
+            "scheduleId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scheduleId"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/schedule.list": {
+      "GET": {
+        "body": {},
+        "query": [
+          {
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scheduleType",
+            "required": true,
+            "schema": {
+              "enum": [
+                "application",
+                "compose",
+                "server",
+                "dokploy-server"
+              ],
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/schedule.runManually": {
+      "POST": {
+        "body": {
+          "properties": {
+            "scheduleId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "scheduleId"
+          ],
+          "type": "object"
+        },
+        "query": []
+      }
+    },
+    "/schedule.update": {
+      "POST": {
+        "body": {
+          "properties": {
+            "appName": {
+              "type": "string"
+            },
+            "applicationId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "command": {
+              "type": "string"
+            },
+            "composeId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "cronExpression": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": "string"
+            },
+            "scheduleId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "scheduleType": {
+              "enum": [
+                "application",
+                "compose",
+                "server",
+                "dokploy-server"
+              ],
+              "type": "string"
+            },
+            "script": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "serverId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "serviceName": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "shellType": {
+              "enum": [
+                "bash",
+                "sh"
+              ],
+              "type": "string"
+            },
+            "timezone": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "userId": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "scheduleId",
+            "name",
+            "cronExpression",
+            "command"
           ],
           "type": "object"
         },

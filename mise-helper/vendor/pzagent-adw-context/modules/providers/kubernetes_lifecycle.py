@@ -386,7 +386,8 @@ def _selection(repo, adapter, environment, target, profile_root):
     return provider, profile, digest, selection
 
 
-def _receipt(operation_dir, state, *, plan, cleanup, mutations, source_sha, bootstrap=None, runtime=None):
+def _receipt(operation_dir, state, *, plan, cleanup, mutations, source_sha, bootstrap=None, runtime=None,
+             activation=None):
     from ..task_evidence import record_operator
     created = [v for v in state['resources'].values() if v['created']]
     result = {'status': 'ok', 'task': 'pz:provider:deprovision' if cleanup else 'pz:provider:provision',
@@ -400,6 +401,8 @@ def _receipt(operation_dir, state, *, plan, cleanup, mutations, source_sha, boot
         result['bootstrap'] = bootstrap
     if runtime is not None:
         result['runtime'] = runtime
+    if activation is not None:
+        result['activation'] = activation
     record_operator(operation_dir, result)
     return result
 
@@ -459,8 +462,10 @@ def _provision(repo, adapter, *, environment, target, profile_root, operation_di
                 report['tls'] = tls
         state['phase'] = 'planned' if plan else 'complete'
         save()
+        from ..provider_lifecycle import activation_patch
         return _receipt(operation_dir, state, plan=plan, cleanup=False,
-                        mutations=bootstrap.mutations, source_sha=source_sha, bootstrap=report)
+                        mutations=bootstrap.mutations, source_sha=source_sha, bootstrap=report,
+                        activation=activation_patch(repo, environment, state['selection']['target'], adapter))
 
 
 def binding_alias(profile, namespace):

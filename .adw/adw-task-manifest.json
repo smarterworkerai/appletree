@@ -213,10 +213,10 @@
   "schema_version": "2.3.0",
   "sources": {
     "context": {
-      "checksum": "sha256:966b584ad1b437b83b29475bd088be58f72345a9bf4315785b0e28df35117d8b",
+      "checksum": "sha256:35aa8f2d2d3d1c62d3261c01686bcadd586a81cc1ec77d1f1523f7459abff78c",
       "layer": "context",
       "path": "mise-helper/vendor/pzagent-adw-context/tasks.toml",
-      "ref": "de87557b33ecbfa698afa473ac633caa9273abd5"
+      "ref": "ee425d6a76575b37151b1c3a1ce2fb445573791e"
     },
     "generic": {
       "checksum": "sha256:2970eb7e5c3181972f3d46e243dd7f286c7e195b8336daa98af8be55f0d1c2ef",

@@ -1,5 +1,61 @@
 # Migration notes
 
+## 0.18.0
+
+- **Generated guidance (#187).** Template text only; no runtime change. The
+  generated `mise-helper/README.md` and `project-commands.toml` state that
+  `adw:verify:full` runs every task in one shared temporary snapshot without
+  `.git`, whatever `isolated_workspace` says (that setting affects standalone
+  runs only). A command that needs Git declares `cwd = "repository"` and then
+  sees the real checkout without earlier build outputs; generated-file checks
+  compare a fresh temporary generation with a committed file that build does not
+  rewrite; `git diff` checks belong in precommit. The generated `.env.deploy.example`
+  and target `.env.<environment>.example` comments place the private files in the
+  checkout root and require `.env.deploy` before any operator task. Existing
+  generated copies keep their earlier wording; no documentation regeneration is
+  required. The credential completeness gate below applies to operator tasks.
+
+- **Initializer compatibility (#187).** New toolchain hints name Mise pins; existing
+  project-owned toolchain files are preserved without schema validation. A narrow
+  managed Git-attributes block permits upstream generated runtime whitespace while
+  preserving project rules; the root file is neither trusted nor required. Init
+  reports the root private-file paths and matching examples without creating secrets.
+- **External Docker copy sources (#187).** Runtime packaging distinguishes local
+  build stages from registry image references in `COPY --from`, including tags,
+  registry ports and digests. External references stay in the runtime recipe.
+- **Planning before activation (#187).** Read-only configuration plans support
+  shadow targets; mutating operations and configuration pull still require active
+  targets. Dokploy plans may advise on generic service names attached to the
+  shared network without blocking the plan.
+- **Consumer credentials first (#187).** Human operator tasks require the local
+  consumer's `.env.deploy` and non-empty required credential names from its example.
+  File values outrank inherited credentials. An explicit `--env-file` or
+  `--allow-credential-fallback` opts out of that completeness check; CI and
+  credential-free rehearsals keep their behavior. No private files are created.
+- **Proven supersession (#187).** The existing retirement decision owner now
+  accepts bounded configuration/image effects superseded by a later completed
+  same-target operation, after independently verifying its stable current pointer,
+  immutable release and complete runtime/configuration parity. Unknown effects,
+  publication, settings writes and interrupted pointer/restore phases remain
+  protected. The reconciliation acknowledgement cannot waive superseder proof.
+- **Verified adoption launcher (#187).** `pzagent-greenfield adopt --repository
+  OWNER/REPO --tag v0.18.0` vendors both released layers into a clean checkout.
+  It verifies the launcher, archive checksums, provider signature, immutable source
+  files and pinned generic release before writing. It emits exact initializer refs
+  and signature paths; it never executes consumer tools, filters or hooks.
+
+- **Dokploy operator tasks (#187).** Optional per-binding routes, private root
+  secret-file selection and a project data-import hook support domain setup,
+  append-only Environment values with explicit generation/replacement and a
+  guarded data transport through disabled Dokploy schedules. Every operation
+  verifies resource ownership and the lifecycle API contract. Environment writes
+  retain a private backup and require exact byte readback. Data transport verifies
+  hashes and each completed schedule run; failures and failed cleanup block.
+  Data backups and access gates remain outside this release.
+- **Activation receipts (#187).** Provisioning emits an exact JSON Patch with
+  mode/default preconditions for a separate reviewed adapter activation change.
+  It never activates the target or edits tracked files itself.
+
 ## 0.17.1
 
 - **No provider token (#181).** The `PZAGENT_PROVIDER_TOKEN` released-vendor path is

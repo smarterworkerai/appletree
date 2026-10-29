@@ -42,14 +42,14 @@ class HTTP:
         self.endpoint, self.credential = endpoint.rstrip('/'), credential
         self.opener = build_opener(_SameOrigin())
 
-    def request(self, method: str, route: str, payload=None):
+    def request(self, method: str, route: str, payload=None, timeout: int = 25):
         if method not in {'GET', 'POST'} or not route.startswith('/api/') or route.startswith('//'):
             raise ContractError('provider_api_route_invalid')
         data = None if payload is None else json.dumps(payload, separators=(',', ':')).encode()
         req = Request(self.endpoint + route, data=data, method=method, headers={
             'x-api-key': self.credential, 'Accept': 'application/json', 'Content-Type': 'application/json'})
         try:
-            with self.opener.open(req, timeout=25) as response:
+            with self.opener.open(req, timeout=timeout) as response:
                 raw = response.read(MAX_BYTES + 1)
             if len(raw) > MAX_BYTES:
                 raise ContractError('provider_api_response_unbounded')
@@ -163,8 +163,11 @@ class API:
             route += '?' + urlencode(query)
         return self.transport.request('GET', route)
 
-    def post(self, name, data):
-        return self.transport.request('POST', '/api/' + name, data)
+    def post(self, name, data, timeout=None):
+        # Only long synchronous runs (schedule.runManually) pass a timeout.
+        if timeout is None:
+            return self.transport.request('POST', '/api/' + name, data)
+        return self.transport.request('POST', '/api/' + name, data, timeout=timeout)
 
     def projects(self):
         return rows(self.get('project.all'))

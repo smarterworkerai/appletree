@@ -52,8 +52,9 @@ def target_path(repo: Path, name: str) -> Path:
 
 def marked(existing: str, name: str, body: str) -> str:
     start, end = '<!-- ' + MARKER + ':' + name + ' -->', '<!-- /' + MARKER + ':' + name + ' -->'
-    if name == 'gitignore':
-        start, end = '# ' + MARKER, '# /' + MARKER
+    if name in {'gitignore', 'gitattributes'}:
+        suffix = '' if name == 'gitignore' else ':' + name
+        start, end = '# ' + MARKER + suffix, '# /' + MARKER + suffix
     block = start + '\n' + body.rstrip() + '\n' + end + '\n'
     if start not in existing and end not in existing:
         return existing + ('\n' if existing and not existing.endswith('\n\n') else '') + block
@@ -281,9 +282,11 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
         # Stage-less components export no files; a project that adds build stages maps them here.
         'quality_exports': {c: {} for c in args.components},
         'hooks': {'build': 'bundle:release_build'}})
-    sources = {'java': 'mise.lock' if 'java' in pins else '', 'node': 'package.json engines' if 'node' in pins else ''}
-    sources.update({name: 'mise.toml [tools]' for name in pins if name not in ('java', 'node')})
-    files[directory + '/build-toolchain.json'] = document({'schema_version': '1.0.0', 'sources': sources})
+    # Existing consumers may own a different schema and read it in their build.
+    # Generate a hint once; never parse, validate or rewrite an existing file.
+    if not target_path(repo, directory + '/build-toolchain.json').exists():
+        sources = {name: 'mise.toml [tools]' for name in mise_pins}
+        files[directory + '/build-toolchain.json'] = document({'schema_version': '1.0.0', 'sources': sources})
     facts = (templates / 'project-adw.md').read_text().replace('smarterworkerai/<repo>', args.repository).replace('<Project>', slug)
     facts = facts.replace(
         f'The project directory is `{PROJECT_DIRECTORIES[0]}/`, or `{PROJECT_DIRECTORIES[1]}/` in existing projects.',
@@ -294,6 +297,8 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
         files['.github/workflows/' + name] = (templates / 'github' / name).read_bytes()
     for name, marker, body in (
         ('.gitignore', 'gitignore', directory + '/evidence/\n/handover/\n.ci-cache/\n.ci-artifacts/\nadw-test-reports/\n__pycache__/\n.env\n.env.*\n!.env.example\n!.env.*.example'),
+        ('.gitattributes', 'gitattributes', '# Preserve exact released third-party runtime bytes.\n'
+         'mise-helper/vendor/pzagent-adw-context/templates/github/actions/upload-build-outputs/runtime/** -whitespace'),
         ('AGENTS.md', 'agents', (templates / 'repo-agents-snippet.md').read_text().replace('.adw/', directory + '/'))):
         path = target_path(repo, name)
         files[name] = marked(path.read_text() if path.exists() else '', marker, body)
@@ -334,8 +339,9 @@ def initialize(repo: Path, args) -> dict:
             changed.append(name)
             bootstrap = (name == 'mise.toml' and path.exists()
                          and path.read_bytes() == (BUNDLE / 'templates/project-bootstrap.toml').read_bytes())
-            block_start = '# ' + MARKER if name == '.gitignore' else '<!-- ' + MARKER + ':agents -->'
-            append_block = (name in {'.gitignore', 'AGENTS.md'} and path.exists()
+            block_start = ('# ' + MARKER + (':gitattributes' if name == '.gitattributes' else '')
+                           if name in {'.gitignore', '.gitattributes'} else '<!-- ' + MARKER + ':agents -->')
+            append_block = (name in {'.gitignore', '.gitattributes', 'AGENTS.md'} and path.exists()
                             and name not in ledger.get('files', {}) and block_start not in path.read_text().splitlines())
             if (path.exists() and not append_block and not bootstrap
                     and checksum(path.read_bytes()) != ledger.get('files', {}).get(name)
@@ -343,8 +349,13 @@ def initialize(repo: Path, args) -> dict:
                 conflicts.append(name)
     if conflicts:
         return {'status': 'blocked', 'reason': 'project_init_unowned_files', 'conflicts': sorted(conflicts)}
-    state = document({'schema_version': '1.0.0', 'owner': MARKER,
-                      'files': {name: checksum(value) for name, value in sorted(files.items())}}).encode()
+    owned = {name: checksum(value) for name, value in files.items()}
+    hint = args.directory + '/build-toolchain.json'
+    # Preserve a historical ledger entry without examining a now project-owned
+    # hint. This keeps repeat initialization byte-idempotent, including the ledger.
+    if hint not in files and hint in ledger.get('files', {}):
+        owned[hint] = ledger['files'][hint]
+    state = document({'schema_version': '1.0.0', 'owner': MARKER, 'files': dict(sorted(owned.items()))}).encode()
     files[str(ledger_path.relative_to(repo))] = state
     snapshots = {}
     try:
@@ -392,8 +403,17 @@ def initialize(repo: Path, args) -> dict:
             else:
                 path.write_bytes(prior)
         raise
+    private_files = [{'path': '.env.deploy', 'example': '.env.deploy.example', 'mode': '0600',
+                      'purpose': 'operator-credentials', 'location': 'repository-root'}]
+    private_files.extend({'path': Path(name).name.removesuffix('.example'), 'example': name,
+                          'mode': '0600', 'purpose': 'application-secrets', 'location': 'repository-root'}
+                         for name in sorted(files) if Path(name).name.startswith('.env.')
+                         and name.endswith('.example') and name != '.env.deploy.example')
     return {'status': 'ok', 'changed': sorted(changed), 'project_directory': args.directory,
-            'next': ['Trust the generated mise.toml for normal use (mise trust mise.toml).',
+            'private_files': private_files,
+            'next': ['Human: fill .env.deploy in the repository root from .env.deploy.example (mode 0600) before operator tasks.',
+                     'Fill application secret files in the repository root using the matching example names in private_files; never commit values.',
+                     'Trust the generated mise.toml for normal use (mise trust mise.toml).',
                      'Implement the eight project tasks; full verification stays context-owned.',
                      'Run adw:context:check after implementing the release build handover.',
                      'Fill Docker recipes, application probes and provider resources before enabling remote capabilities.',

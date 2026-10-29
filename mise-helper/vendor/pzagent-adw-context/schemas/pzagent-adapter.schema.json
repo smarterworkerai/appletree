@@ -1088,6 +1088,59 @@
                           "local",
                           "remote"
                         ]
+                      },
+                      "routes": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 16,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "service",
+                            "port"
+                          ],
+                          "properties": {
+                            "service": {
+                              "type": "string",
+                              "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+                            },
+                            "port": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 65535
+                            },
+                            "path": {
+                              "type": "string",
+                              "pattern": "^/(?:[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*)?$"
+                            }
+                          }
+                        }
+                      },
+                      "env_file": {
+                        "type": "string",
+                        "pattern": "^\\.env\\.[a-z0-9][a-z0-9.-]{0,62}$",
+                        "not": {
+                          "pattern": "\\.example$"
+                        }
+                      },
+                      "data_import": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "service",
+                          "script"
+                        ],
+                        "properties": {
+                          "service": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+                          },
+                          "script": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
                       }
                     },
                     "required": [
@@ -1754,6 +1807,59 @@
                           "local",
                           "remote"
                         ]
+                      },
+                      "routes": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 16,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "service",
+                            "port"
+                          ],
+                          "properties": {
+                            "service": {
+                              "type": "string",
+                              "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+                            },
+                            "port": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 65535
+                            },
+                            "path": {
+                              "type": "string",
+                              "pattern": "^/(?:[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*)?$"
+                            }
+                          }
+                        }
+                      },
+                      "env_file": {
+                        "type": "string",
+                        "pattern": "^\\.env\\.[a-z0-9][a-z0-9.-]{0,62}$",
+                        "not": {
+                          "pattern": "\\.example$"
+                        }
+                      },
+                      "data_import": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "service",
+                          "script"
+                        ],
+                        "properties": {
+                          "service": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+                          },
+                          "script": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
                       }
                     },
                     "required": [
@@ -2429,6 +2535,59 @@
                           "local",
                           "remote"
                         ]
+                      },
+                      "routes": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 16,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "service",
+                            "port"
+                          ],
+                          "properties": {
+                            "service": {
+                              "type": "string",
+                              "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+                            },
+                            "port": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 65535
+                            },
+                            "path": {
+                              "type": "string",
+                              "pattern": "^/(?:[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*)?$"
+                            }
+                          }
+                        }
+                      },
+                      "env_file": {
+                        "type": "string",
+                        "pattern": "^\\.env\\.[a-z0-9][a-z0-9.-]{0,62}$",
+                        "not": {
+                          "pattern": "\\.example$"
+                        }
+                      },
+                      "data_import": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "service",
+                          "script"
+                        ],
+                        "properties": {
+                          "service": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+                          },
+                          "script": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
                       }
                     },
                     "required": [

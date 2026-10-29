@@ -7,7 +7,7 @@ import re
 import stat
 import sys
 
-from .common import ContractError
+from .common import ContractError, PROJECT_DIRECTORIES
 
 GROUPS = (('DOKPLOY_API_KEY', 'DOKPLOY_TOKEN'), ('GITHUB_TOKEN', 'GH_TOKEN'))
 DOKPLOY = {'DOKPLOY_URL', 'DOKPLOY_API_KEY', 'DOKPLOY_TOKEN'}
@@ -204,11 +204,55 @@ def dotenv(path: Path, *, required: bool = False) -> dict[str, str]:
     return result
 
 
-def resolve(repo: Path, *, env_file: Path | None = None, mode: str = 'human',
-            environ: dict[str, str] | None = None, profile_root: Path | None = None) -> dict[str, str]:
-    """Layer human operator inputs: `.env.deploy`, then the environment, then `--env-file` (#172).
+def required_consumer_keys(repo: Path) -> set[str]:
+    """Example assignments before its optional section declare required credentials.
 
-    The explicit file, for example `.env.pr-preview`, adds one environment's secrets on top of
+    Only supported operator keys count: probe origins/selectors stay explicit.
+    `# Required` starts another required section in project-maintained examples.
+    """
+    path = repo / '.env.deploy.example'
+    if not path.exists():
+        return set()
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
+        raise ContractError('consumer deployment environment example is not a bounded regular file')
+    try:
+        lines = path.read_text(encoding='utf-8').splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise ContractError('consumer deployment environment example cannot be read') from exc
+    required, optional = set(), False
+    for raw in lines:
+        line = raw.strip()
+        if line.startswith('#'):
+            if re.match(r'#\s*optional\b', line, re.I):
+                optional = True
+            elif re.match(r'#\s*required\b', line, re.I):
+                optional = False
+            continue
+        match = re.match(r'(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=', line)
+        if match and not optional and match[1] in KEYS:
+            required.add(match[1])
+    return required
+
+
+def require_consumer_file(repo: Path, base: dict[str, str]) -> None:
+    if not (repo / '.env.deploy').is_file():
+        raise ContractError('consumer .env.deploy is missing; fill it from .env.deploy.example '
+                            'or explicitly select --env-file / --allow-credential-fallback')
+    missing = []
+    for key in sorted(required_consumer_keys(repo)):
+        aliases = next((group for group in GROUPS if key in group), (key,))
+        if not any(base.get(alias, '').strip() for alias in aliases):
+            missing.append(key)
+    if missing:
+        raise ContractError('consumer .env.deploy missing required credential keys: ' + ', '.join(missing))
+
+
+def resolve(repo: Path, *, env_file: Path | None = None, mode: str = 'human',
+            environ: dict[str, str] | None = None, profile_root: Path | None = None,
+            allow_fallback: bool = False) -> dict[str, str]:
+    """Prefer the consumer's `.env.deploy`; an explicit `--env-file` overrides it.
+
+    The explicit file adds one environment's inputs on top of
     the operator credentials in `.env.deploy`, so the same key name can carry a different value
     for each target. `PZ_ADW_CREDENTIAL_FREE=1` loads no credentials at all, neither from files
     nor from the environment (rehearsal refusal checks).
@@ -221,11 +265,17 @@ def resolve(repo: Path, *, env_file: Path | None = None, mode: str = 'human',
     # The explicit file first: a missing one refuses before any file is read.
     explicit = dotenv(env_file, required=True) if files and env_file is not None else {}
     base = dotenv(repo / '.env.deploy') if files else {}
+    consumer = ((repo / '.env.deploy.example').exists()
+                or any((repo / directory / 'pzagent-adapter.json').is_file() for directory in PROJECT_DIRECTORIES))
+    if files and consumer and env_file is None and not allow_fallback:
+        # Validate the consumer file itself, before inherited values/profiles can
+        # conceal a missing key or accidentally select another repository.
+        require_consumer_file(repo, base)
     if explicit and env_file.resolve() != (repo / '.env.deploy').resolve():
         shadowed = sorted(set(base) & set(explicit))
         if shadowed:
             print(f'NOTE: {env_file.name} overrides .env.deploy for ' + ', '.join(shadowed), file=sys.stderr)
-    layers = () if free else (explicit, parent, base)
+    layers = () if free else ((explicit, base, parent) if files else (parent,))
     result = {key: next((layer[key] for layer in layers if key in layer), '')
               for key in KEYS | bootstrap_keys(profile_root, parent)}
     for group in GROUPS:

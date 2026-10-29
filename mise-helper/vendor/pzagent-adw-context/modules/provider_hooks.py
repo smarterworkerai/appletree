@@ -133,7 +133,7 @@ def dispatch(repo: Path, adapter: dict, operation: str, request: dict) -> dict:
     environment, target = request.get('environment'), request.get('target')
     group = adapter['targets'].get(environment) if isinstance(environment, str) else None
     selected = group['items'].get(target) if group and isinstance(target, str) else None
-    if not selected or selected['mode'] != 'active':
+    if not selected or selected['mode'] not in ({'active', 'shadow'} if operation == 'config-plan' else {'active'}):
         blocked('runtime-proof-target-differs')
     # Explicit closed dispatch: no project-controlled import or executable.
     if selected['provider'] == 'dokploy':

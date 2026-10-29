@@ -140,6 +140,21 @@ description = "Read-only registered Dokploy server names and the placement of an
 dir = "{{config_root}}"
 run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py provider-servers"
 
+["pz:provider:domains"]
+description = "Create the binding's declared routed domains that are absent on its owned Dokploy Compose (plan unless --apply)"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py provider-domains"
+
+["pz:provider:env:apply"]
+description = "Append missing schema keys from the private .env file to the owned Dokploy Compose Environment; names only (plan unless --apply)"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py provider-env-apply"
+
+["pz:data:import"]
+description = "Run the project's data-import hook once in its declared service over Dokploy, with a transported data file (plan unless --apply)"
+dir = "{{config_root}}"
+run = "python3 mise-helper/vendor/pzagent-adw-context/pzagent_context.py data-import"
+
 ["pz:provider:provision"]
 description = "Provision one declared Dokploy or Kubernetes target with private ownership and redacted receipts"
 dir = "{{config_root}}"

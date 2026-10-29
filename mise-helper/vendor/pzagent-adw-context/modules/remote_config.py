@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from .approval import validate as validate_approval
 from .common import ContractError, ensure_contained
@@ -15,7 +16,7 @@ def _key_contract(data):
  allowed=set(keys);return allowed-set(optional),allowed
 
 
-def _target(adapter, environment, requested):
+def _target(adapter, environment, requested, *, planning=False):
     group = adapter['targets'].get(environment)
     if not group:
         raise ContractError('environment has no target inventory')
@@ -23,7 +24,7 @@ def _target(adapter, environment, requested):
     if name not in group['items']:
         raise ContractError('logical target is not allowlisted')
     target = group['items'][name]
-    if target['mode'] != 'active':
+    if target['mode'] not in ({'active', 'shadow'} if planning else {'active'}):
         raise ContractError('target mode or provider is unsupported')
     return name, target
 
@@ -88,14 +89,48 @@ def config_plan(repo: Path, adapter: dict, *, environment: str,
     if cap['status'] != 'supported' or cap['side_effect'] != 'read-only' or environment not in cap['environments']:
         raise ContractError('configuration plan is unsupported for environment')
     source = prove_source(repo, adapter)
-    name, target = _target(adapter, environment, requested_target)
+    name, target = _target(adapter, environment, requested_target, planning=True)
     provider = bind(repo, adapter, name, target, profile_root)
     definition, required, allowed = _desired(provider, desired_root or repo)
     provider.discover(binding_for(adapter, target))
     renderer = provider.configuration.render_definition
-    result = provider.config_plan(renderer(definition) if renderer is not None else definition.read_bytes(), required, allowed)
+    rendered = renderer(definition) if renderer is not None else definition.read_bytes()
+    result = provider.config_plan(rendered, required, allowed)
     semantic = invoke(repo, adapter, capability,
                       request(capability, environment=environment, target=name))['result']
+    warnings = shared_network_warnings(rendered) if target['provider'] == 'dokploy' else []
     return {'status': 'ok', 'source_sha': source, 'environment': environment,
             'target': name, 'role': semantic['role'], 'order': semantic['order'],
-            'compose': provider.configuration.definition_path, **result}
+            'compose': provider.configuration.definition_path, **result,
+            **({'warnings': warnings} if warnings else {})}
+
+
+def shared_network_warnings(definition: bytes) -> list[dict]:
+    """Best-effort advice for conventional Compose YAML; never a deployment gate."""
+    if len(definition) > 8 * 1024 * 1024:
+        return []
+    try:
+        text = definition.decode('utf-8')
+    except UnicodeError:
+        return []
+    # Limit the heuristic to ordinary two-space service/network mappings. An
+    # unfamiliar YAML shape gets no advice; the provider's real plan still runs.
+    sections = re.split(r'(?m)^([a-zA-Z][\w-]*):[^\n]*\n', text)
+    blocks = dict(zip(sections[1::2], sections[2::2]))
+    aliases = {'dokploy-network'}
+    networks = re.split(r'(?m)^  ([a-zA-Z0-9_.-]+):[^\n]*', blocks.get('networks', ''))
+    for name, body in zip(networks[1::2], networks[2::2]):
+        if re.search(r'(?m)^    name:\s*[\"\']?dokploy-network[\"\']?\s*(?:#.*)?$', body):
+            aliases.add(name)
+    services = re.split(r'(?m)^  ([a-zA-Z0-9_.-]+):[^\n]*', blocks.get('services', ''))
+    generic = {'app', 'api', 'backend', 'frontend', 'web', 'server', 'gateway', 'nginx',
+               'db', 'database', 'postgres', 'mysql', 'redis'}
+    collisions = []
+    for name, body in zip(services[1::2], services[2::2]):
+        network = re.search(r'(?m)^    networks:([^\n]*(?:\n {6,}[^\n]*)*)', body)
+        if name in generic and network and any(re.search(r'(?<![\w.-])' + re.escape(alias) + r'(?![\w.-])', network[1]) for alias in aliases):
+            collisions.append(name)
+    return ([{'reason_code': 'shared-network-generic-service-name', 'network': 'dokploy-network',
+              'services': sorted(collisions),
+              'advice': 'Use project-scoped service names or aliases for routed upstreams on the shared network.'}]
+            if collisions else [])

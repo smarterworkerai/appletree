@@ -1,5 +1,6 @@
-# Private operator inputs: the maintainer copies to .env.deploy (mode 0600).
-# Fill missing values privately; never commit them. Application secrets go in
+# Private operator inputs: the maintainer copies to .env.deploy in the checkout root
+# (mode 0600) and fills it before any operator task. Never commit it; never use
+# another consumer's credentials. Application secrets go in
 # .env.<environment> (see deploy/k8s/.env.<environment>.example), not here.
 # Human-mode tasks read supported credential keys automatically.
 GITHUB_TOKEN=

@@ -103,7 +103,7 @@ def dispatch(repo: Path, adapter: dict, operation: str, request: dict) -> dict:
         blocked('project-hook-request-invalid')
     environment, name = request.get('environment'), request.get('target')
     group = adapter['targets'].get(environment) if isinstance(environment, str) else None
-    if not group or not isinstance(name, str) or name not in group['items'] or group['items'][name]['mode'] != 'active':
+    if not group or not isinstance(name, str) or name not in group['items'] or group['items'][name]['mode'] not in ({'active', 'shadow'} if operation == 'config-plan' else {'active'}):
         blocked('runtime-proof-target-differs')
     target = group['items'][name]
     require(target['provider'])

@@ -308,6 +308,41 @@ def _receipt(operation, state_path, state, *, phase, task, source, mutations, ac
     return result
 
 
+
+def _pointer(token: str) -> str:
+    return token.replace('~', '~0').replace('/', '~1')
+
+
+def activation_patch(repo: Path, environment: str, target: str, adapter: dict | None = None) -> dict:
+    """Exact reviewed adapter edit that activates a provisioned target (#187 D1).
+
+    A JSON Patch with `test` preconditions against the tracked adapter file. It is
+    reported for the activation PR and never applied: provisioning edits no tracked file.
+    """
+    from .common import project_dir
+    path = project_dir(repo) / 'pzagent-adapter.json'
+    # The tracked file is authoritative; the loaded adapter only stands in where no file exists.
+    document = json.loads(path.read_text(encoding='utf-8')) if path.is_file() else adapter
+    group = document['targets'][environment]
+    item = group['items'][target]
+    base = '/targets/' + _pointer(environment)
+    mode = base + '/items/' + _pointer(target) + '/mode'
+    operations, notes = [], []
+    if item.get('mode') != 'active':
+        operations += [{'op': 'test', 'path': mode, 'value': item.get('mode')},
+                       {'op': 'replace', 'path': mode, 'value': 'active'}]
+    if group.get('default') is None:
+        operations += [{'op': 'test', 'path': base + '/default', 'value': None},
+                       {'op': 'replace', 'path': base + '/default', 'value': target}]
+    elif group['default'] != target:
+        notes.append('another target stays the environment default')
+    result = {'file': path.relative_to(repo).as_posix(), 'format': 'json-patch',
+              'state': 'pending-review' if operations else 'already-active', 'operations': operations}
+    if notes:
+        result['notes'] = notes
+    return result
+
+
 def _entry(role, row, *, created, parent=None, binding=None, manager=None):
     key = {'project': 'projectId', 'environment': 'environmentId', 'default_environment': 'environmentId', 'compose': 'composeId'}[role]
     result = {'id': identifier(row.get(key)), 'name': row.get('name'), 'created': created, 'deleted': False}
@@ -673,7 +708,8 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
             save()
         return _receipt(operation_dir, private, state, phase='planned' if plan else 'complete',
                         task='pz:provider:provision', source=source, mutations=mutations, actions=actions,
-                        image_variable_keys=list(image_keys))
+                        image_variable_keys=list(image_keys),
+                        activation=activation_patch(repo, environment, target, adapter))
 
 
 def _get_resource(api, role, entry):

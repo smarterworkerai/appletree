@@ -85,6 +85,45 @@ def _validate_hook_command(command: Any) -> None:
         safe_relative_path(command)
 
 
+SERVICE_NAME = re.compile(r'^[a-z0-9][a-z0-9_-]{0,62}$')
+ROUTE_PATH = re.compile(r'^/(?:[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*)?$')
+ENV_FILE = re.compile(r'^\.env\.[a-z0-9][a-z0-9.-]{0,62}$')
+
+
+def dokploy_routes(binding) -> list[dict]:
+    """Validated optional `routes` of a Dokploy binding (#187); absent means unmanaged."""
+    value = binding.get('routes')
+    if value is None:
+        return []
+    if not isinstance(value, list) or not 1 <= len(value) <= 16:
+        raise ContractError('provider_routes_invalid')
+    result, seen = [], set()
+    for route in value:
+        if not isinstance(route, dict) or not {'service', 'port'} <= set(route) or set(route) - {'service', 'port', 'path'}:
+            raise ContractError('provider_routes_invalid')
+        path = route.get('path', '/')
+        if (not isinstance(route['service'], str) or not SERVICE_NAME.fullmatch(route['service'])
+                or type(route['port']) is not int or not 1 <= route['port'] <= 65535
+                or not isinstance(path, str) or not ROUTE_PATH.fullmatch(path) or path in seen):
+            raise ContractError('provider_routes_invalid')
+        seen.add(path)
+        result.append({'service': route['service'], 'port': route['port'], 'path': path})
+    return result
+
+
+def _dokploy_operator_fields(binding):
+    """Optional operator declarations (#187): routed domains, private file name, data-import hook."""
+    dokploy_routes(binding)
+    if 'env_file' in binding and (not isinstance(binding['env_file'], str) or not ENV_FILE.fullmatch(binding['env_file'])
+                                  or binding['env_file'].endswith('.example')):
+        raise ContractError('provider env_file must be .env.<name> in the repository root')
+    if 'data_import' in binding:
+        spec = _exact(binding['data_import'], {'service', 'script'}, 'provider data_import')
+        if not isinstance(spec['service'], str) or not SERVICE_NAME.fullmatch(spec['service']):
+            raise ContractError('provider data_import service is invalid')
+        safe_relative_path(spec['script'])
+
+
 def _exact(value: Any, keys: set[str], label: str) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != keys:
         raise ContractError(f"{label} is not a closed object")
@@ -161,7 +200,7 @@ def expand(data: Any, manifest: Any) -> dict[str, Any]:
             raise ContractError("Dokploy bindings must be an object")
         expanded_bindings: dict[str, Any] = {}
         binding_keys = {"project", "environment", "resource", "child_binding", "compose_path", "environment_schema_path"}
-        optional_binding_keys = {"probes", "plan", "placement"}
+        optional_binding_keys = {"probes", "plan", "placement", "routes", "env_file", "data_import"}
         for name, binding in bindings.items():
             if not isinstance(binding, dict) or set(binding) - (binding_keys | optional_binding_keys) or not (binding_keys - {"project"}) <= set(binding):
                 raise ContractError(f"Dokploy binding {name} is not a closed object")
@@ -419,7 +458,7 @@ def validate(data: Any) -> dict[str, Any]:
             if not IDENTIFIER.fullmatch(name):
                 raise ContractError("provider binding name is invalid")
             required_binding = {"project", "environment", "resource", "child_binding", "compose_path", "environment_schema_path"}
-            if not isinstance(raw, dict) or not required_binding <= set(raw) or set(raw) - (required_binding | {'probes', 'plan', 'placement'}):
+            if not isinstance(raw, dict) or not required_binding <= set(raw) or set(raw) - (required_binding | {'probes', 'plan', 'placement', 'routes', 'env_file', 'data_import'}):
                 raise ContractError(f'Dokploy binding {name} is not a closed object')
             binding = raw
             if 'placement' in binding and (not isinstance(binding['placement'], str)
@@ -444,6 +483,7 @@ def validate(data: Any) -> dict[str, Any]:
                 raise ContractError("provider child binding uses a reserved credential name")
             safe_relative_path(binding["compose_path"])
             safe_relative_path(binding["environment_schema_path"])
+            _dokploy_operator_fields(binding)
             known_bindings.add(("dokploy", name))
     if "kubernetes" in providers:
         known_bindings |= _kubernetes_bindings(providers["kubernetes"], environments)
