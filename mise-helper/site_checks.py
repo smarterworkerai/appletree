@@ -180,7 +180,7 @@ def static_analysis():
         if 'labels:' in definition or 'ports:' in definition or '${APPLETREE_IMAGE' not in definition:
             raise SiteError('deployment-routing-or-image-ownership-invalid')
         schema = json.loads(Path(binding['environment_schema_path']).read_text())
-        if schema != {'keys': ['APPLETREE_IMAGE']}:
+        if schema != {'keys': {'APPLETREE_IMAGE': {'source': 'release'}}}:
             raise SiteError('static-app-runtime-key-contract-invalid')
     print('PASS: actual release outputs, pinned runtime recipe and platform-owned routing')
 

@@ -1,5 +1,9 @@
 # Appletree delivery adapter
 
+Deployment credentials, key sources, canonical probe templates and migration
+steps are described in [deployment secrets](../docs/deployment-secrets.md).
+Local development files keep their existing behavior.
+
 This project uses `pzagent-adw-context`. Machine facts are in
 `pzagent-adapter.json` and `adw-task-manifest.json`; exact released pins are in
 `pzagent-context-lock.json`. Read the vendored `policy.md` before delivery work.
@@ -52,9 +56,9 @@ each target. Private Dokploy journals can be rebuilt from intact live ownership
 markers without provider writes. Every new claim still requires a fresh
 examination and approval of its exact digest.
 
-Actual routed origins are private operator inputs named `APPLETREE_PREVIEW_URL`,
-`APPLETREE_DEMO_URL` and `APPLETREE_PRODUCTION_URL`. They are not application
-settings. Readiness retains the bundled request validation and verifies the
+Routed origins come from vault templates `DOKPLOY_PR_PREVIEW_URL`,
+`DOKPLOY_DEMO_URL` and `DOKPLOY_PRODUCTION_URL`, expanded for this project.
+Readiness retains the bundled request validation and verifies the
 routed page title, scene canvas and compiled assets. Digest parity and container
 health are still proven by the shared provider runtime hook.
 
@@ -79,7 +83,7 @@ marker route without SPA fallback or persistent caching. The marker is checked
 against the artifact source before deployment pointers advance and against the
 current manifest source during status. A wrong source or absent marker refuses.
 
-Probe origins live in `<operator-home>/profile/probes.json`; workflows are
+Probe origins live in the shared vault; workflows are
 addressed by `--operation <id>` under `<operator-home>/journals/`. The removed
 operation-directory flags are not used. Each release-line promotion still needs
 an exact-head review, and each ownership claim needs its exact examined digest

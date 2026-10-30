@@ -1,5 +1,7 @@
 {
-  "keys": [
-    "APPLETREE_IMAGE"
-  ]
+  "keys": {
+    "APPLETREE_IMAGE": {
+      "source": "release"
+    }
+  }
 }

@@ -2,15 +2,15 @@
   "schema_version": "1.0.0",
   "targets": {
     "demo-dokploy": {
-      "base_url_env": "APPLETREE_DEMO_URL",
+      "base_url_env": "DOKPLOY_DEMO_URL",
       "path": "/.well-known/adw-release.json"
     },
     "pr-preview-dokploy": {
-      "base_url_env": "APPLETREE_PREVIEW_URL",
+      "base_url_env": "DOKPLOY_PR_PREVIEW_URL",
       "path": "/.well-known/adw-release.json"
     },
     "production-dokploy": {
-      "base_url_env": "APPLETREE_PRODUCTION_URL",
+      "base_url_env": "DOKPLOY_PRODUCTION_URL",
       "path": "/.well-known/adw-release.json"
     }
   }

@@ -38,8 +38,8 @@ workflow and its exact quality producer; deployment uses the public tasks.
 The environment definitions in `infra/dokploy/` reference an operator-owned
 `APPLETREE_IMAGE` digest. Existing Dokploy routing and resource names are
 preserved. The static app has no application secrets, database, storage or
-telephony. Provider credentials and routed probe origins stay in the private
-operator environment, and example files contain empty values.
+telephony. Provider credentials and routed probe URL templates live in
+pz-secretctl; explicit process values remain available as operator overrides.
 
 No old registry mapping, pointer retirement or package deletion is part of this
 onboarding. The archive tag preserves the prior onboarding source.
@@ -82,3 +82,6 @@ nonempty execution with zero skips and retain the canonical source, target and
 operator-approval gates. These routed tests are operator-triggered; local
 compiled-page browser validation is part of `adw:test:integration:fast`.
 No provider mutation or deployment is part of browser validation.
+
+Deployment credential and application-value sources are documented in
+[deployment secrets](docs/deployment-secrets.md).

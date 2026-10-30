@@ -17,7 +17,7 @@ invocation. The first deployment does not use `--sync-config`. Deployment must
 prove exact runtime/manifest/current parity, container health and routed
 readiness, including the compiled script and stylesheet assets.
 
-Actual origins are private values named `APPLETREE_PREVIEW_URL`,
-`APPLETREE_DEMO_URL` and `APPLETREE_PRODUCTION_URL`. They are probe inputs,
+Actual origins are private values named `DOKPLOY_PR_PREVIEW_URL`,
+`DOKPLOY_DEMO_URL` and `DOKPLOY_PRODUCTION_URL`. They are probe inputs,
 never Compose or application settings. New release pointers start with this
 onboarding; old package mapping, pointer retirement and deletion are cancelled.
