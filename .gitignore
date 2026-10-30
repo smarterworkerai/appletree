@@ -14,3 +14,4 @@ __pycache__/
 !.env.example
 # /pz:project:init
 !.env.deploy.example
+!.env.local.example
