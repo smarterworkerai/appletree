@@ -13,6 +13,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'mise-helper/vendor/pzagent-adw-context'))
 from modules.common import ContractError
+from modules.adapter import load
 from modules.routed_content import verify
 
 SHA = 'a' * 40
@@ -28,7 +29,7 @@ class ReleaseIdentityTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.output = Path(temporary.name)
-        self.adapter = json.loads((ROOT / '.adw/pzagent-adapter.json').read_text())
+        self.adapter = load(ROOT / '.adw/pzagent-adapter.json')
         self.targets = json.loads((ROOT / '.adw/routed-content.json').read_text())['targets']
 
     def generate(self, source):
