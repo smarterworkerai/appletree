@@ -42,7 +42,7 @@ def record_operator(directory: Path, result: dict[str, Any]) -> Path:
     identifier = run_id()
     if result.get('task') not in {'pz:provider:servers', 'pz:provider:provision', 'pz:provider:deprovision', 'pz:provider:examine',
                                    'pz:provider:claim', 'pz:release:pointers:retire', 'pz:release:pointers:orphans',
-                                   'pz:provider:domains', 'pz:provider:env:apply', 'pz:data:import'}:
+                                   'pz:provider:domains', 'pz:provider:env:apply', 'pz:data:import', 'pz:secrets:show'}:
         raise ContractError('operator evidence task invalid')
     value = {'schema_version': '1.0.0', 'workflow': 'operator-receipt',
              'run_id': identifier, **result}

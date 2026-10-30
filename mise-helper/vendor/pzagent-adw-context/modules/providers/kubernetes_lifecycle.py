@@ -13,12 +13,14 @@ import re
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import urlsplit
 
-from ..common import ContractError, IDENTIFIER
+from ..common import ContractError, IDENTIFIER, ensure_contained
 from ..cluster_bootstrap import Bootstrap, validate, facts, PULL_SECRET
+from ..key_schema import contract, sources as resolve_sources
 from ..operator_state import locked, private_directory, read, write
-from ..operator_credentials import private_profile_path
+from ..operator_credentials import entry_command, private_profile_path, vault_generate, vault_secrets
 from .kubernetes import KubernetesCommandError, KubernetesProvider
 from .kubernetes_metadata import metadata_api
 
@@ -27,6 +29,9 @@ NONCE = 'adw.pzagent.io/provision-nonce'
 IDENTITY = {'repository': 'adw.pzagent.io/repository', 'environment': 'adw.pzagent.io/environment',
             'target': 'adw.pzagent.io/target'}
 PROFILE_FILE = 'kubernetes-provisioning.json'
+# A Secret declared as this string takes every sourced key of the binding's key schema (#193).
+SCHEMA_SECRET = 'key-schema'
+APP_LABEL = 'app.kubernetes.io/managed-by'
 COMMAND_FAILURES = {'kubernetes_command_failed', 'kubernetes_command_unavailable',
                     'kubernetes_field_conflict', 'kubernetes_immutable_field_refused'}
 PHASES = {'planned', 'complete', 'deprovisioning', 'deprovisioned'}
@@ -208,7 +213,59 @@ def _runtime_record(value):
     return value['backup_reference'] is None
 
 
-def _profile(root, provider, binding):
+def schema_sources(repo, adapter, binding):
+    """(vault entries, optional keys) of a Kubernetes binding's key schema (#193).
+
+    The rules and default IDs are Dokploy's, so an environment's Dokploy and Kubernetes
+    targets share one collection; explicit IDs are required only when several
+    Kubernetes bindings share the environment.
+    """
+    try:
+        document = json.loads(ensure_contained(repo, binding['config_schema_path']).read_text(encoding='utf-8'))
+    except (OSError, ValueError, KeyError):
+        raise ContractError('kubernetes_key_schema_invalid') from None
+    required, keys, raw = contract(document, 'kubernetes_key_schema_invalid')
+    environment = binding['environment']
+    images = set(binding.get('image_variables') or {}) | {
+        key for kind in adapter.get('release_kinds', {}).values() for key in (kind.get('image_variables') or {})}
+    shared = sum(other.get('environment') == environment
+                 for other in adapter['providers']['kubernetes']['bindings'].values()) > 1
+    found = resolve_sources(raw, project=adapter['repository']['id'].rsplit('/', 1)[-1], environment=environment,
+                            images=images, explicit_ids=shared, reason='kubernetes_key_schema_invalid')
+    return found, keys - required
+
+
+def _vault_source(entry):
+    source = {'vault': entry['id']}
+    if entry['source'] == 'generate':
+        source.update(generate=entry['kind'], scope=entry['vault'])
+        if entry['length'] is not None:
+            source['length'] = entry['length']
+    return source
+
+
+def _schema_secrets(repo, adapter, binding, profile):
+    """Expand the target's one `"key-schema"` Secret into the key schema's vault sources (#193).
+
+    The private profile only names the Secret, `{namespace: {secret-name: "key-schema"}}`;
+    every key with a `generate`, `human` or `shared` source goes into it.
+    """
+    if 'app_secrets' not in profile:
+        return profile
+    declared = profile['app_secrets']
+    if (not isinstance(declared, dict) or set(declared) != {binding['namespace']}
+            or not isinstance(declared[binding['namespace']], dict) or len(declared[binding['namespace']]) != 1
+            or list(declared[binding['namespace']].values()) != [SCHEMA_SECRET] or repo is None):
+        raise ContractError('kubernetes_provision_profile_invalid')
+    found, _ = schema_sources(repo, adapter, binding)
+    if not found:
+        raise ContractError('kubernetes_key_schema_has_no_sources')
+    (name,) = declared[binding['namespace']]
+    fields = {key: _vault_source(entry) for key, entry in sorted(found.items())}
+    return {**profile, 'app_secrets': {binding['namespace']: {name: fields}}}
+
+
+def _profile(root, provider, binding, repo=None, adapter=None):
     alias, namespace = binding['context_alias'], binding['namespace']
     path = root / PROFILE_FILE
     if path.exists() or path.is_symlink():
@@ -221,6 +278,8 @@ def _profile(root, provider, binding):
             raise ContractError('kubernetes_provision_profile_invalid')
         profile = {'namespaces': [namespace], 'context_aliases': {provider.target: namespace}, **selected}
         digest = _hash({'context': provider.context, 'namespace': namespace, 'profile': profile})
+        # The digest binds the profile as written; schema keys may grow without a new selection.
+        profile = _schema_secrets(repo, adapter, binding, profile)
     else:
         profile = {'namespaces': [namespace], 'context_aliases': {provider.target: namespace}}
         digest = _hash({'context': provider.context, 'namespace': namespace, 'profile': profile})
@@ -379,7 +438,7 @@ def _selection(repo, adapter, environment, target, profile_root):
     raw = provider._run(['get', 'namespace', 'kube-system', '-o', 'jsonpath={.metadata.uid}'])
     if not raw.strip():
         raise ContractError('kubernetes_provision_cluster_identity_missing')
-    profile, digest = _profile(profile_root, provider, binding)
+    profile, digest = _profile(profile_root, provider, binding, repo, adapter)
     selection = {'repository': adapter['repository']['id'], 'environment': environment, 'target': target,
                  'binding': binding, 'context': provider.context, 'cluster_sha256': hashlib.sha256(raw).hexdigest(),
                  'profile_sha256': digest}
@@ -408,12 +467,12 @@ def _receipt(operation_dir, state, *, plan, cleanup, mutations, source_sha, boot
 
 
 def provision(repo, adapter, *, environment, target, profile_root, operation_dir, source_sha,
-              adopt=False, plan=False, server_name_env=None):
+              adopt=False, plan=False, server=None):
     from ..provider_lifecycle import ownership_path
     try:
         return _provision(repo, adapter, environment=environment, target=target, profile_root=profile_root,
                           operation_dir=operation_dir, source_sha=source_sha, adopt=adopt, plan=plan,
-                          server_name_env=server_name_env)
+                          server=server)
     except KubernetesCommandError as exc:
         if not plan:
             selected = target or adapter['targets'].get(environment, {}).get('default')
@@ -424,10 +483,10 @@ def provision(repo, adapter, *, environment, target, profile_root, operation_dir
 
 
 def _provision(repo, adapter, *, environment, target, profile_root, operation_dir, source_sha,
-               adopt=False, plan=False, server_name_env=None):
+               adopt=False, plan=False, server=None):
     from ..provider_lifecycle import _operator, archive_ownership, ownership_path
     _operator()
-    if adopt or server_name_env:
+    if adopt or server:
         raise ContractError('kubernetes_provision_selection_invalid')
     provider, profile, digest, selection = _selection(repo, adapter, environment, target, profile_root)
     private = ownership_path(repo, profile_root, selection['repository'], environment, selection['target'])
@@ -457,6 +516,7 @@ def _provision(repo, adapter, *, environment, target, profile_root, operation_di
                     {'app.kubernetes.io/managed-by': 'adw', 'adw.pzagent.io/target': binding_alias(profile, provider.namespace)})
         report = None if plan else bootstrap.run()
         if report is not None:
+            report.update(_missing_sources(repo, adapter, selection['binding'], profile, values))
             report['tls_ready'] = 'tls' in profile
             if tls is not None:
                 report['tls'] = tls
@@ -466,6 +526,199 @@ def _provision(repo, adapter, *, environment, target, profile_root, operation_di
         return _receipt(operation_dir, state, plan=plan, cleanup=False,
                         mutations=bootstrap.mutations, source_sha=source_sha, bootstrap=report,
                         activation=activation_patch(repo, environment, state['selection']['target'], adapter))
+
+
+def _missing_sources(repo, adapter, binding, profile, values):
+    """Dokploy's `missing_human` (with the entry command) and `missing_shared` for left-out keys."""
+    absent = {slot[2] for slot in values.get('app_secrets_absent', {})}
+    if not absent:
+        return {}
+    found, _ = schema_sources(repo, adapter, binding)
+    parent = dict(os.environ)
+    return {'missing_human': [{'key': key, 'vault': entry['vault'], 'id': entry['id'],
+                               'command': entry_command(entry['vault'], entry['id'], entry['description'], parent)}
+                              for key, entry in sorted(found.items()) if key in absent and entry['source'] == 'human'],
+            'missing_shared': [{'key': key, 'id': entry['id']}
+                               for key, entry in sorted(found.items()) if key in absent and entry['source'] == 'shared']}
+
+
+def _secret_data(provider, name):
+    """The owned Secret's object and decoded values; values only in memory, registered for redaction."""
+    raw = provider._run(['get', 'Secret', name, '-o', 'json'])
+    try:
+        item = json.loads(raw)
+        values = {key: base64.b64decode(value, validate=True).decode('utf-8')
+                  for key, value in (item.get('data') or {}).items()}
+    except (ValueError, TypeError, AttributeError, UnicodeError) as exc:
+        raise ContractError('kubernetes_provision_readback_invalid') from exc
+    provider._diagnostic_secrets += _private_values(values)
+    return item, values
+
+
+def _proven_data(reader, provider, name, labels):
+    """The full Secret, re-proven like `owned()` (labels, profile, ownership annotations, UID).
+
+    A Secret replaced between the metadata proof and this read refuses, so its data is
+    never used and its resourceVersion never becomes the replace precondition.
+    """
+    item, values = _secret_data(provider, name)
+    metadata = item.get('metadata') or {}
+    entry = reader.state['resources'].get('Secret|' + provider.namespace + '|' + name) or {}
+    reader.check({'metadata': metadata}, labels)
+    if (not entry.get('created') or metadata.get('uid') != entry.get('uid')
+            or not owned_by(metadata.get('annotations') or {}, reader.state)):
+        raise ContractError('kubernetes_provision_identity_changed')
+    return item, values
+
+
+def _backup(operation_dir, values):
+    """Private mode-0600 copy of the Secret before a write; only path, digest and key count are reported."""
+    operation_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if operation_dir.stat().st_mode & 0o077:
+        raise ContractError('provider_environment_backup_not_private')
+    raw = json.dumps(values, sort_keys=True).encode()
+    path = operation_dir / 'secret-backup.json'
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, 'wb') as handle:
+        handle.write(raw)
+    return {'path': str(path), 'sha256': hashlib.sha256(raw).hexdigest(), 'keys': len(values)}
+
+
+def env_apply(repo, adapter, *, environment, target, profile_root, operation_dir, source_sha,
+              replace=(), apply=False):
+    """`pz:provider:env:apply` on a Kubernetes target, with Dokploy's semantics (#193).
+
+    Missing schema keys are appended to the target's own `"key-schema"` Secret from the
+    vault; only keys named in `replace` are overwritten. A `generate` ID is created only
+    when neither the vault nor the Secret has it, a value only in the Secret is reported
+    for import, and missing `human` IDs come with the entry command. The write replaces
+    the whole Secret at its read resourceVersion through stdin, after a private backup,
+    and the readback is compared in memory.
+    """
+    from ..provider_lifecycle import ownership_path
+    from ..dokploy_transaction import target_lock
+    if profile_root is None and os.environ.get('PZ_ADW_PROFILE_ROOT'):
+        profile_root = Path(os.environ['PZ_ADW_PROFILE_ROOT'])
+    if profile_root is None:
+        raise ContractError('kubernetes_context_profile_missing')
+    provider, profile, digest, selection = _selection(repo, adapter, environment, target, profile_root)
+    binding = selection['binding']
+    sources, optional = schema_sources(repo, adapter, binding)
+    declared = profile.get('app_secrets', {}).get(provider.namespace, {})
+    if len(declared) != 1:
+        raise ContractError('kubernetes_env_apply_no_app_secret: declare the "key-schema" Secret in kubernetes-provisioning.json')
+    (name,) = declared
+    for key in replace:
+        if key not in sources:
+            raise ContractError(f'provider_env_key_not_settable: {key} is not a sourced key of the binding schema')
+    private = ownership_path(repo, profile_root, selection['repository'], environment, selection['target'])
+    if not private.exists():
+        raise ContractError('kubernetes_env_apply_not_provisioned: run pz:provider:provision first')
+    parent = dict(os.environ)
+    vault, _ = vault_secrets({entry['id'] for entry in sources.values()}, parent)
+    with target_lock(repo, selection['target']), locked(private.parent):
+        state = _state(private, root=private.parent)
+        if state.get('workflow') != 'kubernetes-provision' or state.get('selection') != selection:
+            raise ContractError('provider_operation_selection_changed')
+        if state['phase'] != 'complete':
+            raise ContractError('kubernetes_env_apply_not_provisioned: run pz:provider:provision first')
+        bootstrap = TargetBootstrap(provider, profile, digest, {}, state, lambda: write(private, state), plan=not apply)
+        labels = {APP_LABEL: 'adw', IDENTITY['target']: binding_alias(profile, provider.namespace)}
+        if not bootstrap.owned('Secret', name, provider.namespace, labels):
+            raise ContractError('kubernetes_env_apply_not_provisioned: run pz:provider:provision first')
+        item, current = _proven_data(bootstrap, provider, name, labels)     # the data read is the proven object
+        present = {key for key, value in current.items() if value}
+        values, generated, missing_human, missing_shared, import_needed = {}, [], [], [], []
+        for key, entry in sorted(sources.items()):
+            if entry['id'] in vault:
+                values[key] = vault[entry['id']]
+            elif key in present:
+                import_needed.append(key)            # import the live value; never diverge
+            elif entry['source'] == 'generate':
+                generated.append(key)
+            elif entry['source'] == 'human':
+                missing_human.append({'key': key, 'vault': entry['vault'], 'id': entry['id'],
+                                      'command': entry_command(entry['vault'], entry['id'], entry['description'], parent)})
+            else:
+                missing_shared.append({'key': key, 'id': entry['id']})
+        if generated and apply:
+            for key in generated:
+                entry = sources[key]
+                vault_generate(entry['vault'], entry['id'], entry['kind'], parent, length=entry['length'],
+                               description=entry['description'])
+            fresh, still = vault_secrets({sources[key]['id'] for key in generated}, parent)
+            if still:
+                raise ContractError('vault_generate_readback_failed')
+            values.update({key: fresh[sources[key]['id']] for key in generated})
+        provider._diagnostic_secrets += _private_values(values)
+        add = sorted(key for key in values if values[key] and key not in present)
+        if not apply:
+            add = sorted(set(add) | {key for key in generated if key not in present})
+        replaced = sorted(key for key in replace if key in present and values.get(key))
+        result = {'status': 'ok', 'task': 'pz:provider:env:apply', 'provider': 'kubernetes',
+                  'environment': environment, 'target': selection['target'], 'secret': name, 'apply': apply,
+                  'present': sorted(present), 'append': add, 'replace': replaced,
+                  'vault': {'sourced': sorted(sources), 'generated': generated if apply else [],
+                            'would_generate': [] if apply else generated,
+                            'missing_human': missing_human, 'missing_shared': missing_shared,
+                            'missing_in_vault_present_in_target': import_needed,
+                            'push_required': bool(generated and apply)},
+                  'undeclared': sorted(set(current) - set(sources)),
+                  'missing_required': sorted((set(sources) - optional) - present - set(add)),
+                  'mutations_requested': 0, 'source_sha': source_sha}
+        if apply and (add or replaced):
+            desired = {**current, **{key: values[key] for key in add + replaced}}
+            result['backup'] = _backup(operation_dir, current)
+            metadata = {key: item['metadata'][key] for key in ('name', 'namespace', 'labels', 'annotations',
+                                                               'resourceVersion', 'uid') if key in item['metadata']}
+            body = {'apiVersion': 'v1', 'kind': 'Secret', 'type': item.get('type', 'Opaque'), 'metadata': metadata,
+                    'data': {key: base64.b64encode(value.encode()).decode() for key, value in desired.items()}}
+            # The read resourceVersion makes a concurrent change fail instead of being overwritten.
+            provider._run(['replace', '-f', '-', '-o', 'name'], data=json.dumps(body).encode())
+            result['mutations_requested'] = 1
+            _, after = _secret_data(provider, name)
+            if after != desired:
+                result.update(status='blocked', reason='kubernetes_secret_readback_mismatch')
+            result['present'] = sorted(key for key, value in after.items() if value)
+    return result
+
+
+def observe_app_secrets(repo, adapter, *, environment, target, profile_root):
+    """Read-only view of one target's application Secrets for `pz:secrets:show` (#193).
+
+    One entry per declared Secret: its name, per-key sources, the key schema's sources
+    and optional keys, whether the Secret is this target's own, and its values. Ownership
+    is proven like provisioning's (journal operation, nonce, profile label and UID) on
+    metadata alone before any value is read, and the read is bound to that UID. Values
+    stay in memory, join the failure-diagnostic redaction and are never returned publicly.
+    """
+    from ..provider_lifecycle import ownership_path
+    if profile_root is None and os.environ.get('PZ_ADW_PROFILE_ROOT'):
+        profile_root = Path(os.environ['PZ_ADW_PROFILE_ROOT'])
+    if profile_root is None:
+        raise ContractError('kubernetes_context_profile_missing')
+    provider, profile, digest, selection = _selection(repo, adapter, environment, target, profile_root)
+    binding = selection['binding']
+    schema, optional = schema_sources(repo, adapter, binding)
+    labels = {APP_LABEL: 'adw', IDENTITY['target']: binding_alias(profile, provider.namespace)}
+    private = ownership_path(repo, profile_root, selection['repository'], environment, selection['target'])
+    state = _state(private, root=private.parent) if private.exists() else None
+    if state is not None and (state.get('workflow') != 'kubernetes-provision' or state.get('selection') != selection):
+        state = None                      # another operation or profile: nothing is provably ours
+    # Without a journal nothing is ours: an existing Secret of that name is foreign.
+    reader = TargetBootstrap(provider, profile, digest, {}, state or {'resources': {}}, lambda: None, plan=True)
+    result = []
+    for name, fields in profile.get('app_secrets', {}).get(provider.namespace, {}).items():
+        values, owned = None, True
+        try:
+            present = reader.owned('Secret', name, provider.namespace, labels)    # metadata only
+        except ContractError:
+            owned = present = False
+        if present:
+            _item, values = _proven_data(reader, provider, name, labels)
+        result.append({'name': name, 'fields': fields, 'schema': schema, 'optional': optional,
+                       'owned': owned, 'values': values if owned else None})
+    return result
 
 
 def binding_alias(profile, namespace):

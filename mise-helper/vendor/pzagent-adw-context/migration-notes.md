@@ -1,5 +1,110 @@
 # Migration notes
 
+## 0.19.0
+
+- **Vault-backed operator inputs (#193 items 1-3).** Commands select their
+  credential grant before resolving it through `pz-secretctl run --env`.
+  Explicit, non-empty process values override, then the vault; there are no
+  credential files (see the removals below). Alias groups retain their conflict
+  checks. Hosted CI and credential-free
+  local checks never consult the vault. In a human terminal outside Herdr with
+  an unlocked personal operator (`eval "$(pz-secretctl operator unlock <id>)"`,
+  pz-secretctl ≥ main b556f5b), every vault read and generation goes through
+  `pz-secretctl --operator <id>`; any agent context (`AGENT_ID`, a Herdr tab or
+  an agent CLI session) keeps its own agent identity and never uses an
+  inherited session.
+- **Probe origins.** `DOKPLOY_<ENV>_URL` and `KUBE_<ENV>_URL` provide URL
+  templates, with `{app}` taken from the repository name in `repository.id`.
+  Probe bindings default their input key from the provider environment;
+  `probes.base_url` permits a committed literal exception. A `base_url_env` or
+  `ingress_probe_base` other than the provider/environment key refuses
+  (`provider_probe_key_not_default`), and `profile/probes.json` is no longer
+  read. Runtime URL values stay out of output and evidence.
+- **Observed server placement.** `pz:provider:servers` reports environment
+  placement across all projects' marker-owned resources. A new remote target
+  uses the observed server only when every resource agrees; absent or conflicting
+  observations require `--server <name>`, replacing `--server-name-env`.
+  No server-name default is stored. Existing private remote identity bindings
+  remain checked, including migrated journals; names never enter receipts.
+- **Per-key sources, vault-only values (#193 items 4-6).** Each key in an
+  environment key schema declares where its value comes from:
+  `{"keys": {"KEY": {"source": "generate"|"human"|"shared"|"release", ...}}, "optional_keys": [...]}`;
+  the legacy name list stays valid for keys without a source. `generate`
+  (`kind`, `length`) and `human` default to vault ID
+  `<project>.<environment>.<KEY>` in `shared/<project>-<environment>` (optional
+  `id`, `vault`, `description`); when several Dokploy bindings share one
+  environment, each of these keys names an explicit `id`. `shared` names a
+  shared vault ID; `release` marks an image variable.
+  `pz:provider:env:apply` reads every value from the vault in memory: it creates
+  a missing `generate` key with `pz-secretctl secret generate` only when the
+  target lacks it too, reports a value present only in the target for import,
+  lists missing `human` keys with the exact entry command for the acting
+  identity, and reports `push_required` after a vault write. A key without a
+  source is reported as `unsourced` and never written.
+- **Kubernetes from the same collection (#193).** The Kubernetes key schema
+  (`config_schema_path`) declares the same per-key sources and default vault
+  IDs; the private `kubernetes-provisioning.json` names exactly one Secret per
+  target, `app_secrets: {namespace: {secret-name: "key-schema"}}`, which receives
+  every sourced key. Provisioning creates it from the vault (generating missing
+  `generate` IDs only while creating it), leaves out missing `human`/`shared`
+  values and reports them with their entry commands, and never rewrites an
+  existing Secret: it reports cluster-only values for import and missing or
+  undeclared keys. `pz:provider:env:apply` now also takes Kubernetes targets,
+  with Dokploy's semantics: it appends missing keys to the owned Secret and
+  `--replace KEY` overwrites one, replacing the Secret at its read
+  resourceVersion through stdin after a private backup, verified in memory.
+  `pz:secrets:show -- ENV` lists each Dokploy and Kubernetes key's source, vault
+  scope and ID, vault state and target state (`same`/`differs`/`present`/
+  `missing`) without values; `attention` names drift, target-only values and
+  required values missing anywhere, `reveal` names the `pz-secretctl reveal`
+  command per vault scope for an unlocked human terminal. `--offline` lists what
+  each target expects from the committed key schemas alone (no credentials,
+  vault or network; also in CI), replacing the deleted example files. New tasks
+  `pz:secrets:examples` and `pz:secrets:examples:check` write and check the
+  keys-only root `.env.example` and `.env.deploy.example` (source and vault ID as
+  comments, never values); add the check to `adw:static-analysis` so CI fails on a
+  stale file, and move a local-development `.env.example` to `.env.local.example`.
+  Operator tasks pass
+  `--operator <id>` to pz-secretctl only in a human terminal with an unlocked
+  personal operator session. Recipes: `references/secrets.md` in the skill.
+- **Removed, no deprecation period (human, 2026-10-30).** Credential and secret
+  files: `.env.deploy` (and its example), `.env.<environment>` (and the Dokploy
+  and `deploy/k8s` examples), the options `--env-file` and
+  `--allow-credential-fallback` on every task, and `pz:provider:env:apply
+  --secrets-file`/`--generate`. Adapter fields: the Dokploy binding `env_file`,
+  and per-project probe keys (`base_url_env`, `ingress_probe_base`, also in
+  `.adw/routed-content.json`). Private profile inputs: `probes.json`, Kubernetes
+  per-key `app_secrets` sources (`{env: KEY}`, `{generate: random-32}`,
+  `{vault: ID}`), and `app_secrets` in k3d cluster profiles (`k3d-clusters.json`
+  and tracked seeds such as `infra/k8s/cluster-profile.json`). Before the
+  repin: move every private value into the vault (`pz-secretctl secret add …
+  --prompt`), annotate the key schemas with sources, delete the probe-key
+  fields so the defaults apply, replace each Kubernetes target's `app_secrets`
+  with the `"key-schema"` form, remove `env_file` and k3d `app_secrets`, check
+  with `pz:secrets:show`, then delete the private files. Kubernetes
+  proof-of-concept Secrets created from the old sources hold different values:
+  deprovision and provision those targets again (their databases are reset).
+- **Fixes from the local pre-review.** Human mode names (never values) keys the
+  process environment supplies instead of the vault; an empty export counts as
+  unset; server discovery validates environment names only where a
+  marker-owned resource lives.
+- These operational changes introduce no new CI decision owner or trusted-path
+  expansion. Adapter URL literals/defaults remain closed, validated project
+  facts; existing integrity, approval, ownership and publication gates remain.
+  Consumer private environment files are preserved during local candidate tests.
+
+## 0.18.1
+
+- `pz:data:import` proves every schedule step by run identity: it records the
+  `deploymentId`s before a step and requires exactly one new run with status
+  `done`. Missing or duplicate identities refuse with
+  `provider_data_import_run_history_invalid`. A bounded or rewritten run history
+  can no longer fake or block the proof (#190).
+- Provider tooling only (no consumer effect): the trust-root sandbox proof gives
+  the canonical `pz:release:promote` a 900 s limit instead of 180 s (#190).
+- Provider tooling only: `tools/ci-lab.py` runs the local CI lab for any consumer
+  (#191).
+
 ## 0.18.0
 
 - **Generated guidance (#187).** Template text only; no runtime change. The

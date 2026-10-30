@@ -6,12 +6,11 @@ import hashlib
 import json
 import os
 import re
-import secrets
 from urllib.request import urlopen
 
 from . import acme_cache
 from .common import ContractError
-from .operator_credentials import REGISTRY
+from .operator_credentials import GENERATE_KINDS, REGISTRY, VAULT_ID, VAULT_SCOPE, vault_generate, vault_secrets
 
 CERT_MANAGER_VERSION = 'v1.21.2'
 CERT_MANAGER_SHA256 = 'e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f'
@@ -20,8 +19,6 @@ CERT_MANAGER_URL = ('https://github.com/cert-manager/cert-manager/releases/downl
 PULL_SECRET = 'adw-ghcr-pull'
 OWNER, PROFILE = 'pzagent.owner', 'pzagent.profile'
 ENV_KEY = re.compile(r'[A-Z][A-Z0-9_]{0,127}')
-# Generated credentials are limited to internal test values, never API/provider keys.
-GENERATABLE_KEY = re.compile(r'(?:POSTGRES_PASSWORD|(?:[A-Z][A-Z0-9_]*_)?(?:DB_PASSWORD|DATABASE_PASSWORD|STORAGE_SECRET|SIGNING_SECRET|INTERNAL_SERVICE_TOKEN))')
 OBJECT_NAME = re.compile(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?')
 
 DOMAIN = re.compile(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}')
@@ -73,16 +70,18 @@ def validate(profile: dict) -> None:
                             or not isinstance(fields, dict) or not fields or len(fields) > 64):
                         raise ValueError()
                     for key, source in fields.items():
-                        if not isinstance(key, str) or not ENV_KEY.fullmatch(key) or not isinstance(source, dict):
-                            raise ValueError()
-                        if set(source) == {'env'}:
-                            operator_key = source['env']
-                            if (not isinstance(operator_key, str) or not ENV_KEY.fullmatch(operator_key)
-                                    or not operator_key.endswith(('_KEY', '_TOKEN', '_PASSWORD', '_SECRET'))
-                                    or operator_key in REGISTRY | {'CF_DNS_API_TOKEN'}):
-                                raise ValueError()
-                        elif (set(source) != {'generate'} or source['generate'] != 'random-32'
-                              or not GENERATABLE_KEY.fullmatch(key)):
+                        # #193: values come only from the vault; the target profile's
+                        # `"key-schema"` Secret expands to these entries.
+                        length = source.get('length', 32) if isinstance(source, dict) else None
+                        if (not isinstance(key, str) or not ENV_KEY.fullmatch(key) or not isinstance(source, dict)
+                                or not isinstance(source.get('vault'), str) or not VAULT_ID.fullmatch(source['vault'])
+                                or set(source) - {'vault', 'generate', 'scope', 'length'}
+                                or ('generate' in source) != ('scope' in source)
+                                or ('length' in source and 'generate' not in source)
+                                or type(length) is not int or not 16 <= length <= 256
+                                or ('generate' in source and (source['generate'] not in GENERATE_KINDS
+                                    or not isinstance(source['scope'], str)
+                                    or not VAULT_SCOPE.fullmatch(source['scope'])))):
                             raise ValueError()
     except (KeyError, ValueError, TypeError) as exc:
         raise ContractError('cluster_bootstrap_profile_invalid') from exc
@@ -113,16 +112,32 @@ def facts(profile: dict) -> dict:
         values['cloudflare'] = token
     if 'image_pull' in profile and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,38}', values['username_env']):
         raise ContractError('cluster_bootstrap_username_invalid')
-    application = {}
+    application, vaulted = {}, {}
     for namespace, entries in profile.get('app_secrets', {}).items():
         for name, fields in entries.items():
             for key, source in fields.items():
-                if 'env' in source:
-                    value = os.environ.get(source['env'], '')
-                    if not value or len(value) > 16384 or any(c in value for c in '\r\n\x00'):
-                        raise _missing(source['env'])
-                    application[(namespace, name, key)] = value
+                vaulted[(namespace, name, key)] = source
+    pending, absent = {}, {}
+    if vaulted:
+        # Apply only (never in a plan): read every vault ID once. A missing ID with a
+        # declared generator is only created later, while the Secret is being created
+        # (after its ownership check), so a value that exists only in the target is
+        # never regenerated. A missing ID without a generator (`human`, `shared`) is left
+        # out and reported, like Dokploy's env apply; `pz:provider:env:apply` appends it later.
+        found, missing = vault_secrets({source['vault'] for source in vaulted.values()}, dict(os.environ))
+        for slot, source in vaulted.items():
+            if source['vault'] in found:
+                value = found[source['vault']]
+                if not value or len(value) > 16384 or any(c in value for c in '\r\n\x00'):
+                    raise ContractError('cluster_bootstrap_vault_value_invalid')
+                application[slot] = value
+            elif 'generate' in source:
+                pending[slot] = source
+            else:
+                absent[slot] = source
     values['app_secrets'] = application
+    values['app_secrets_pending'] = pending
+    values['app_secrets_absent'] = absent
     return values
 
 
@@ -201,6 +216,27 @@ class Bootstrap:
             metadata.setdefault('labels', {}).update(self.labels)
         self.lifecycle.kube(['apply', '--server-side', '--field-manager', 'adw-bootstrap', '-f', '-', '-o', 'name'],
                             data=json.dumps({'apiVersion': 'v1', 'kind': 'List', 'items': items}).encode())
+
+    def _generate(self, pending: dict) -> None:
+        """Create the pending generate IDs in the vault for a Secret about to be created; read them back."""
+        if not pending:
+            return
+        parent = dict(os.environ)
+        for item in sorted({source['vault'] for source in pending.values()}):
+            source = next(source for source in pending.values() if source['vault'] == item)
+            vault_generate(source['scope'], item, source['generate'], parent, length=source.get('length'),
+                           description='cluster app secret')
+        fresh, still = vault_secrets({source['vault'] for source in pending.values()}, parent)
+        if still:
+            raise ContractError('vault_generate_readback_failed')
+        # The vault changed: the operator pushes it (`push_required`); these IDs are not missing.
+        self.values.setdefault('app_secrets_generated', set()).update(fresh)
+        for slot, source in pending.items():
+            value = fresh[source['vault']]
+            if not value or len(value) > 16384 or any(c in value for c in '\r\n\x00'):
+                raise ContractError('cluster_bootstrap_vault_value_invalid')
+            self._sensitive(value)
+            self.values['app_secrets'][slot] = value
 
     def secret(self, name: str, namespace: str, values: dict, kind='Opaque', extra_labels: dict | None = None) -> None:
         # base64 is the Kubernetes wire format, not a redaction mechanism.
@@ -319,16 +355,32 @@ class Bootstrap:
                 alias = next(alias for alias, ns in profile['context_aliases'].items() if ns == namespace)
                 labels = {'app.kubernetes.io/managed-by': 'adw', 'adw.pzagent.io/target': alias}
                 for name, fields in entries.items():
-                    # Existing owned values are never read, regenerated or rotated on retry.
-                    if not self.owned('Secret', name, namespace, labels):
-                        values = {key: (self.values['app_secrets'][(namespace, name, key)] if 'env' in source
-                                        else secrets.token_urlsafe(32)) for key, source in fields.items()}
+                    pending = {slot: source for slot, source in self.values.get('app_secrets_pending', {}).items()
+                               if slot[:2] == (namespace, name)}
+                    absent = {slot[2] for slot in self.values.get('app_secrets_absent', {}) if slot[:2] == (namespace, name)}
+                    # Existing owned values are never read, regenerated or rotated here;
+                    # `pz:provider:env:apply` appends or replaces keys explicitly (#193).
+                    created = not self.owned('Secret', name, namespace, labels)
+                    if created:
+                        self._generate(pending)
+                        values = {key: self.values['app_secrets'][(namespace, name, key)]
+                                  for key in fields if key not in absent}
                         for value in values.values():
                             self._sensitive(value)
                         self.secret(name, namespace, values, extra_labels=labels)
-                    observed = self.lifecycle.kube(['get', 'Secret', name, '--namespace', namespace,
-                        '-o', 'go-template={{range $key, $value := .data}}{{$key}}{{"\\n"}}{{end}}'])
-                    if set(observed.decode().splitlines()) != set(fields):
+                    observed = set(self.lifecycle.kube(['get', 'Secret', name, '--namespace', namespace,
+                        '-o', 'go-template={{range $key, $value := .data}}{{$key}}{{"\\n"}}{{end}}']).decode().splitlines())
+                    if created and observed != set(fields) - absent:
                         raise ContractError('cluster_app_secret_readback_unproven')
+                    lacking = {} if created else {**pending, **{
+                        slot: source for slot, source in self.values.get('app_secrets_absent', {}).items()
+                        if slot[:2] == (namespace, name)}}
+                    # Values only an existing Secret holds: import them, never regenerate.
+                    report.setdefault('app_secrets_vault_missing', []).extend(
+                        sorted({source['vault'] for slot, source in lacking.items() if slot[2] in observed}))
+                    report.setdefault('app_secrets_keys_missing', []).extend(sorted(set(fields) - observed))
+                    report.setdefault('app_secrets_keys_undeclared', []).extend(sorted(observed - set(fields)))
+            report['app_secrets_generated'] = sorted(self.values.get('app_secrets_generated', ()))
+            report['push_required'] = bool(report['app_secrets_generated'])
             report['app_secrets_ready'] = True
         return report

@@ -10,7 +10,6 @@ import json
 import os
 import re
 import subprocess
-import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -94,18 +93,16 @@ class Rehearsal:
             if target != self.adapter['targets'][selected_environment]['default']:
                 args += ['--target', target]
         command = ["mise", "run", task, "--", *args] if args else ["mise", "run", task]
-        with tempfile.NamedTemporaryFile("w", suffix=".env") as empty:
-            if not credentials:
-                for key in KEYS:
-                    environment.pop(key, None)
-                # --env-file layers on .env.deploy (#172); credential-free mode reads no file at all.
-                environment[CREDENTIAL_FREE] = "1"
-                command += ["--env-file", empty.name]
-            environment.update(env or {})
-            started = time.monotonic()
-            completed = self.runner(command, cwd=self.repo, env=environment, text=True,
-                                    capture_output=True, check=False)
-            seconds = round(time.monotonic() - started, 1)
+        if not credentials:
+            for key in KEYS:
+                environment.pop(key, None)
+            # Credential-free mode resolves nothing: no process value and no vault read.
+            environment[CREDENTIAL_FREE] = "1"
+        environment.update(env or {})
+        started = time.monotonic()
+        completed = self.runner(command, cwd=self.repo, env=environment, text=True,
+                                capture_output=True, check=False)
+        seconds = round(time.monotonic() - started, 1)
         result = _last_json(completed.stdout)
         if expect == "refuse":
             why = (result or {}).get("reason") or ""

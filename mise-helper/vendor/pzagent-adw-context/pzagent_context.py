@@ -56,8 +56,6 @@ def parser() -> argparse.ArgumentParser:
     update.add_argument("--source", required=True)
     update.add_argument("--bundle-sha256", required=True)
     update.add_argument("--allow-downgrade", action="store_true")
-    update.add_argument('--env-file', type=Path)
-    update.add_argument('--allow-credential-fallback', action='store_true')
     clean = sub.add_parser("local-clean")
     clean.add_argument("--repo-root", type=Path, default=Path("."))
     clean.add_argument("--prefix")
@@ -148,6 +146,15 @@ def parser() -> argparse.ArgumentParser:
     servers.add_argument('--profile-root', type=Path)
     servers.add_argument('environment', nargs='?')
     servers.add_argument('--target')
+    show = sub.add_parser('secrets-show')
+    show.add_argument('--repo-root', type=Path, default=Path('.'))
+    show.add_argument('--profile-root', type=Path)
+    show.add_argument('environment')
+    examples = sub.add_parser('secrets-examples')
+    examples.add_argument('--repo-root', type=Path, default=Path('.'))
+    examples.add_argument('--check', action='store_true', help='Only compare; exit non-zero when stale (CI)')
+    show.add_argument('--offline', action='store_true',
+                      help='Only what the committed key schemas expect: no credentials, vault or provider access')
     for name in ('provider-domains', 'provider-env-apply', 'data-import'):
         # #187: operator-only Dokploy tasks on one owned Compose.
         ops = sub.add_parser(name)
@@ -157,8 +164,6 @@ def parser() -> argparse.ArgumentParser:
         ops.add_argument('--target')
         ops.add_argument('--apply', action='store_true')
         if name == 'provider-env-apply':
-            ops.add_argument('--secrets-file', help='Private .env.<name> in the repository root; default: binding env_file or .env.<environment>')
-            ops.add_argument('--generate', action='append', default=[], metavar='KEY')
             ops.add_argument('--replace', action='append', default=[], metavar='KEY')
         if name == 'data-import':
             ops.add_argument('--file', type=Path, required=True)
@@ -175,7 +180,7 @@ def parser() -> argparse.ArgumentParser:
             lifecycle.add_argument('--target')
         if name == 'provider-provision':
             lifecycle.add_argument('--adopt', action='store_true')
-            lifecycle.add_argument('--server-name-env', help='Environment key naming an existing registered server')
+            lifecycle.add_argument('--server', help='Explicit registered server name; otherwise discover the environment placement')
         elif name == 'provider-deprovision':
             lifecycle.add_argument('--operation', dest='operation_id')
             lifecycle.add_argument('--list', dest='list_operations', action='store_true')
@@ -319,9 +324,6 @@ def parser() -> argparse.ArgumentParser:
     for name, command in sub.choices.items():
         if name.startswith(('context-', 'quality-')) or name in {'local-clean', 'workflows-sync'}:
             continue
-        command.add_argument('--env-file', type=Path)
-        command.add_argument('--allow-credential-fallback', action='store_true',
-                             help='Explicitly allow human credential fallback without a complete consumer .env.deploy')
         command.add_argument('--execution-mode', choices=('human', 'ci'),
                              default='ci' if os.environ.get('GITHUB_ACTIONS') == 'true' else 'human')
         command.add_argument('--remote', default='origin')
@@ -408,6 +410,19 @@ def _main(args: argparse.Namespace) -> int:
             result = servers(repo, load_adapter(project_dir(repo) / 'pzagent-adapter.json'),
                 environment=args.environment, target=args.target, profile_root=args.profile_root,
                 operation_dir=new_operation(repo, 'servers'))
+        elif args.command == 'secrets-examples':
+            from modules import operator_compose_ops as ops
+            repo = args.repo_root.resolve()
+            result = ops.secret_examples(repo, load_adapter(project_dir(repo) / 'pzagent-adapter.json'), check=args.check)
+            print(json_result(**result))
+            return 0 if result['status'] == 'ok' else EXIT_CONTRACT
+        elif args.command == 'secrets-show':
+            from modules import operator_compose_ops as ops
+            repo = args.repo_root.resolve()
+            result = ops.secrets_show(repo, load_adapter(project_dir(repo) / 'pzagent-adapter.json'),
+                environment=args.environment, profile_root=args.profile_root, offline=args.offline,
+                # The offline view reads committed files only and writes nothing (codex-1728).
+                operation_dir=None if args.offline else new_operation(repo, 'secrets-show'))
         elif args.command in {'provider-domains', 'provider-env-apply', 'data-import'}:
             from modules import operator_compose_ops as ops
             repo = args.repo_root.resolve()
@@ -418,7 +433,6 @@ def _main(args: argparse.Namespace) -> int:
                 result = ops.domains(repo, adapter, operation_dir=new_operation(repo, 'domains'), **common)
             elif args.command == 'provider-env-apply':
                 result = ops.env_apply(repo, adapter, operation_dir=new_operation(repo, 'env-apply'),
-                                       env_file=args.secrets_file, generate=args.generate,
                                        replace=args.replace, **common)
             else:
                 result = ops.data_import(repo, adapter, operation_dir=new_operation(repo, 'data-import'),
@@ -432,7 +446,7 @@ def _main(args: argparse.Namespace) -> int:
             if args.command == 'provider-provision':
                 result = lifecycle.provision(repo, adapter, environment=args.environment, target=args.target,
                     profile_root=profile, operation_dir=new_operation(repo, 'provision'), adopt=args.adopt,
-                    plan=args.plan, server_name_env=args.server_name_env)
+                    plan=args.plan, server=args.server)
             elif args.command == 'provider-examine':
                 result = lifecycle.examine(repo, adapter, environment=args.environment, target=args.target,
                     profile_root=profile, operation_dir=new_operation(repo, 'examine'))
@@ -895,7 +909,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         # Private provider retrieval uses the same operator credential loader as every human task.
         from modules.operator_credentials import resolve, credentials, REGISTRY
         try:
-            values = resolve(args.repo_root.resolve(), mode='human', env_file=args.env_file, allow_fallback=args.allow_credential_fallback)
+            values = resolve(args.repo_root.resolve(), mode='human', keys=REGISTRY - {'REGISTRY_TOKEN'})
         except ContractError as exc:
             print(json_result(status='blocked', reason=str(exc)))
             return EXIT_CONTRACT
@@ -915,7 +929,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             stack.enter_context(execution(args.execution_mode))
             if args.command in {'provider-servers', 'provider-provision', 'provider-deprovision', 'provider-examine', 'provider-claim',
                                 'provider-journal-rebuild', 'release-pointers-retire', 'provider-domains',
-                                'provider-env-apply', 'data-import'} and args.execution_mode != 'human':
+                                'provider-env-apply', 'data-import', 'secrets-show'} and args.execution_mode != 'human' \
+                    and not (args.command == 'secrets-show' and args.offline):
                 raise ContractError('provider_lifecycle_operator_only')
             if args.command.startswith('workflow-') and args.execution_mode != 'human':
                 raise ContractError('local workflow commands require human mode; CI composes its own jobs')
@@ -936,16 +951,18 @@ def _dispatch(args: argparse.Namespace) -> int:
                 offline_abandon = not args.superseded_by and classification(tree(journals(args.repo_root.resolve(), getattr(args, 'operator_home', None)), args.operation_dir)) == {
                     'classification': 'none', 'publication': 'none'}
             offline_workflow = (args.command == 'workflow-status' or offline_abandon
-                                or (args.command == 'workflow-doctor' and args.offline))
-            values = {} if offline_workflow else resolve(args.repo_root.resolve(), env_file=args.env_file, mode=args.execution_mode, profile_root=getattr(args, 'profile_root', None), allow_fallback=args.allow_credential_fallback)
-            if getattr(args, 'operator_home', None) is not None and not offline_workflow:
-                # Child processes and provider modules read the profile directory, not the home.
-                values['PZ_ADW_PROFILE_ROOT'] = str(args.profile_root)
+                                or (args.command in {'workflow-doctor', 'secrets-show'} and args.offline)
+                                or args.command == 'secrets-examples')
             adapter_path = project_dir(args.repo_root.resolve()) / 'pzagent-adapter.json'
-            if not offline_workflow and args.execution_mode == 'human' and getattr(args, 'profile_root', None) is not None and adapter_path.is_file():
-                # Declared probe base URLs only; an explicit environment value wins.
+            if not offline_workflow and args.execution_mode == 'human' and adapter_path.is_file():
+                # Probe origins from the vault URL templates; an explicit environment value wins.
                 from modules.probe_profile import probe_environment
-                stack.enter_context(probe_environment(load_adapter(adapter_path), args.profile_root))
+                probe_commands = {'probe', 'deploy-apply', 'config-plan', 'config-apply',
+                    'provider-domains', 'hotfix-apply', 'hotfix-restore', 'release-rollback',
+                    'workflow-deploy-existing', 'workflow-publish-deploy', 'workflow-resume', 'workflow-doctor'}
+                stack.enter_context(probe_environment(load_adapter(adapter_path),
+                    environment=getattr(args, 'environment', None), target=getattr(args, 'target', None),
+                    use_templates=args.command in probe_commands))
             registry_commands = {'deploy-apply', 'release-inspect', 'workflow-deploy-existing', 'workflow-resume', 'release-rollback',
                                  'release-publish', 'workflow-publish', 'workflow-publish-deploy', 'release-retention',
                                  'release-pointers-handover', 'release-pointers-retire', 'release-pointers-orphans'}
@@ -963,7 +980,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             allowed = set() if offline_workflow else DOKPLOY | SSH | KUBE
             if args.command == 'workflow-doctor' and not offline_workflow:
                 allowed |= REGISTRY
-            if args.command in {'provider-servers', 'provider-domains', 'provider-env-apply', 'data-import'}:
+            if args.command in {'provider-servers', 'provider-domains', 'provider-env-apply', 'data-import',
+                                'secrets-show'}:
                 allowed = DOKPLOY | {'PZ_ADW_PROFILE_ROOT'}
             if args.command == 'provider-provision':
                 adapter = load_adapter(project_dir(args.repo_root.resolve()) / 'pzagent-adapter.json')
@@ -997,6 +1015,31 @@ def _dispatch(args: argparse.Namespace) -> int:
                 allowed |= REGISTRY
             if source_resume or args.command in {'release-promote', 'release-prove-merged-branch'} or (args.command == 'release-rollback' and args.scope == 'release-line'):
                 allowed |= REGISTRY
+            registry_only = {'release-promote', 'release-prove-merged-branch', 'release-publish',
+                'release-inspect', 'release-retention', 'release-pointers-handover',
+                'release-pointers-retire', 'release-pointers-orphans', 'workflow-publish'}
+            if source_resume or args.command in registry_only or (args.command == 'release-rollback' and args.scope == 'release-line'):
+                allowed &= REGISTRY
+            if args.command == 'provider-provision':
+                if selected.get('provider') == 'kubernetes':
+                    allowed -= DOKPLOY | SSH
+                else:
+                    allowed = DOKPLOY | {'PZ_ADW_PROFILE_ROOT'}
+            elif args.command != 'secrets-show' and getattr(args, 'environment', None) and adapter_path.is_file():
+                # The secrets overview spans the environment's Dokploy and Kubernetes targets.
+                adapter = load_adapter(adapter_path)
+                group = adapter.get('targets', {}).get(args.environment, {})
+                selected_target = group.get('items', {}).get(getattr(args, 'target', None) or group.get('default'), {})
+                if selected_target.get('provider') == 'kubernetes':
+                    allowed -= DOKPLOY | SSH
+                elif selected_target.get('provider') == 'dokploy':
+                    allowed -= KUBE - {'PZ_ADW_PROFILE_ROOT'}
+            # Resolve only after the command's grant is known. In particular a
+            # server inventory must not decrypt registry, DNS or cluster keys.
+            values = {} if offline_workflow else resolve(args.repo_root.resolve(),
+                mode=args.execution_mode, profile_root=getattr(args, 'profile_root', None), keys=allowed)
+            if getattr(args, 'operator_home', None) is not None and not offline_workflow:
+                values['PZ_ADW_PROFILE_ROOT'] = str(args.profile_root)
             stack.enter_context(credentials(values, allowed))
             if args.command in registry_commands:
                 stack.enter_context(authentication(values))

@@ -395,16 +395,15 @@ def _identity(role, row, entry, marker):
         raise ContractError('provider_ancestor_claim_conflict')
 
 
-def _server(api, selector_key):
-    values = rows(api.servers())
-    requested = None
-    if selector_key:
-        if not ENV_KEY.fullmatch(selector_key) or not os.environ.get(selector_key):
-            raise ContractError('provider_server_selection_required')
-        requested = os.environ[selector_key]
-    matches = [row for row in values if requested is None or row.get('name') == requested]
+def _server(api, requested, environment=None):
+    if requested is None:
+        from .dokploy_inventory import discovered_server
+        return discovered_server(api, environment)
+    if not isinstance(requested, str) or not NAME.fullmatch(requested):
+        raise ContractError('provider_server_selector_invalid')
+    matches = [row for row in rows(api.servers()) if row.get('name') == requested]
     if len(matches) != 1:
-        raise ContractError('provider_server_selection_ambiguous')
+        raise ContractError('provider_server_selection_ambiguous: pass --server <name>')
     return identifier(matches[0].get('serverId'))
 
 
@@ -491,7 +490,7 @@ def _initialize_created_compose(api, state, image_keys, save):
 
 def provision(repo: Path, adapter: dict, *, environment: str, target: str | None,
               profile_root: Path, operation_dir: Path, adopt=False, plan=False,
-              server_name_env: str | None = None, api=None) -> dict:
+              server: str | None = None, api=None) -> dict:
     _operator()
     source = prove_source(repo, adapter)
     group = adapter['targets'].get(environment, {})
@@ -500,18 +499,18 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
         from .providers.kubernetes_lifecycle import provision as provision_kubernetes
         return provision_kubernetes(repo, adapter, environment=environment, target=target,
             profile_root=profile_root, operation_dir=operation_dir, adopt=adopt, plan=plan,
-            server_name_env=server_name_env, source_sha=source)
+            server=server, source_sha=source)
     target, binding = _binding(adapter, environment, target)
     selected_placement = placement(binding)
-    if selected_placement == 'local' and server_name_env is not None:
+    if selected_placement == 'local' and server is not None:
         raise ContractError('provider_local_server_selector_refused')
     shared = _shared_roles(adapter, binding)
     image_keys = _image_slot_keys(repo, adapter, binding)
-    if server_name_env is not None and not ENV_KEY.fullmatch(server_name_env):
+    if server is not None and (not isinstance(server, str) or not NAME.fullmatch(server)):
         raise ContractError('provider_server_selector_invalid')
     private = ownership_path(repo, profile_root, adapter['repository']['id'], environment, target)
     selection = {'repository': adapter['repository']['id'], 'environment': environment, 'target': target,
-                 'binding': binding, 'adopt': adopt, 'server_name_env': server_name_env}
+                 'binding': binding, 'adopt': adopt}
     api = _client(profile_root, api)
     api.validate()
     with locked(private.parent.parent), locked(private.parent), locked(operation_dir):
@@ -524,7 +523,12 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
             'operation_id': 'provision-' + secrets.token_hex(16),
             'nonce': secrets.token_hex(16), 'phase': 'planned', 'resources': {}, 'intents': {}, 'server_id': None,
             'description_originals': {}}
-        if state['selection'] != selection:
+        # Old journals recorded only the selector's environment-key name. The
+        # actual private server ID below remains the binding across migration;
+        # never persist the new human-entered display-name selector.
+        prior_selection = {key: value for key, value in state['selection'].items()
+                           if key != 'server_name_env'}
+        if prior_selection != selection:
             raise ContractError('provider_operation_selection_changed')
         if selected_placement == 'local':
             if previous is None:
@@ -545,13 +549,14 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
                               if project_before is not None else None)
         compose_before = (one_named(api.composes(identifier(environment_before['environmentId'])), binding['resource'])
                           if environment_before is not None else None)
-        server = (server_id(api.compose(identifier(compose_before['composeId'])), selected_placement)
-                  if compose_before is not None else None if selected_placement == 'local' else _server(api, server_name_env))
-        if server_name_env and server != _server(api, server_name_env):
+        selected_server = (server_id(api.compose(identifier(compose_before['composeId'])), selected_placement)
+                  if compose_before is not None else None if selected_placement == 'local' else _server(api, server, binding['environment']))
+        if server and selected_server != _server(api, server):
             raise ContractError('provider_server_selection_changed')
-        if state['server_id'] not in {None, server}:
+        if state['server_id'] not in {None, selected_server}:
             raise ContractError('provider_server_selection_changed')
-        state['server_id'] = server
+        state['selection'] = selection
+        state['server_id'] = selected_server
         write(private, state)
 
         def save():
@@ -688,11 +693,11 @@ def provision(repo: Path, adapter: dict, *, environment: str, target: str | None
                 existing = one_named(api.composes(env_id), binding['resource'])
                 if existing is not None:
                     existing = api.compose(identifier(existing.get('composeId')))
-                if existing is not None and server_id(existing, selected_placement) != server:
+                if existing is not None and server_id(existing, selected_placement) != selected_server:
                     raise ContractError('provider_server_selection_changed')
                 ensure('compose', existing, ('compose.create', {
                     'name': binding['resource'], 'environmentId': env_id,
-                    **({} if selected_placement == 'local' else {'serverId': server}),
+                    **({} if selected_placement == 'local' else {'serverId': selected_server}),
                     'description': '', 'composeType': 'docker-compose'}), parent=env_id)
         if not plan:
             resolved = discover_binding(api, ProviderNames(binding['project'], binding['environment'],
@@ -785,7 +790,7 @@ def _live_scopes(api, adapter):
             if compose is not None:
                 compose = api.compose(identifier(compose['composeId']))
             selection = {'repository': repository, 'environment': environment, 'target': target,
-                         'binding': binding, 'adopt': True, 'server_name_env': None}
+                         'binding': binding, 'adopt': True}
             resources, originals, owned = {}, {}, []
             for role, row in (('project', project), ('environment', env), ('compose', compose)):
                 if row is None:

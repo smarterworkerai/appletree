@@ -59,7 +59,7 @@ def profile_credentials(profile_root:Path|None)->tuple[str,str]:
     credential=os.environ.get('DOKPLOY_TOKEN') or os.environ.get('DOKPLOY_API_KEY','')
     if endpoint and credential:return endpoint,credential
     if endpoint or credential:raise ContractError('Dokploy credentials require both DOKPLOY_URL and DOKPLOY_API_KEY (or DOKPLOY_TOKEN)')
-    if profile_root is None:raise ContractError('missing DOKPLOY_URL and DOKPLOY_API_KEY (or DOKPLOY_TOKEN); configure environment, .env.deploy or --profile-root')
+    if profile_root is None:raise ContractError('missing DOKPLOY_URL and DOKPLOY_API_KEY (or DOKPLOY_TOKEN); store them in pz-secretctl, export them, or pass --profile-root')
     config=profile_root/'config.yaml'
     if not config.is_file() or config.is_symlink():raise ContractError('operator profile config is unavailable')
     values={}; in_env=False
@@ -303,6 +303,8 @@ def _capture_compose(path:Path,current:bytes,desired:bytes)->bytes:
 def _key_contract(data):
  if not isinstance(data,dict):raise ContractError('Environment key schema is not closed')
  keys=data.get('keys');optional=data.get('optional_keys',[])
+ # #193: one object per key (its source); only the names matter here. No new import: decision closure.
+ if isinstance(keys,dict) and all(isinstance(entry,dict) for entry in keys.values()):keys=list(keys)
  if set(data) not in ({'keys'},{'keys','optional_keys'}) or not isinstance(keys,list) or not isinstance(optional,list) or len(keys)!=len(set(keys)) or len(optional)!=len(set(optional)) or not set(optional)<=set(keys):raise ContractError('Environment key schema is not closed')
  allowed=set(keys);return allowed-set(optional),allowed
 

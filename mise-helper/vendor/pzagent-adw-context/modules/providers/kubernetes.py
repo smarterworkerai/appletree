@@ -15,6 +15,7 @@ import secrets
 import subprocess
 from typing import Any, Mapping
 
+from ..adapter import probe_url_key
 from ..common import ContractError, ensure_contained
 from ..operator_credentials import bootstrap_keys, clean_environment
 from ..runtime_proof import parse_environment
@@ -882,7 +883,8 @@ class KubernetesProvider:
         root = self.profile_root or (Path(os.environ['PZ_ADW_PROFILE_ROOT']) if os.environ.get('PZ_ADW_PROFILE_ROOT') else None)
         if root is not None:
             result['PZ_ADW_PROFILE_ROOT'] = str(root)
-        key = self.binding['ingress_probe_base']
+        # #193: always the provider/environment template key; the adapter refuses any other.
+        key = self.binding.get('ingress_probe_base') or probe_url_key('kubernetes', self.binding['environment'])
         if key in os.environ:
             result[key] = os.environ[key]
         return result

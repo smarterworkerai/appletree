@@ -232,18 +232,16 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
             adapter['targets'][environment] = {'default': None, 'items': {
                 environment + '-k8s': {'mode': 'shadow', 'provider': 'kubernetes', 'provider_binding': binding}}}
             overlay = 'deploy/k8s/overlays/' + environment
-            key = 'PROJECT_' + environment.upper().replace('-', '_') + '_BASE_URL'
             adapter['providers']['kubernetes']['bindings'][binding] = {
                 'environment': environment, 'context_alias': environment, 'namespace': namespace,
                 'release': {'kind': 'kustomize', 'path': overlay},
                 'image_variables': {image_keys[c]: {'kind': 'Deployment', 'name': c, 'container': c}
                                     for c in args.components},
-                'config_schema_path': 'deploy/k8s/keys.json', 'ingress_probe_base': key,
-                'probes': {'base_url_env': key, 'health_path': '/health', 'readiness_path': '/ready'}}
+                'config_schema_path': 'deploy/k8s/keys.json',
+                'probes': {'health_path': '/health', 'readiness_path': '/ready'}}
             files[overlay + '/kustomization.yaml'] = document({
                 'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization',
                 'namespace': namespace, 'resources': ['../../base']})
-            files['deploy/k8s/.env.' + environment + '.example'] = (templates / 'providers/kubernetes/env.example').read_text()
             continue
         adapter['targets'][environment] = {'default': None, 'items': {
             environment + '-dokploy': {'mode': 'shadow', 'provider': 'dokploy', 'provider_binding': binding}}}
@@ -255,12 +253,9 @@ def scaffold(repo: Path, args) -> dict[str, bytes]:
             'environment_schema_path': key_schema}
         services = ''.join('  ' + c + ':\n    image: ${' + image_keys[c] + ':?digest-pinned image required}\n' for c in args.components)
         files[compose] = (templates / 'providers/dokploy/compose.yml').read_text().replace('@SERVICES@', services)
-        files['infra/dokploy/.env.' + environment + '.example'] = (templates / 'providers/dokploy/env.example').read_text().replace('@KEYS@', ''.join(key + '=\n' for key in image_keys.values()))
-        files[key_schema] = document({'keys': list(image_keys.values()), 'optional_keys': []})
-    if args.provider in {'dokploy', 'kubernetes'}:
-        files['.env.deploy.example'] = (templates / 'providers' / args.provider / 'operator-env.example').read_text().replace(
-            '@PROBE_KEYS@', ''.join('PROJECT_' + environment.upper().replace('-', '_') + '_BASE_URL=\n'
-                                   for environment in args.environments))
+        # #193: one object per key with its source; secrets come from the agent vault.
+        files[key_schema] = document({'keys': {key: {'source': 'release'} for key in image_keys.values()},
+                                      'optional_keys': []})
     if args.provider == 'kubernetes':
         resources = []
         for component in args.components:
@@ -403,16 +398,11 @@ def initialize(repo: Path, args) -> dict:
             else:
                 path.write_bytes(prior)
         raise
-    private_files = [{'path': '.env.deploy', 'example': '.env.deploy.example', 'mode': '0600',
-                      'purpose': 'operator-credentials', 'location': 'repository-root'}]
-    private_files.extend({'path': Path(name).name.removesuffix('.example'), 'example': name,
-                          'mode': '0600', 'purpose': 'application-secrets', 'location': 'repository-root'}
-                         for name in sorted(files) if Path(name).name.startswith('.env.')
-                         and name.endswith('.example') and name != '.env.deploy.example')
     return {'status': 'ok', 'changed': sorted(changed), 'project_directory': args.directory,
-            'private_files': private_files,
-            'next': ['Human: fill .env.deploy in the repository root from .env.deploy.example (mode 0600) before operator tasks.',
-                     'Fill application secret files in the repository root using the matching example names in private_files; never commit values.',
+            'private_files': [],
+            'next': ['Verify operator inputs in pz-secretctl (`pz-secretctl search <words>`); no .env.deploy is needed.',
+                     'Declare a source per key in the key schemas (generate, human, shared, release); values live in the agent vault and pz:secrets:show lists them, never commit values.',
+                     'Run pz:secrets:examples for the keys-only .env.example and .env.deploy.example, and add pz:secrets:examples:check to adw:static-analysis so CI keeps them current.',
                      'Trust the generated mise.toml for normal use (mise trust mise.toml).',
                      'Implement the eight project tasks; full verification stays context-owned.',
                      'Run adw:context:check after implementing the release build handover.',

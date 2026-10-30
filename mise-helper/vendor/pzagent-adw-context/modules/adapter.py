@@ -6,6 +6,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .common import ContractError, IDENTIFIER, load_json, safe_relative_path
 from .providers import require as require_provider
@@ -87,7 +88,6 @@ def _validate_hook_command(command: Any) -> None:
 
 SERVICE_NAME = re.compile(r'^[a-z0-9][a-z0-9_-]{0,62}$')
 ROUTE_PATH = re.compile(r'^/(?:[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*)?$')
-ENV_FILE = re.compile(r'^\.env\.[a-z0-9][a-z0-9.-]{0,62}$')
 
 
 def dokploy_routes(binding) -> list[dict]:
@@ -112,11 +112,8 @@ def dokploy_routes(binding) -> list[dict]:
 
 
 def _dokploy_operator_fields(binding):
-    """Optional operator declarations (#187): routed domains, private file name, data-import hook."""
+    """Optional operator declarations (#187): routed domains and the data-import hook."""
     dokploy_routes(binding)
-    if 'env_file' in binding and (not isinstance(binding['env_file'], str) or not ENV_FILE.fullmatch(binding['env_file'])
-                                  or binding['env_file'].endswith('.example')):
-        raise ContractError('provider env_file must be .env.<name> in the repository root')
     if 'data_import' in binding:
         spec = _exact(binding['data_import'], {'service', 'script'}, 'provider data_import')
         if not isinstance(spec['service'], str) or not SERVICE_NAME.fullmatch(spec['service']):
@@ -200,7 +197,7 @@ def expand(data: Any, manifest: Any) -> dict[str, Any]:
             raise ContractError("Dokploy bindings must be an object")
         expanded_bindings: dict[str, Any] = {}
         binding_keys = {"project", "environment", "resource", "child_binding", "compose_path", "environment_schema_path"}
-        optional_binding_keys = {"probes", "plan", "placement", "routes", "env_file", "data_import"}
+        optional_binding_keys = {"probes", "plan", "placement", "routes", "data_import"}
         for name, binding in bindings.items():
             if not isinstance(binding, dict) or set(binding) - (binding_keys | optional_binding_keys) or not (binding_keys - {"project"}) <= set(binding):
                 raise ContractError(f"Dokploy binding {name} is not a closed object")
@@ -293,6 +290,41 @@ def expand(data: Any, manifest: Any) -> dict[str, Any]:
     return validate(normalized)
 
 
+def probe_url_key(provider: str, environment: str) -> str:
+    prefix = 'KUBE' if provider == 'kubernetes' else 'DOKPLOY'
+    return prefix + '_' + environment.upper().replace('-', '_') + '_URL'
+
+
+def _probes(value, default_key):
+    if (not isinstance(value, dict) or not {'health_path', 'readiness_path'} <= set(value)
+            or set(value) - {'base_url_env', 'base_url', 'health_path', 'readiness_path'}):
+        raise ContractError('provider probes is not a closed object')
+    value.setdefault('base_url_env', default_key)
+    if value['base_url_env'] != default_key:
+        # #193: one URL template per provider and environment; `base_url` is the literal exception.
+        raise ContractError(f'provider_probe_key_not_default: remove base_url_env (the key is {default_key})')
+    if 'base_url' in value:
+        try:
+            origin = value['base_url']
+            if not isinstance(origin, str):
+                raise ValueError()
+            parts = urlsplit(origin)
+            if (not isinstance(origin, str) or not origin or len(origin) > 2048
+                    or any(char in origin for char in '{}\x00\r\n')
+                    or parts.scheme not in {'http', 'https'} or not parts.hostname
+                    or parts.username or parts.password or parts.path not in {'', '/'}
+                    or parts.query or parts.fragment):
+                raise ValueError()
+            parts.port  # Validate a supplied port without reporting the origin.
+        except (TypeError, ValueError):
+            raise ContractError('provider probe literal URL is invalid') from None
+    for field in ('health_path', 'readiness_path'):
+        if (not isinstance(value[field], str) or not re.fullmatch(r'/[A-Za-z0-9/_-]{0,255}', value[field])
+                or '//' in value[field] or '..' in value[field]):
+            raise ContractError('provider probe path is invalid')
+    return value
+
+
 def _kubernetes_bindings(provider: Any, environments: list[str]) -> set[tuple[str, str]]:
     """Validate facts only; never import the driver or read an operator profile."""
     provider = _exact(provider, {"bindings"}, "Kubernetes provider")
@@ -300,12 +332,12 @@ def _kubernetes_bindings(provider: Any, environments: list[str]) -> set[tuple[st
     if not isinstance(bindings, dict):
         raise ContractError("kubernetes_bindings_invalid")
     required = {"environment", "context_alias", "namespace", "release",
-                "image_variables", "config_schema_path", "ingress_probe_base"}
+                "image_variables", "config_schema_path"}
     result = set()
     for name, binding in bindings.items():
         if (not isinstance(name, str) or not IDENTIFIER.fullmatch(name)
                 or not isinstance(binding, dict) or not required <= set(binding)
-                or set(binding) - (required | {"probes", "plan"})):
+                or set(binding) - (required | {"ingress_probe_base", "probes", "plan"})):
             raise ContractError("kubernetes_binding_invalid")
         if (binding["environment"] not in environments
                 or not isinstance(binding["context_alias"], str)
@@ -318,9 +350,10 @@ def _kubernetes_bindings(provider: Any, environments: list[str]) -> set[tuple[st
             raise ContractError("kubernetes_release_kind_invalid")
         safe_relative_path(release["path"])
         safe_relative_path(binding["config_schema_path"])
-        key = binding["ingress_probe_base"]
-        if not isinstance(key, str) or not ENV_KEY.fullmatch(key):
-            raise ContractError("kubernetes_probe_key_invalid")
+        key = binding.setdefault('ingress_probe_base', probe_url_key('kubernetes', binding['environment']))
+        if key != probe_url_key('kubernetes', binding['environment']):
+            raise ContractError(f"provider_probe_key_not_default: remove ingress_probe_base (the key is "
+                                f"{probe_url_key('kubernetes', binding['environment'])})")
         variables = binding["image_variables"]
         if not isinstance(variables, dict) or not variables:
             raise ContractError("kubernetes_image_mapping_invalid")
@@ -337,7 +370,7 @@ def _kubernetes_bindings(provider: Any, environments: list[str]) -> set[tuple[st
                 raise ContractError("kubernetes_image_mapping_ambiguous")
             seen.add(identity)
         if "probes" in binding:
-            probes = _exact(binding["probes"], {"base_url_env", "health_path", "readiness_path"}, "provider probes")
+            probes = _probes(binding['probes'], key)
             if probes["base_url_env"] != key:
                 raise ContractError("kubernetes_probe_key_conflict")
             for field in ("health_path", "readiness_path"):
@@ -458,14 +491,14 @@ def validate(data: Any) -> dict[str, Any]:
             if not IDENTIFIER.fullmatch(name):
                 raise ContractError("provider binding name is invalid")
             required_binding = {"project", "environment", "resource", "child_binding", "compose_path", "environment_schema_path"}
-            if not isinstance(raw, dict) or not required_binding <= set(raw) or set(raw) - (required_binding | {'probes', 'plan', 'placement', 'routes', 'env_file', 'data_import'}):
+            if not isinstance(raw, dict) or not required_binding <= set(raw) or set(raw) - (required_binding | {'probes', 'plan', 'placement', 'routes', 'data_import'}):
                 raise ContractError(f'Dokploy binding {name} is not a closed object')
             binding = raw
             if 'placement' in binding and (not isinstance(binding['placement'], str)
                                             or binding['placement'] not in {'local', 'remote'}):
                 raise ContractError('provider_placement_invalid')
             if 'probes' in binding:
-                probes = _exact(binding['probes'], {'base_url_env', 'health_path', 'readiness_path'}, 'provider probes')
+                probes = _probes(binding['probes'], probe_url_key('dokploy', binding['environment']))
                 if not isinstance(probes['base_url_env'], str) or not ENV_KEY.fullmatch(probes['base_url_env']):
                     raise ContractError('provider probe base URL key is invalid')
                 for field in ('health_path', 'readiness_path'):

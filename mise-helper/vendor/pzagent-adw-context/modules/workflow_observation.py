@@ -459,10 +459,13 @@ def _check(result: str, reason: str | None = None, *, coverage: list[str], evide
 
 
 def _key_contract(data) -> tuple[set[str], set[str]]:
-    # Same closed key-schema contract as configuration plan and apply.
+    # Same closed key-schema contract as configuration plan and apply. #193: one object per
+    # key (its source) is accepted too; only the names matter here (no new import: decision closure).
     if not isinstance(data, dict) or set(data) not in ({'keys'}, {'keys', 'optional_keys'}):
         raise ContractError('key_schema_invalid')
     keys, optional = data.get('keys'), data.get('optional_keys', [])
+    if isinstance(keys, dict) and all(isinstance(entry, dict) for entry in keys.values()):
+        keys = list(keys)
     if (not isinstance(keys, list) or not isinstance(optional, list) or len(keys) != len(set(keys))
             or len(optional) != len(set(optional)) or not set(optional) <= set(keys)):
         raise ContractError('key_schema_invalid')

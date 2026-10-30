@@ -12,6 +12,8 @@ from .providers import bind, binding_for
 def _key_contract(data):
  if not isinstance(data,dict):raise ContractError('Environment key schema is not closed')
  keys=data.get('keys');optional=data.get('optional_keys',[])
+ # #193: one object per key (its source); only the names matter here. No new import: decision closure.
+ if isinstance(keys,dict) and all(isinstance(entry,dict) for entry in keys.values()):keys=list(keys)
  if set(data) not in ({'keys'},{'keys','optional_keys'}) or not isinstance(keys,list) or not isinstance(optional,list) or len(keys)!=len(set(keys)) or len(optional)!=len(set(optional)) or not set(optional)<=set(keys):raise ContractError('Environment key schema is not closed')
  allowed=set(keys);return allowed-set(optional),allowed
 

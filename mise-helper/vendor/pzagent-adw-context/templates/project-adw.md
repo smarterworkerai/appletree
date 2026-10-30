@@ -32,25 +32,36 @@ resolve its real zone from the private operator inventory. Keep manager/server
 names, domain-to-server maps, actual probe origins and provider resource IDs in
 private operator notes. Different preview/production servers may share a manager.
 
-For Dokploy targets, the maintainer fills private `.env.deploy` from
-`.env.deploy.example` (or uses a private operator home). The agent writes
-non-secret settings in reviewed Compose and lists missing secret/private keys;
-only those names belong in the key schema and `.env.<environment>.example`.
-The maintainer fills private `.env.<environment>` with secrets/private values,
-then copies intended entries from it and pastes them key by key below image
-lines in the target Compose page’s Environment tab in the Dokploy UI, then saves. Never replace the whole
-block or overwrite rotated values from a stale copy. Omit image keys from
-private files and pasted entries; deployment owns them. Both private file types
-are mode 0600. Target files are not automatically loaded or uploaded.
-For Kubernetes targets, the agent names secret source keys in
-`deploy/k8s/.env.<environment>.example` and the private
-`kubernetes-provisioning.json`. The maintainer fills `.env.<environment>` and
-passes it with `--env-file` to `pz:provider:provision`, which creates that
-target's Secrets from it on top of `.env.deploy`.
-Supported credential keys load automatically; arbitrary
-probe/server selectors require explicit export, with probe origins alternatively
-in private `profile/probes.json`. Consult the installed Dokploy bootstrap reference
-for resolution order and first provisioning/configuration/deployment sequence.
+## Secrets and credentials
+
+All credentials and secret values live in the agent vault (`pz-secretctl`); this
+repository has no `.env.deploy`, `.env.<environment>` or other secret file. The
+agent uses its own identity; a person uses a human terminal outside Herdr with
+an unlocked personal operator (`eval "$(pz-secretctl operator unlock <id>)"`).
+The agent writes non-secret settings in reviewed Compose; only secret keys go
+into the key schema, each with its source (`generate`, `human`, `shared`,
+`release`). Kubernetes key schemas declare the same sources and vault IDs, and
+the private `kubernetes-provisioning.json` only names the Secret that receives
+them (`"key-schema"`).
+
+- What an environment expects, offline: `mise run pz:secrets:show -- <environment> --offline`,
+  or read the keys-only root `.env.example` and `.env.deploy.example`. After changing
+  a key schema or the adapter, run `mise run pz:secrets:examples` and commit the result;
+  CI runs `pz:secrets:examples:check`.
+- What it gets, compared with the vault: `mise run pz:secrets:show -- <environment>`.
+- Fill or add keys from the vault: `mise run pz:provider:env:apply -- <environment> --target <target>`
+  (plan), then `--apply`; `--replace KEY` writes one changed value.
+- A missing `human` value: the task prints `pz-secretctl secret add … --prompt`;
+  a person runs exactly that in their own terminal, then `pz-secretctl vault push`.
+- Never ask for, paste or print a value. Recipes: the installed
+  `references/secrets.md` of the pzagent-adw-context skill.
+
+Probe origins use the provider/environment URL template (`DOKPLOY_<ENV>_URL`,
+`KUBE_<ENV>_URL`) with `{app}` from `repository.id`, or a literal
+`probes.base_url` exception. Servers are discovered across marker-owned
+projects; use `--server <name>` when observations are missing or disagree.
+Consult the installed Dokploy bootstrap reference for the first
+provisioning/configuration/deployment sequence.
 
 ## Deployable units
 

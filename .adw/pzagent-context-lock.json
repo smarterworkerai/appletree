@@ -1,6 +1,6 @@
 {
-  "bundle_sha256": "593bcd505576be41d2b58f9448f21129209772cfbbf7b97d7b82aaf12f70c2cb",
-  "package_version": "0.18.0",
+  "bundle_sha256": "595e89bb0d2d1090abe1a01de6f944f1bfc68101ebf5779f85d678ab4460e78d",
+  "package_version": "0.19.0",
   "schema_version": "1.0.0",
-  "source_ref": "ee425d6a76575b37151b1c3a1ce2fb445573791e"
+  "source_ref": "4bec2fd651cd8851374432ecaf842809ffe700b8"
 }

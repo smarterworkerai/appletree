@@ -1,13 +1,15 @@
-"""Optional dotenv input, parsed as data and scoped to a provider operation."""
+"""Vault-backed, operation-scoped credentials: explicit process values, then the vault (#193)."""
 from contextlib import contextmanager
 import os
 import json
 from pathlib import Path
 import re
-import stat
+import shlex
+import shutil
+import subprocess
 import sys
 
-from .common import ContractError, PROJECT_DIRECTORIES
+from .common import ContractError
 
 GROUPS = (('DOKPLOY_API_KEY', 'DOKPLOY_TOKEN'), ('GITHUB_TOKEN', 'GH_TOKEN'))
 DOKPLOY = {'DOKPLOY_URL', 'DOKPLOY_API_KEY', 'DOKPLOY_TOKEN'}
@@ -20,6 +22,179 @@ CLUSTER_ONLY = {'ACME_EMAIL', 'PZ_ADW_K3D_BIND_ADDRESS'}
 BOOTSTRAP = CLOUDFLARE | CLUSTER_ONLY | {'GHCR_USERNAME', 'GHCR_PULL_TOKEN'}
 KEYS = DOKPLOY | REGISTRY | SSH | KUBE | BOOTSTRAP
 CREDENTIAL_FREE = 'PZ_ADW_CREDENTIAL_FREE'
+
+
+AGENT_CONTEXT = ('AGENT_ID', 'HERDR_TAB_ID', 'CLAUDE_CODE_SESSION_ID', 'CODEX_SESSION_ID')
+OPERATOR_SESSION = 'PZ_SECRETCTL_OPERATOR_SESSION'
+
+
+def secretctl_selector(parent: dict[str, str]) -> list[str]:
+    """`--operator <id>` for a human terminal with an unlocked pz-secretctl session, else nothing.
+
+    Any agent context (AGENT_ID, a Herdr tab or an agent CLI session) uses its own
+    agent identity and never an operator session, even one it inherited by accident.
+    """
+    raw = parent.get(OPERATOR_SESSION)
+    if not raw or any(parent.get(name) for name in AGENT_CONTEXT):
+        return []
+    try:
+        name = json.loads(raw)['id']
+    except (ValueError, TypeError, KeyError):
+        raise ContractError('vault_operator_session_invalid') from None
+    if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', name):
+        raise ContractError('vault_operator_session_invalid')
+    return ['--operator', name]
+
+
+def vault_values(keys: set[str], parent: dict[str, str], *, operator: str | None = None) -> dict[str, str]:
+    """Read only requested IDs through secretctl; subprocess output stays in memory.
+
+    A human terminal with an unlocked pz-secretctl session reads through
+    `--operator <id>` (secretctl_selector); it never selects an agent or the
+    recovery identity. An explicit `operator` must match this shell's session.
+    """
+    if not keys:
+        return {}
+    selector = secretctl_selector(parent)
+    if operator is not None and selector != ['--operator', operator]:
+        # An explicitly requested operator never falls back to an agent identity.
+        raise ContractError('vault_operator_session_unavailable')
+    binary = shutil.which(parent.get('PZ_ADW_SECRETCTL', 'pz-secretctl'),
+                          path=parent.get('PATH', os.defpath))
+    if binary is None:
+        return {}
+    try:
+        selected = []
+        for key in sorted(keys):
+            result = subprocess.run([binary, *selector, 'show', key], env=parent,
+                                    capture_output=True, timeout=30)
+            if result.returncode == 3:  # Not in this identity's own/shared catalog.
+                continue
+            if result.returncode:
+                raise ContractError('vault_credential_lookup_failed')
+            selected.append(key)
+        if not selected:
+            return {}
+        command = [binary, *selector, 'run']
+        for key in selected:
+            command.extend(['--env', key + '=' + key])
+        # Only variable names enter argv. No get, shell, plaintext file or value
+        # reaches the caller's output, evidence, exception text or parent shell.
+        command.extend(['--', sys.executable, '-I', '-c',
+                        'import json,os,sys;json.dump({k:os.environ[k] for k in sys.argv[1:]},sys.stdout)',
+                        *selected])
+        result = subprocess.run(command, env=parent, capture_output=True, timeout=60)
+        if result.returncode or len(result.stdout) > 1024 * 1024:
+            raise ContractError('vault_credential_read_failed')
+        values = json.loads(result.stdout)
+        if (not isinstance(values, dict) or set(values) != set(selected)
+                or any(not isinstance(value, str) or '\x00' in value for value in values.values())):
+            raise ContractError('vault_credential_response_invalid')
+        return values
+    except ContractError:
+        raise
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        raise ContractError('vault_credential_read_failed') from None
+
+
+VAULT_ID = re.compile(r'^[A-Za-z][A-Za-z0-9_.-]{0,127}$')
+VAULT_SCOPE = re.compile(r'^shared/[a-z][a-z0-9-]{0,62}$')
+GENERATE_KINDS = {'password', 'hex', 'base64url'}
+
+
+def _secretctl(parent: dict[str, str]) -> str:
+    binary = shutil.which(parent.get('PZ_ADW_SECRETCTL', 'pz-secretctl'), path=parent.get('PATH', os.defpath))
+    if binary is None:
+        raise ContractError('vault_unavailable: pz-secretctl is not installed')
+    return binary
+
+
+def vault_secrets(ids: set[str], parent: dict[str, str], *,
+                  locations: dict[str, str] | None = None) -> tuple[dict[str, str], set[str]]:
+    """Read namespaced shared vault IDs; returns (values by ID, IDs the vault does not hold).
+
+    Application values live in the shared scope only (`--scope shared`), so an agent's
+    own entry of the same ID never shadows them. `locations` receives each present ID's
+    vault (`shared/<vault>`). IDs map to synthetic variable names for `pz-secretctl run`,
+    so only names enter argv and values only ever exist in this process's memory.
+    """
+    if any(not isinstance(item, str) or not VAULT_ID.fullmatch(item) for item in ids):
+        raise ContractError('vault_id_invalid')
+    if not ids:
+        return {}, set()
+    binary, selector = _secretctl(parent), secretctl_selector(parent)
+    try:
+        present, missing = [], set()
+        for item in sorted(ids):
+            result = subprocess.run([binary, *selector, 'show', item, '--scope', 'shared'], env=parent,
+                                    capture_output=True, timeout=30)
+            if result.returncode == 3:
+                missing.add(item)
+            elif result.returncode:
+                raise ContractError('vault_unavailable: no vault identity here (an agent identity, or the '
+                                    'operator unlock once pz-secretctl offers it)')
+            else:
+                present.append(item)
+                found = re.search(r'^scope:\s+shared \((shared/[A-Za-z0-9._-]+)\)\s*$',
+                                  result.stdout.decode(errors='replace'), re.M)
+                if locations is not None and found:
+                    locations[item] = found[1]
+        if not present:
+            return {}, missing
+        names = {f'PZ_ADW_VAULT_{index}': item for index, item in enumerate(present)}
+        command = [binary, *selector, 'run', '--scope', 'shared']
+        for name, item in names.items():
+            command.extend(['--env', item + '=' + name])
+        command.extend(['--', sys.executable, '-I', '-c',
+                        'import json,os,sys;json.dump({k:os.environ[k] for k in sys.argv[1:]},sys.stdout)', *names])
+        result = subprocess.run(command, env=parent, capture_output=True, timeout=60)
+        if result.returncode or len(result.stdout) > 8 * 1024 * 1024:
+            raise ContractError('vault_credential_read_failed')
+        values = json.loads(result.stdout)
+        if (not isinstance(values, dict) or set(values) != set(names)
+                or any(not isinstance(value, str) or '\x00' in value for value in values.values())):
+            raise ContractError('vault_credential_response_invalid')
+        return {names[name]: value for name, value in values.items()}, missing
+    except ContractError:
+        raise
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        raise ContractError('vault_credential_read_failed') from None
+
+
+def entry_command(scope: str, item: str, description: str, parent: dict[str, str]) -> str | None:
+    """The exact `secret add` a person runs, with the acting identity's literal ID; None if unknown.
+
+    The arguments are shell-quoted, so a description can never execute when pasted.
+    """
+    selector = secretctl_selector(parent)
+    if not selector:
+        try:
+            result = subprocess.run([_secretctl(parent), 'whoami'], env=parent, capture_output=True, timeout=30)
+        except (ContractError, OSError, subprocess.SubprocessError):
+            return None
+        match = re.search(r'^agent:\s+([A-Za-z0-9_-]{1,64})\b', result.stdout.decode(errors='replace'), re.M)
+        if result.returncode or match is None:
+            return None
+        selector = ['--agent', match[1]]
+    return shlex.join(['pz-secretctl', 'secret', 'add', scope, item, '--prompt', *selector,
+                       '--description', description])
+
+
+def vault_generate(scope: str, item: str, kind: str, parent: dict[str, str], *, length: int | None = None,
+                   description: str = '') -> None:
+    """Create a new random value in the vault (`pz-secretctl secret generate`); it is never seen here."""
+    if not VAULT_SCOPE.fullmatch(scope) or not VAULT_ID.fullmatch(item) or kind not in GENERATE_KINDS:
+        raise ContractError('vault_generate_invalid')
+    command = [_secretctl(parent), *secretctl_selector(parent), 'secret', 'generate', scope, item,
+               '--kind', kind, '--description', description[:200]]
+    if length is not None:
+        command.extend(['--length', str(length)])
+    try:
+        result = subprocess.run(command, env=parent, capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        raise ContractError('vault_generate_failed') from None
+    if result.returncode:
+        raise ContractError('vault_generate_failed')
 
 
 CLUSTER_SEED = Path('infra/k8s/cluster-profile.json')
@@ -99,19 +274,6 @@ def bootstrap_keys(profile_root: Path | None = None, parent: dict[str, str] | No
                                 or not key.endswith(suffix)):
                             raise ValueError()
                         keys.add(key)
-            for entries in profile.get('app_secrets', {}).values():
-                for fields in entries.values():
-                    for source in fields.values():
-                        if not isinstance(source, dict):
-                            raise ValueError()
-                        key = source.get('env')
-                        if key is not None:
-                            if (set(source) != {'env'} or not isinstance(key, str)
-                                    or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key)
-                                    or not key.endswith(('_KEY', '_TOKEN', '_PASSWORD', '_SECRET'))
-                                    or key in REGISTRY | CLOUDFLARE):
-                                raise ValueError()
-                            keys.add(key)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as exc:
         raise ContractError('cluster_profile_invalid') from exc
     return keys
@@ -146,151 +308,67 @@ def kubernetes_bootstrap_keys(profile_root: Path | None, context_alias: str) -> 
                         or not key.endswith(suffix) or key in REGISTRY | CLOUDFLARE | CLUSTER_ONLY):
                     raise ValueError()
                 keys.add(key)
-        for entries in selected.get('app_secrets', {}).values():
-            for fields in entries.values():
-                for source in fields.values():
-                    if not isinstance(source, dict):
-                        raise ValueError()
-                    key = source.get('env')
-                    if key is not None:
-                        if (set(source) != {'env'} or not isinstance(key, str)
-                                or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key)
-                                or not key.endswith(('_KEY', '_TOKEN', '_PASSWORD', '_SECRET'))
-                                or key in REGISTRY | CLOUDFLARE | CLUSTER_ONLY):
-                            raise ValueError()
-                        keys.add(key)
         return keys
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as exc:
         raise ContractError('kubernetes_provision_profile_invalid') from exc
 
 
-def dotenv(path: Path, *, required: bool = False) -> dict[str, str]:
-    if not path.exists():
-        if required:
-            raise ContractError('explicit deployment environment file is missing')
-        return {}
-    try:
-        if not path.is_file() or path.is_symlink() or path.stat().st_size > 65536:
-            raise ContractError('deployment environment file is not a bounded regular file')
-        mode = stat.S_IMODE(path.stat().st_mode)
-        if mode & 0o077:
-            print(f'WARNING: {path} holds credentials but is readable by others (mode {mode:o}); run chmod 600', file=sys.stderr)
-        text = path.read_text(encoding='utf-8')
-    except (OSError, UnicodeError) as exc:
-        raise ContractError('deployment environment file cannot be read') from exc
-    result = {}
-    for line_number, raw in enumerate(text.splitlines(), 1):
-        line = raw.strip()
-        if not line or line.startswith('#'):
-            continue
-        if line.startswith('export '):
-            line = line[7:].lstrip()
-        match = re.fullmatch(r'([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)', line)
-        if not match or match[1] in result:
-            raise ContractError(f'invalid or duplicate dotenv assignment on line {line_number}')
-        key, value = match.groups()
-        if value.startswith(('"', "'")):
-            quote = value[0]
-            end = value.rfind(quote)
-            if end == 0 or (value[end + 1:].strip() and not value[end + 1:].strip().startswith('#')):
-                raise ContractError(f'invalid dotenv quoting on line {line_number}')
-            value = value[1:end]
-        else:
-            value = re.split(r'\s+#', value, maxsplit=1)[0].rstrip()
-        if '\x00' in value:
-            raise ContractError(f'invalid dotenv value on line {line_number}')
-        # No interpolation, backslash processing, source or eval.
-        result[key] = value
-    return result
+def resolve(repo: Path, *, mode: str = 'human', environ: dict[str, str] | None = None,
+            profile_root: Path | None = None, keys: set[str] | None = None,
+            operator: str | None = None) -> dict[str, str]:
+    """Explicit process values, then the vault; no credential files (#193).
 
-
-def required_consumer_keys(repo: Path) -> set[str]:
-    """Example assignments before its optional section declare required credentials.
-
-    Only supported operator keys count: probe origins/selectors stay explicit.
-    `# Required` starts another required section in project-maintained examples.
-    """
-    path = repo / '.env.deploy.example'
-    if not path.exists():
-        return set()
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
-        raise ContractError('consumer deployment environment example is not a bounded regular file')
-    try:
-        lines = path.read_text(encoding='utf-8').splitlines()
-    except (OSError, UnicodeError) as exc:
-        raise ContractError('consumer deployment environment example cannot be read') from exc
-    required, optional = set(), False
-    for raw in lines:
-        line = raw.strip()
-        if line.startswith('#'):
-            if re.match(r'#\s*optional\b', line, re.I):
-                optional = True
-            elif re.match(r'#\s*required\b', line, re.I):
-                optional = False
-            continue
-        match = re.match(r'(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=', line)
-        if match and not optional and match[1] in KEYS:
-            required.add(match[1])
-    return required
-
-
-def require_consumer_file(repo: Path, base: dict[str, str]) -> None:
-    if not (repo / '.env.deploy').is_file():
-        raise ContractError('consumer .env.deploy is missing; fill it from .env.deploy.example '
-                            'or explicitly select --env-file / --allow-credential-fallback')
-    missing = []
-    for key in sorted(required_consumer_keys(repo)):
-        aliases = next((group for group in GROUPS if key in group), (key,))
-        if not any(base.get(alias, '').strip() for alias in aliases):
-            missing.append(key)
-    if missing:
-        raise ContractError('consumer .env.deploy missing required credential keys: ' + ', '.join(missing))
-
-
-def resolve(repo: Path, *, env_file: Path | None = None, mode: str = 'human',
-            environ: dict[str, str] | None = None, profile_root: Path | None = None,
-            allow_fallback: bool = False) -> dict[str, str]:
-    """Prefer the consumer's `.env.deploy`; an explicit `--env-file` overrides it.
-
-    The explicit file adds one environment's inputs on top of
-    the operator credentials in `.env.deploy`, so the same key name can carry a different value
-    for each target. `PZ_ADW_CREDENTIAL_FREE=1` loads no credentials at all, neither from files
-    nor from the environment (rehearsal refusal checks).
+    Hosted CI and credential-free invocations never call the vault. The CLI
+    supplies its operation's key grant before resolution, so unused credentials
+    are never decrypted.
     """
     parent = dict(os.environ if environ is None else environ)
-    if mode == 'ci' and env_file is not None:
-        raise ContractError('CI does not accept a deployment environment file')
-    free = parent.get(CREDENTIAL_FREE) == '1'
-    files = mode == 'human' and not free
-    # The explicit file first: a missing one refuses before any file is read.
-    explicit = dotenv(env_file, required=True) if files and env_file is not None else {}
-    base = dotenv(repo / '.env.deploy') if files else {}
-    consumer = ((repo / '.env.deploy.example').exists()
-                or any((repo / directory / 'pzagent-adapter.json').is_file() for directory in PROJECT_DIRECTORIES))
-    if files and consumer and env_file is None and not allow_fallback:
-        # Validate the consumer file itself, before inherited values/profiles can
-        # conceal a missing key or accidentally select another repository.
-        require_consumer_file(repo, base)
-    if explicit and env_file.resolve() != (repo / '.env.deploy').resolve():
-        shadowed = sorted(set(base) & set(explicit))
+    if parent.get(CREDENTIAL_FREE) == '1':
+        return {}
+    wanted = set(keys) if keys is not None else KEYS | bootstrap_keys(profile_root, parent)
+    if any(not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key) for key in wanted):
+        raise ContractError('credential_key_selection_invalid')
+    human = mode == 'human'
+    explicit = {key: value for key, value in parent.items() if value}   # an empty export is unset
+    # Ask only for canonical IDs the process environment does not already supply.
+    requested = set()
+    for key in wanted:
+        group = next((group for group in GROUPS if key in group), (key,))
+        if not any(alias in explicit for alias in group):
+            requested.add(group[0])
+    if human:
+        # Names only: a stale export (for example from an old agent-env.sh) must not
+        # silently shadow the vault. Operator-home and cluster plumbing are not vault keys.
+        shadowed = sorted({next((group for group in GROUPS if key in group), (key,))[0]
+                           for key in wanted - KUBE
+                           if any(alias in explicit for alias in next((group for group in GROUPS if key in group), (key,)))})
         if shadowed:
-            print(f'NOTE: {env_file.name} overrides .env.deploy for ' + ', '.join(shadowed), file=sys.stderr)
-    layers = () if free else ((explicit, base, parent) if files else (parent,))
+            print('NOTE: the process environment overrides the vault for: ' + ', '.join(shadowed), file=sys.stderr)
+    vault = vault_values(requested, parent, operator=operator) if human else {}
+    layers = (explicit, vault)
     result = {key: next((layer[key] for layer in layers if key in layer), '')
-              for key in KEYS | bootstrap_keys(profile_root, parent)}
+              for key in wanted}
     for group in GROUPS:
+        if not wanted.intersection(group):
+            continue
         layer = next((layer for layer in layers if any(key in layer for key in group)), {})
         selected = {layer[key] for key in group if layer.get(key)}
         if len(selected) > 1:
             raise ContractError('conflicting credential aliases: ' + ', '.join(group))
         for key in group:
-            result[key] = next(iter(selected), '')
+            if key in wanted:
+                result[key] = next(iter(selected), '')
     return {key: value for key, value in result.items() if value}
 
 
 def clean_environment(parent: dict[str, str] | None = None) -> dict[str, str]:
+    """An environment for project code and external tools: no credential and no operator session.
+
+    An unlocked operator capability reads every vault scope; only the provider's own
+    pz-secretctl calls and the canonical tasks a workflow starts may carry it.
+    """
     result = dict(os.environ if parent is None else parent)
-    for key in KEYS | bootstrap_keys(parent=result):
+    for key in KEYS | bootstrap_keys(parent=result) | {OPERATOR_SESSION}:
         result.pop(key, None)
     return result
 

@@ -12,8 +12,9 @@ profile, never to these files. The Kubernetes provider rejects cluster-scoped
 objects and Secret manifests; supply external Secrets through the separately
 approved provisioning scope.
 
-`deploy/k8s/.env.<environment>.example` lists only the application secret
-source key names for that environment, with empty values. The maintainer fills a
-private `.env.<environment>` copy and passes it to `pz:provider:provision` with
-`--env-file`, which creates the target's Secrets from it on top of
-`.env.deploy`.
+Application secret values come from the agent vault (#193): the key schema
+declares each secret key's source (`generate`, `human`, `shared`) with the same
+vault IDs as the environment's Dokploy targets, the private
+`kubernetes-provisioning.json` names the one Secret that receives them
+(`{namespace: {secret-name: "key-schema"}}`), and `pz:provider:provision`
+creates it.

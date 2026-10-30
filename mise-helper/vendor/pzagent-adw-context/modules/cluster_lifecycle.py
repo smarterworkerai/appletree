@@ -174,7 +174,7 @@ def _profile(root: Path, alias: str, data: dict | None = None) -> tuple[dict, st
         required = {'name', 'image', 'bind_address', 'http_port', 'https_port', 'registry',
                     'namespaces', 'context_aliases', 'storage_directory'}
         if (not isinstance(profile, dict) or not required <= set(profile)
-                or set(profile) - required - {'tls', 'image_pull', 'app_secrets'} or not IDENTIFIER.fullmatch(profile['name'])):
+                or set(profile) - required - {'tls', 'image_pull'} or not IDENTIFIER.fullmatch(profile['name'])):
             raise ValueError()
         if not re.fullmatch(r'(?:docker\.io/)?rancher/k3s:v1\.[0-9]+\.[0-9]+-k3s[0-9]+', profile['image']):
             raise ValueError()
@@ -472,7 +472,7 @@ def _seed_profile(root: Path, alias: str) -> dict | None:
             raise ValueError()
         selected = seed['clusters'][alias]
         required = {'name', 'namespaces', 'context_aliases', 'bind_address_env'}
-        allowed = required | {'image', 'http_port', 'https_port', 'registry', 'storage_directory', 'tls', 'image_pull', 'app_secrets'}
+        allowed = required | {'image', 'http_port', 'https_port', 'registry', 'storage_directory', 'tls', 'image_pull'}
         if (not isinstance(selected, dict) or not required <= set(selected) or set(selected) - allowed
                 or selected['bind_address_env'] != 'PZ_ADW_K3D_BIND_ADDRESS'):
             raise ValueError()
@@ -546,7 +546,7 @@ def manage(*, profile_root: Path, alias: str, action: str, operation_dir: Path, 
     lifecycle = Lifecycle(profile_root, alias, initial)
     if os.environ.get('PZ_ADW_KUBE_CONTEXT', 'k3d-' + lifecycle.profile['name']) != 'k3d-' + lifecycle.profile['name']:
         raise ContractError('cluster_context_mismatch')
-    tls_profile = {key: value for key, value in lifecycle.profile.items() if key not in {'image_pull', 'app_secrets'}}
+    tls_profile = {key: value for key, value in lifecycle.profile.items() if key != 'image_pull'}
     values = bootstrap_facts(tls_profile) if action == 'up' and not plan else {}
     lifecycle.secrets = _sensitive_values(values)
     lifecycle.local_docker()

@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 from .common import ContractError
-from .operator_credentials import clean_environment, DOKPLOY, SSH, REGISTRY, KUBE
+from .operator_credentials import clean_environment, DOKPLOY, OPERATOR_SESSION, SSH, REGISTRY, KUBE
 from .operator_registry import inspect
 from .operator_sources import resolve
 from .operator_state import locked, new_operation, read, write_journal as write, require_resumable, resolved_scope, require_scope
@@ -23,6 +23,9 @@ def adw(repo: Path, task: str, arguments: list[str]) -> dict:
     """Call the public task, preserving the shared implementation and exit code."""
     child = clean_environment()
     child.update({key: os.environ[key] for key in DOKPLOY | SSH | KUBE if key in os.environ})
+    if OPERATOR_SESSION in os.environ:
+        # The canonical task is trusted provider code that reads the vault itself (#193).
+        child[OPERATOR_SESSION] = os.environ[OPERATOR_SESSION]
     if task in {'adw:deploy:apply', 'adw:deploy:config:plan', 'adw:deploy:config:apply'}:
         child.update({key: os.environ[key] for key in REGISTRY if key in os.environ})
     result = subprocess.run(['mise', 'run', task, '--', *arguments], cwd=repo,
@@ -78,8 +81,6 @@ def deploy_existing(repo: Path, adapter: dict, args) -> dict:
         arguments = [record['environment']]
         if record['target']:
             arguments += ['--target', record['target']]
-        if args.env_file:
-            arguments += ['--env-file', str(args.env_file.resolve())]
         if args.profile_root:
             arguments += ['--profile-root', str(args.profile_root.resolve())]
         def run(name, task, extra):

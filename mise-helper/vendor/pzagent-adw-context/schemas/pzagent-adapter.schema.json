@@ -1065,10 +1065,15 @@
                           "readiness_path": {
                             "pattern": "^/[A-Za-z0-9/_-]{0,255}$",
                             "type": "string"
+                          },
+                          "base_url": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048,
+                            "pattern": "^https?://"
                           }
                         },
                         "required": [
-                          "base_url_env",
                           "health_path",
                           "readiness_path"
                         ],
@@ -1115,13 +1120,6 @@
                               "pattern": "^/(?:[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*)?$"
                             }
                           }
-                        }
-                      },
-                      "env_file": {
-                        "type": "string",
-                        "pattern": "^\\.env\\.[a-z0-9][a-z0-9.-]{0,62}$",
-                        "not": {
-                          "pattern": "\\.example$"
                         }
                       },
                       "data_import": {
@@ -1784,10 +1782,15 @@
                           "readiness_path": {
                             "pattern": "^/[A-Za-z0-9/_-]{0,255}$",
                             "type": "string"
+                          },
+                          "base_url": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048,
+                            "pattern": "^https?://"
                           }
                         },
                         "required": [
-                          "base_url_env",
                           "health_path",
                           "readiness_path"
                         ],
@@ -1834,13 +1837,6 @@
                               "pattern": "^/(?:[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*)?$"
                             }
                           }
-                        }
-                      },
-                      "env_file": {
-                        "type": "string",
-                        "pattern": "^\\.env\\.[a-z0-9][a-z0-9.-]{0,62}$",
-                        "not": {
-                          "pattern": "\\.example$"
                         }
                       },
                       "data_import": {
@@ -2512,10 +2508,15 @@
                           "readiness_path": {
                             "pattern": "^/[A-Za-z0-9/_-]{0,255}$",
                             "type": "string"
+                          },
+                          "base_url": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048,
+                            "pattern": "^https?://"
                           }
                         },
                         "required": [
-                          "base_url_env",
                           "health_path",
                           "readiness_path"
                         ],
@@ -2562,13 +2563,6 @@
                               "pattern": "^/(?:[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*)?$"
                             }
                           }
-                        }
-                      },
-                      "env_file": {
-                        "type": "string",
-                        "pattern": "^\\.env\\.[a-z0-9][a-z0-9.-]{0,62}$",
-                        "not": {
-                          "pattern": "\\.example$"
                         }
                       },
                       "data_import": {
@@ -2704,10 +2698,15 @@
                           "readiness_path": {
                             "pattern": "^/[A-Za-z0-9/_-]{0,255}$",
                             "type": "string"
+                          },
+                          "base_url": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048,
+                            "pattern": "^https?://"
                           }
                         },
                         "required": [
-                          "base_url_env",
                           "health_path",
                           "readiness_path"
                         ],
@@ -2740,8 +2739,7 @@
                       "namespace",
                       "release",
                       "image_variables",
-                      "config_schema_path",
-                      "ingress_probe_base"
+                      "config_schema_path"
                     ],
                     "type": "object"
                   },

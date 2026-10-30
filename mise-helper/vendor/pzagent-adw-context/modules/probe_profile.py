@@ -1,67 +1,84 @@
-"""Load declared runtime probe base URLs from the private operator profile."""
+"""Probe base URLs from the provider/environment URL templates in the vault (#193)."""
 from __future__ import annotations
 
 from contextlib import contextmanager
-import json
 import os
-from pathlib import Path
-import re
-import stat
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 from .common import ContractError
-from .operator_credentials import private_profile_path
+from .operator_credentials import vault_values, CREDENTIAL_FREE
+from .adapter import probe_url_key
 
-PROFILE_FILE = 'probes.json'
-MAX_BYTES = 65536
 MAX_VALUE = 2048
-ENV_KEY = re.compile(r'^[A-Z][A-Z0-9_]{0,127}$')
 
 
-def declared_keys(adapter: Mapping[str, Any]) -> set[str]:
-    """Exactly the probe environment keys the adapter bindings declare."""
-    keys = set()
-    for provider, settings in (adapter.get('providers') or {}).items():
-        bindings = settings.get('bindings') if isinstance(settings, Mapping) else None
-        for binding in (bindings or {}).values():
-            if not isinstance(binding, Mapping):
-                continue
-            probes = binding.get('probes')
-            if isinstance(probes, Mapping):
-                keys.update(value for name, value in probes.items() if name.endswith('_env') and isinstance(value, str))
-            if provider == 'kubernetes' and isinstance(binding.get('ingress_probe_base'), str):
-                keys.add(binding['ingress_probe_base'])
-    return {key for key in keys if ENV_KEY.fullmatch(key)}
-
-
-def load(profile_root: Path, keys: set[str]) -> dict[str, str]:
-    """Values of the allowed keys from <profile>/probes.json; values are never reported."""
-    if not keys:
-        return {}
+def _origin(template: str, app: str) -> str:
+    if not isinstance(template, str) or len(template) > MAX_VALUE:
+        raise ContractError('probe_url_template_invalid')
+    value = template.replace('{app}', app)
     try:
-        path = private_profile_path(profile_root, profile_root / PROFILE_FILE)
-        if not path.exists():
-            return {}
-        status = path.stat()
-        if not path.is_file() or stat.S_IMODE(status.st_mode) & 0o077 or status.st_size > MAX_BYTES:
-            raise ContractError('probe_profile_not_private')
-        document = json.loads(path.read_text(encoding='utf-8'))
-    except (OSError, ValueError) as exc:
-        raise ContractError('probe_profile_invalid') from exc
-    if not isinstance(document, dict) or not all(isinstance(key, str) for key in document):
-        raise ContractError('probe_profile_invalid')
-    selected = {key: document[key] for key in sorted(keys) if key in document}
-    if any(not isinstance(value, str) or not value or len(value) > MAX_VALUE or '\x00' in value
-           for value in selected.values()):
-        raise ContractError('probe_profile_value_invalid')
-    return selected
+        parts = urlsplit(value)
+        if (len(value) > MAX_VALUE or any(char in value for char in '{}\x00\r\n') or parts.scheme not in {'http', 'https'}
+                or not parts.hostname or parts.username or parts.password
+                or parts.path not in {'', '/'} or parts.query or parts.fragment):
+            raise ValueError()
+    except ValueError:
+        raise ContractError('probe_url_template_invalid') from None
+    return value.rstrip('/')
 
 
 @contextmanager
-def probe_environment(adapter: Mapping[str, Any], profile_root: Path | None):
-    """Expose profile probe URLs for declared keys the environment does not set; restore afterwards."""
-    keys = {key for key in declared_keys(adapter) if not os.environ.get(key)}
-    loaded = load(profile_root, keys) if profile_root is not None else {}
+def probe_environment(adapter: Mapping[str, Any], *, environment: str | None = None, target: str | None = None,
+                      use_templates: bool = True):
+    """Expand the selected bindings' provider URL templates (`{app}`) or literal `base_url`.
+
+    An explicit process value of the template key wins; nothing is read from files.
+    """
+    if os.environ.get(CREDENTIAL_FREE) == '1':
+        yield []
+        return
+    selected = set()
+    groups = adapter.get('targets', {})
+    for name, group in groups.items():
+        if environment is not None and name != environment:
+            continue
+        for alias, declaration in group.get('items', {}).items():
+            if target is not None and alias != target:
+                continue
+            if environment is not None and target is None and alias != group.get('default'):
+                continue
+            selected.add((declaration.get('provider'), declaration.get('provider_binding')))
+    bindings = []
+    for provider, settings in (adapter.get('providers') or {}).items():
+        if not isinstance(settings, Mapping):
+            continue
+        for name, binding in settings.get('bindings', {}).items():
+            if (environment is not None or target is not None) and (provider, name) not in selected:
+                continue
+            probes = binding.get('probes', {})
+            key = probes.get('base_url_env') or binding.get('ingress_probe_base')
+            if key:
+                bindings.append((provider, binding, probes, key))
+    app = adapter.get('repository', {}).get('id', '').rsplit('/', 1)[-1]
+    requested = set()
+    for provider, binding, probes, key in bindings:
+        if use_templates and not os.environ.get(key) and not probes.get('base_url') and binding.get('environment'):
+            template_key = probe_url_key(provider, binding['environment'])
+            if not os.environ.get(template_key):
+                requested.add(template_key)
+    templates = vault_values(requested, dict(os.environ)) if use_templates else {}
+    loaded = {}
+    for provider, binding, probes, key in bindings:
+        template_key = probe_url_key(provider, binding['environment']) if binding.get('environment') else None
+        value = (os.environ.get(key) or probes.get('base_url')
+                 or (os.environ.get(template_key) or templates.get(template_key) if template_key else None))
+        if value and use_templates:
+            expanded = _origin(value, app)
+            if os.environ.get(key) != expanded:
+                loaded[key] = expanded
+            else:
+                loaded.pop(key, None)
     previous = {key: os.environ.get(key) for key in loaded}
     try:
         os.environ.update(loaded)
