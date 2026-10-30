@@ -18,7 +18,7 @@ commands = [{argv = ["python3", "mise-helper/site_checks.py", "lint"]}]
 
 [tasks."adw:static-analysis"]
 implemented = true
-commands = [{argv = ["node", "--check", "src/main.js"]}, {argv = ["node", "--check", "mise-helper/browser_e2e.mjs"]}, {argv = ["python3", "mise-helper/site_checks.py", "static-analysis"]}]
+commands = [{argv = ["node", "--check", "src/main.js"]}, {argv = ["node", "--check", "mise-helper/browser_e2e.mjs"]}, {argv = ["python3", "mise-helper/site_checks.py", "static-analysis"]}, {argv = ["python3", "mise-helper/vendor/pzagent-adw-context/pzagent_context.py", "secrets-examples", "--check"]}]
 
 [tasks."adw:test:unit"]
 implemented = true
