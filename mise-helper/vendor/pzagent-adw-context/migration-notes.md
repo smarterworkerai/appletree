@@ -1,5 +1,18 @@
 # Migration notes
 
+## 0.19.1
+
+- **`pz:secrets:show` no longer blocks on a target it cannot observe (#195).**
+  A Kubernetes target that this operator home has no profile entry for (no
+  `profile/kubernetes-contexts.json`, or none for the binding's context alias)
+  and a declared Dokploy target that is not provisioned yet are listed under
+  `not_compared` (`no_kubernetes_profile`, `not_provisioned`); the other
+  targets of the environment are still compared and `status` stays `ok`. An
+  unprovisioned Dokploy target still lists its keys with their vault presence
+  and `state: null`, so a required value missing from the vault remains an
+  `attention` item. A profile that exists but is invalid (link, mode, size,
+  JSON, flat layout) and an unowned or replaced resource still refuse.
+
 ## 0.19.0
 
 - **Vault-backed operator inputs (#193 items 1-3).** Commands select their

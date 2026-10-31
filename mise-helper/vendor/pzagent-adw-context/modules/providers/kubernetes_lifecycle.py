@@ -697,6 +697,8 @@ def observe_app_secrets(repo, adapter, *, environment, target, profile_root):
         profile_root = Path(os.environ['PZ_ADW_PROFILE_ROOT'])
     if profile_root is None:
         raise ContractError('kubernetes_context_profile_missing')
+    if not _profile_names_target(Path(profile_root), adapter, environment, target):
+        raise ContractError('kubernetes_target_unconfigured')
     provider, profile, digest, selection = _selection(repo, adapter, environment, target, profile_root)
     binding = selection['binding']
     schema, optional = schema_sources(repo, adapter, binding)
@@ -719,6 +721,34 @@ def observe_app_secrets(repo, adapter, *, environment, target, profile_root):
         result.append({'name': name, 'fields': fields, 'schema': schema, 'optional': optional,
                        'owned': owned, 'values': values if owned else None})
     return result
+
+
+def _profile_names_target(root: Path, adapter, environment, target) -> bool:
+    """Whether this operator home names the target's context at all (#195).
+
+    Only absence counts as "not here": no contexts file, or a readable one without the
+    binding's context alias. Anything present but wrong (a link, open mode, size, JSON,
+    the flat pre-0.15.5 layout) counts as named, so the full validation refuses it.
+    """
+    declaration = adapter['targets'].get(environment, {}).get('items', {}).get(target) or {}
+    binding = adapter['providers'].get('kubernetes', {}).get('bindings', {}).get(declaration.get('provider_binding'))
+    if not binding:
+        return True                       # unsupported targets are refused by the selection
+    path = root / 'kubernetes-contexts.json'
+    if not path.is_symlink() and not path.exists():
+        return root.name == 'profile' and (root.parent / path.name).exists()
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077 or path.stat().st_size > 65536:
+            return True
+        profile = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return True
+    # A missing alias means "not here" only in a well-formed profile (codex-1763); any other
+    # shape is left to the validation, which refuses it.
+    if (not isinstance(profile, dict) or set(profile) != {'schema_version', 'contexts'}
+            or profile['schema_version'] != '1.0.0' or not isinstance(profile['contexts'], dict)):
+        return True
+    return binding.get('context_alias') in profile['contexts']
 
 
 def binding_alias(profile, namespace):

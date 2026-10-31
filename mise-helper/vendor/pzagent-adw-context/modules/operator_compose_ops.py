@@ -286,9 +286,19 @@ def _state(live: dict | None, key: str, vault_id: str | None, vault: dict) -> st
 
 
 def _kubernetes_rows(repo, adapter, environment, alias, profile_root, parent, rows, skipped) -> None:
-    """Rows for one Kubernetes target's application Secrets, compared like Dokploy's (#193)."""
+    """Rows for one Kubernetes target's application Secrets, compared like Dokploy's (#193).
+
+    A target this operator home has no profile entry for is listed, not fatal (#195); a
+    profile that exists but is invalid still refuses.
+    """
     from .providers.kubernetes_lifecycle import observe_app_secrets
-    declared = observe_app_secrets(repo, adapter, environment=environment, target=alias, profile_root=profile_root)
+    try:
+        declared = observe_app_secrets(repo, adapter, environment=environment, target=alias, profile_root=profile_root)
+    except ContractError as exc:
+        if str(exc) not in {'kubernetes_context_profile_missing', 'kubernetes_target_unconfigured'}:
+            raise
+        skipped.append({'target': alias, 'provider': 'kubernetes', 'reason': 'no_kubernetes_profile'})
+        return
     if not declared:
         skipped.append({'target': alias, 'provider': 'kubernetes', 'reason': 'no_app_secrets'})
         return
@@ -320,7 +330,7 @@ def _attention(row) -> bool:
     """Drift, a value only in the target (import it), or a required value missing anywhere."""
     if row['state'] == 'differs':
         return True
-    if row['vault'] == 'missing' and row['state'] != 'missing':
+    if row['vault'] == 'missing' and row['state'] not in {'missing', None}:
         return True
     return row['required'] and (row['state'] == 'missing' or row['vault'] == 'missing')
 
@@ -492,7 +502,9 @@ def secrets_show(repo: Path, adapter: dict, *, environment: str, profile_root, o
     `pz-secretctl reveal` in an unlocked human terminal; `reveal` lists those commands
     per vault scope. `offline` lists what each target expects from the committed adapter
     and key schemas only: no credential, vault or provider access, no states, and no
-    receipt or operator-home write.
+    receipt or operator-home write. A target this operator home cannot observe (no
+    Kubernetes profile entry, a Dokploy target not provisioned yet) is listed under
+    `not_compared` with its reason instead of blocking the environment (#195).
     """
     group = adapter['targets'].get(environment)
     if not group:
@@ -519,14 +531,22 @@ def secrets_show(repo: Path, adapter: dict, *, environment: str, profile_root, o
         vault, _missing = (vault_secrets({entry['id'] for entry in sources.values()}, parent, locations=locations)
                            if sources else ({}, set()))
         client = client or _client(profile_root, api)
-        compose = _owned_compose(client, adapter, binding)
-        live = _environment_values((client.compose(identifier(compose['composeId'])).get('env') or '').encode())
+        try:
+            compose = _owned_compose(client, adapter, binding)
+        except ContractError as exc:
+            # Not provisioned yet (#195): the vault side is still listed, the target state is not.
+            if str(exc) != 'provider_resource_absent':
+                raise
+            compose = None
+            skipped.append({'target': selected, 'provider': 'dokploy', 'reason': 'not_provisioned'})
+        live = (_environment_values((client.compose(identifier(compose['composeId'])).get('env') or '').encode())
+                if compose else None)
         for key in sorted(keys):
             entry = sources.get(key)
             kind = 'release' if key in images else (entry['source'] if entry else 'unsourced')
             vault_id = entry['id'] if entry else None
             in_vault = None if vault_id is None else ('present' if vault_id in vault else 'missing')
-            state = _state(live, key, vault_id, vault)
+            state = None if compose is None else _state(live, key, vault_id, vault)
             rows.append({'target': selected, 'key': key, 'required': key not in optional, 'source': kind,
                          'vault_scope': (entry.get('vault') or locations.get(vault_id)) if entry else None,
                          'vault_id': vault_id, 'vault': in_vault, 'state': state})
