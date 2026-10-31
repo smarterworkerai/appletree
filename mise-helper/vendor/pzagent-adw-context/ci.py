@@ -189,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except ci_release.ContractError as exc:
             # Coordinator errors are fixed local messages; public task detail is identifier-only.
-            return _blocked(str(exc) if os.environ.get('LAB_RUN') else 'ci_release_handover_failed')
+            return _blocked(ci_release.diagnostic_reason(exc))
         except (ContractError, ApiError, OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError):
             return _blocked('ci_release_handover_failed')
     if args.command=='bootstrap-status':

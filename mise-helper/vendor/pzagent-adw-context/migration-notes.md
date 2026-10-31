@@ -1,5 +1,81 @@
 # Migration notes
 
+## 0.19.2
+
+- **The greenfield launcher promotes again (#198).** Since 0.19.0 the standalone
+  `pzagent-greenfield` passed `--env-file` to `pz:release:promote`, an option
+  the vault migration had removed. So every first-adoption promotion stopped at
+  argparse, before any check or ref write. The launcher no longer creates or
+  passes that file, and a test now parses its exact promotion arguments with the
+  runtime's own parser. A consumer adopts its first version only with the
+  launcher of the same release, so a consumer onboarded on 0.19.0 or 0.19.1
+  repins to 0.19.2 before its first promotion.
+- **First adoption needs no separate admission step (#199).** A human instruction
+  to onboard a project with ADW is the operator admission for promoting the
+  reviewed onboarding PR to `demo` and the same-source `demo -> main` PR to
+  `main`. The promotion runs only through `pzagent-greenfield`, never a raw push
+  (`references/agent-permissions.md`, "First-adoption standing admission").
+- **E2E and deployment validation get the probe origin (#197).**
+  `adw:test:e2e:*` and `adw:validate-deployment` now resolve the probe base URL
+  like `adw:health` and `adw:readiness`: an explicit process value first, then the
+  binding's literal `probes.base_url`, then the vault URL template. Before, E2E
+  hooks blocked with `e2e-base-url-invalid`.
+- **The context check finds broken release inputs earlier (#198).**
+  `adw:context:check` and context sync now refuse:
+  - a release recipe whose declared Dockerfile is missing, a symlink or outside
+    the repository (`release_dockerfile_unavailable`);
+  - a Dokploy binding whose Compose file is missing, a symlink or outside the
+    repository (`release_compose_unavailable`);
+  - a Compose file in which one owned image variable appears in two services
+    (`runtime-service-mapping-invalid`), even without a release recipe.
+
+  Before, these surfaced only at the release build or the runtime proof. A
+  consumer that fails the new check is blocked at its repin, not in its normal
+  CI.
+- **Quality and project copies avoid Git ancestry (#198).**
+  - Workspace copies for `adw:verify:*` and project tasks are placed under the
+    temp directory only when none of its resolved ancestors has a `.git`.
+    Otherwise they go under `${XDG_CACHE_HOME:-~/.cache}/pzagent-adw-context/workspaces`
+    (private, 0700). A stray `/tmp/.git` had broken Go's VCS stamping
+    ("error obtaining VCS status").
+  - When both locations have a Git ancestor, the run refuses with
+    `quality_workspace_git_ancestry` and names the rejected roots. This applies
+    to every language, so a host with a stray `/tmp/.git` and a Git repository in
+    the home directory now refuses quality runs that used to pass. Remove the
+    stray marker, or set `TMPDIR` or `XDG_CACHE_HOME` to a directory outside any
+    repository.
+  - Copies are removed on success, on failure and on Ctrl-C. A copy left behind
+    by a killed run is pruned after a day, on a later allocation in the cache
+    location.
+  - The hotfix and publication build snapshots are unchanged: they are only
+    Docker build contexts.
+- **CI checks say why they fell back (#166).** Approval and proof decisions are
+  unchanged. One registry case got stricter on purpose: a response that shows
+  both a denial and a missing reference now fails instead of counting as absent.
+  - The trust-root check adds a fixed reason when automatic signed-release
+    approval did not apply.
+  - Hosted publication forwards fixed identifiers, as the lab already did, for
+    example `public release task failed: pz:release:inspect: registry_access_denied`.
+  - The registry adapter reports `registry_access_denied` only for an observed
+    401, 403 or denial.
+  - `docs/operator-setup.md` covers moving a repository to an organization:
+    GHCR packages need "Manage Actions access → Write" for the consumer
+    repository.
+- **Launcher refusals name the cause (#198).** `outside_checkout_required` and
+  `private_state_required` keep their reasons and add a `detail`: the marker, its
+  ancestor and the default location, or the directory and its mode (every
+  operator-state parent needs 0700). `adopt` no longer asks for private root
+  files; credentials come from the vault.
+- **Documentation (#198):**
+  - the command that creates `demo` before the onboarding PR;
+  - private repositories on GitHub Free have no branch protection, and the
+    trust-root gate carries it;
+  - every owned Compose service needs a Docker `HEALTHCHECK`;
+  - the health-sidecar pattern for services without HTTP;
+  - stateful single-instance services deploy stop/start, with data in named
+    volumes;
+  - data written by tools belongs in a separate repository outside ADW.
+
 ## 0.19.1
 
 - **`pz:secrets:show` no longer blocks on a target it cannot observe (#195).**

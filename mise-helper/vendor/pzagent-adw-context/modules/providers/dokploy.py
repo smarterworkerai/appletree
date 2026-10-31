@@ -461,11 +461,12 @@ def _runtime_get(client: DokployClient, route: str, reason: str) -> Any:
         _runtime_blocked(reason)
 
 
-def runtime_service_variables(definition: bytes, owned: set[str]) -> dict[str, str]:
-    return _runtime_services(definition, owned)[0]
+def runtime_service_variables(definition: bytes, owned: set[str], *, require_all: bool = True) -> dict[str, str]:
+    """Strict runtime coverage by default; context preflight can inspect multiple release kinds."""
+    return _runtime_services(definition, owned, require_all=require_all)[0]
 
 
-def _runtime_services(definition: bytes, owned: set[str]) -> tuple[dict[str, str], set[str]]:
+def _runtime_services(definition: bytes, owned: set[str], *, require_all: bool = True) -> tuple[dict[str, str], set[str]]:
     """Read the explicit service/image mapping subset, rejecting ambiguous ownership."""
     try:
         text = definition.decode('utf-8')
@@ -501,7 +502,7 @@ def _runtime_services(definition: bytes, owned: set[str]) -> tuple[dict[str, str
             if service is None or service in result or match[1] in result.values():
                 _runtime_blocked('runtime-service-mapping-invalid')
             result[service] = match[1]
-    if set(result.values()) != owned:
+    if require_all and set(result.values()) != owned:
         _runtime_blocked('runtime-service-mapping-invalid')
     return result, names
 

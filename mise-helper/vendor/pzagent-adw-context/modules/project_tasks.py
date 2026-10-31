@@ -10,7 +10,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import tomllib
 from uuid import uuid4
@@ -20,7 +19,7 @@ if __package__ in {None, ''}:
 
 from modules.common import ContractError, ensure_contained, load_json, project_dir
 from modules.quality_outputs import source_files
-from modules.quality_tasks import engine
+from modules.quality_tasks import engine, temporary_workspace
 from modules.operator_credentials import KEYS, clean_environment, bootstrap_keys
 from modules import task_evidence
 
@@ -149,7 +148,7 @@ def workspace(repo: Path, isolation: str):
     elif isolation == 'none':
         yield repo
     else:
-        with tempfile.TemporaryDirectory(prefix='pz-project-workspace-') as raw:
+        with temporary_workspace(prefix='pz-project-workspace-') as raw:
             destination = Path(raw) / 'source'
             destination.mkdir()
             for relative in source_files(repo):

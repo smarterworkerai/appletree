@@ -381,6 +381,59 @@ def check_quality_exports(repo: Path) -> dict:
 RELEASE_BUILD = "mise-helper/vendor/pzagent-adw-context/modules/release_build.py"
 
 
+def _release_input_file(repo: Path, value, reason: str) -> Path:
+    """Release inputs must be regular source files, with no linked parent or path escape."""
+    try:
+        root = repo.resolve()
+        if not isinstance(value, str) or not value:
+            raise ContractError(reason)
+        path = ensure_contained(root, value)
+        if not path.is_file() or path.is_symlink():
+            raise ContractError(reason)
+        for parent in path.parents:
+            if parent == root:
+                break
+            if parent.is_symlink():
+                raise ContractError(reason)
+        return path
+    except (ContractError, OSError, TypeError, ValueError):
+        raise ContractError(reason) from None
+
+
+def check_release_inputs(repo: Path, adapter: dict[str, Any]) -> None:
+    """Catch unavailable recipes and ambiguous owned service images without executing tools."""
+    path = project_dir(repo) / 'pz-release.json'
+    if path.exists() or path.is_symlink():
+        if path.is_symlink():
+            raise ContractError('release_recipe_invalid')
+        recipe = load_json(path)
+        components = recipe.get('components') if isinstance(recipe, dict) else None
+        if not isinstance(components, dict) or not components:
+            raise ContractError('release_recipe_invalid')
+        hooks = recipe.get('hooks', {})
+        if not isinstance(hooks, dict):
+            raise ContractError('release_recipe_invalid')
+        bundled = hooks.get('build') == 'bundle:release_build'
+        for component in components.values():
+            if not isinstance(component, dict):
+                raise ContractError('release_recipe_invalid')
+            # Custom producers need not declare Dockerfiles; an explicit recipe must be real.
+            if bundled or 'dockerfile' in component:
+                _release_input_file(repo, component.get('dockerfile'), 'release_dockerfile_unavailable')
+    owned = {variable for kind in adapter.get('release_kinds', {}).values()
+             for variable in kind.get('image_variables', {})}
+    if not owned:
+        return
+    bindings = adapter.get('providers', {}).get('dokploy', {}).get('bindings', {})
+    if bindings:
+        from .providers.dokploy import runtime_service_variables
+        for binding in bindings.values():
+            compose = _release_input_file(repo, binding.get('compose_path'), 'release_compose_unavailable')
+            # A binding can use one of several release kinds. Full kind coverage remains a
+            # runtime-proof requirement; duplicate ownership is invalid in any binding.
+            runtime_service_variables(compose.read_bytes(), owned, require_all=False)
+
+
 def check_release_handover(repo: Path, adapter: dict[str, Any]) -> dict:
     """Release kinds need an adw:build that hands outputs to pz:release:package via PZ_ADW_BUILD_DIR."""
     kinds = sorted(name for name, kind in (adapter.get("release_kinds") or {}).items()
@@ -388,6 +441,7 @@ def check_release_handover(repo: Path, adapter: dict[str, Any]) -> dict:
     commands_path = repo / "mise-helper/project-commands.toml"
     if not kinds:
         return {'status': 'skipped', 'reason': 'no_release_components'}
+    check_release_inputs(repo, adapter)
     if not commands_path.exists() and not commands_path.is_symlink():
         return {'status': 'skipped', 'reason': 'legacy_project_tasks_without_command_file'}
     declared = _private_toml(commands_path, "project-commands.toml")

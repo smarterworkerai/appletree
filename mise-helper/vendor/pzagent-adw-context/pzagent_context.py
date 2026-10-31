@@ -957,7 +957,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             if not offline_workflow and args.execution_mode == 'human' and adapter_path.is_file():
                 # Probe origins from the vault URL templates; an explicit environment value wins.
                 from modules.probe_profile import probe_environment
-                probe_commands = {'probe', 'deploy-apply', 'config-plan', 'config-apply',
+                probe_commands = {'probe', 'e2e', 'validate-deployment', 'deploy-apply', 'config-plan', 'config-apply',
                     'provider-domains', 'hotfix-apply', 'hotfix-restore', 'release-rollback',
                     'workflow-deploy-existing', 'workflow-publish-deploy', 'workflow-resume', 'workflow-doctor'}
                 stack.enter_context(probe_environment(load_adapter(adapter_path),

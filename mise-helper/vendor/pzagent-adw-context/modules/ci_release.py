@@ -23,6 +23,43 @@ class ContractError(RuntimeError):
     """Closed CI handover validation failure."""
 
 
+COORDINATOR_FAILURES = frozenset({
+    'CI handover JSON must be an object',
+    'public release task returned invalid JSON',
+    'public release task returned a non-object',
+    'ci_release_configuration_invalid',
+    'CI source requires a full Git SHA',
+    'CI handover must be outside the selected source',
+    'CI source checkout differs',
+    'CI source contains untracked inputs',
+    'CI platform is unsupported',
+    'public component inventory is invalid',
+    'CI inventory changed; start a fresh job instead of mixing handovers',
+    'CI source or packaging recipe changed after selection',
+    'CI quality producer is invalid',
+    'quality handover import failed',
+    'quality handover returned invalid JSON',
+    'quality handover returned an invalid result',
+    'CI build handover differs from missing components',
+    'public package differs from selected work',
+    'publication pointer and expectation must be supplied together',
+    'invalid CI step output',
+    'CI helper requires Actions; use human workflows locally',
+    'CI repository differs from project adapter',
+})
+PUBLIC_FAILURE = re.compile(
+    r'public release task failed: pz:release:(?:inspect|package|publish)'
+    r'(?:: [a-z][a-z0-9_]{0,127})?')
+
+
+def diagnostic_reason(error: ContractError) -> str:
+    """Only reviewed local messages and bounded public identifiers reach CI output."""
+    reason = str(error)
+    if reason in COORDINATOR_FAILURES or PUBLIC_FAILURE.fullmatch(reason):
+        return reason
+    return 'ci_release_handover_failed'
+
+
 def read(path: Path) -> dict:
     value = json.loads(path.read_text())
     if not isinstance(value, dict):
@@ -44,14 +81,13 @@ def public_task(repo: Path, task: str, *arguments: str) -> dict:
                             text=True, capture_output=True, check=False)
     if result.returncode:
         reason = "public release task failed: " + task
-        if os.environ.get("LAB_RUN"):
-            try:
-                detail = json.loads(result.stdout).get("reason", "")
-            except (json.JSONDecodeError, AttributeError):
-                detail = ""
-            # Only fixed identifiers can cross this diagnostic boundary.
-            if isinstance(detail, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,127}', detail):
-                reason += ": " + detail
+        try:
+            detail = json.loads(result.stdout).get("reason", "")
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            detail = ""
+        # The same identifier-only boundary applies locally and in hosted CI.
+        if isinstance(detail, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,127}', detail):
+            reason += ": " + detail
         raise ContractError(reason)
     try:
         value = json.loads(result.stdout)

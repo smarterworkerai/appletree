@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 from . import quality_outputs as outputs
 from .ci import build_artifacts
@@ -56,6 +57,7 @@ QUALITY_CONTRACT_REASONS = frozenset({
     'quality_output_path_invalid',
     'quality_toolchain_invalid',
     'quality_verification_graph_invalid',
+    'quality_workspace_git_ancestry',
     'release source file is missing or linked',
     'release source must not contain symlinks',
 })
@@ -78,13 +80,86 @@ def engine(repo):
     return module
 
 
+def _git_ancestor(root: Path) -> Path | None:
+    return next((parent / '.git' for parent in (root, *root.parents)
+                 if (parent / '.git').exists() or (parent / '.git').is_symlink()), None)
+
+
+def _prune_workspaces(root: Path) -> None:
+    """Reclaim old interrupted copies, without following links or deleting live owners."""
+    cutoff = time.time() - 86400
+    for index, entry in enumerate(root.iterdir()):
+        if index >= 256:
+            break
+        try:
+            if (not entry.name.startswith(('pz-quality-workspace-', 'pz-project-workspace-'))
+                    or entry.is_symlink() or not entry.is_dir()
+                    or entry.stat().st_uid != os.getuid() or entry.stat().st_mtime >= cutoff):
+                continue
+            owner = entry / '.owner-pid'
+            if owner.is_symlink():
+                continue
+            if owner.exists():
+                if not owner.is_file() or owner.stat().st_size > 32:
+                    continue
+                pid = int(owner.read_text())
+                if pid <= 0:
+                    continue
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    pass
+                else:
+                    continue
+            shutil.rmtree(entry)
+        except (OSError, ValueError, OverflowError):
+            continue
+
+
+def temporary_workspace(prefix: str):
+    """Keep copied source outside Git ancestry, including tools' own VCS walks."""
+    rejected = []
+    for location in ('temporary', 'cache'):
+        candidate = None
+        try:
+            if location == 'temporary':
+                candidate = Path(tempfile.gettempdir())
+            else:
+                configured = os.environ.get('XDG_CACHE_HOME') or ''
+                cache = Path(configured) if Path(configured).is_absolute() else Path.home() / '.cache'
+                candidate = cache / 'pzagent-adw-context' / 'workspaces'
+            root = candidate.resolve()
+            marker = _git_ancestor(root)
+            if marker is not None:
+                rejected.append({'root': str(root), 'reason': 'git_ancestor', 'marker': str(marker)})
+                continue
+            root.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if location == 'cache':
+                try:
+                    _prune_workspaces(root)
+                except OSError:
+                    pass  # Optional reclamation must not prevent an otherwise usable allocation.
+            workspace = tempfile.TemporaryDirectory(prefix=prefix, dir=root)
+            try:
+                (Path(workspace.name) / '.owner-pid').write_text(str(os.getpid()) + '\n')
+            except BaseException:
+                workspace.cleanup()
+                raise
+            return workspace
+        except (OSError, RuntimeError):
+            rejected.append({'root': str(candidate) if candidate is not None else location, 'reason': 'unavailable'})
+            continue
+    print(json.dumps({'reason': 'quality_workspace_git_ancestry', 'candidates': rejected}), file=sys.stderr)
+    raise ContractError('quality_workspace_git_ancestry')
+
+
 def verify(repo: Path, mode: str, env: dict) -> None:
     manifest = load_json(project_dir(repo) / 'adw-task-manifest.json')
     children = manifest['verification']['full']
     forbidden = {'adw:verify:full', 'adw:test:integration:full', 'adw:test:e2e:fast', 'adw:test:e2e:full'}
     if not children or len(children) != len(set(children)) or forbidden.intersection(children):
         raise ContractError('quality_verification_graph_invalid')
-    with tempfile.TemporaryDirectory(prefix='pz-quality-workspace-') as raw:
+    with temporary_workspace(prefix='pz-quality-workspace-') as raw:
         workspace = Path(raw) / 'source'
         workspace.mkdir()
         for relative in outputs.source_files(repo):

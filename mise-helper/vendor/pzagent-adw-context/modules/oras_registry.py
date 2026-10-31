@@ -4,6 +4,13 @@ import json,os,re,subprocess
 from pathlib import Path
 from .common import ContractError
 DIGEST=re.compile(r'^sha256:[0-9a-f]{64}$')
+ACCESS_DENIED=re.compile(
+ r'\b(?:response\s+status(?:\s+code)?|http(?:/\d(?:\.\d)?)?)\s*:?\s*(?:401|403)\b'
+ r'|\b(?:401\s+unauthorized|403\s+forbidden)\b'
+ r'|(?:^|[\s:])(?:unauthorized|denied|insufficient_scope):',re.I)
+def access_denied(stderr)->bool:
+ if isinstance(stderr,bytes):stderr=stderr.decode('utf-8',errors='replace')
+ return isinstance(stderr,str) and ACCESS_DENIED.search(stderr) is not None
 def registry_args(args):
  config=os.environ.get('DOCKER_CONFIG')
  if not config:return args
@@ -16,6 +23,7 @@ class OrasRegistry:
  def resolve(self,reference:str)->str|None:
   result=subprocess.run(registry_args(['oras','manifest','fetch','--descriptor',reference]),text=True,capture_output=True)
   if result.returncode:
+   if access_denied(getattr(result,'stderr',None)):raise ContractError('registry_access_denied')
    if any(marker in result.stderr.lower() for marker in ('manifest unknown','manifest_unknown','404 not found')):return None
    # ORAS 1.2 also normalizes a registry 404 to this reference-specific form.
    # Do not classify missing executables/credential helpers as absent images.
@@ -30,7 +38,9 @@ class OrasRegistry:
   source_digest=self.resolve(source)
   if source_digest is None:raise ContractError('registry source is absent')
   result=subprocess.run(registry_args(['oras','cp',source,target]),capture_output=True)
-  if result.returncode:raise ContractError('registry pointer copy failed')
+  if result.returncode:
+   if access_denied(getattr(result,'stderr',None)):raise ContractError('registry_access_denied')
+   raise ContractError('registry pointer copy failed')
   if self.resolve(target)!=source_digest:raise ContractError('registry pointer copy readback differs')
  def delete_if_unchanged(self,target:str,expected_target:str)->None:
   if self.resolve(target)!=expected_target:raise ContractError('registry pointer changed concurrently')

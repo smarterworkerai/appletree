@@ -351,9 +351,9 @@
       "call_sha256": [
         "7297c9e2e93ba67d925d599678084300bf0afff8777ec76d9da603a6e87001c6"
       ],
-      "scope_sha256": "3fc53566f590bacc9f3a43668e8e48834b1385c6371a24468e46f38f1c78d278",
+      "scope_sha256": "364f1dfb812281f3388483eebc92b5ace79a1188eed43e50895d01f07082c418",
       "validator": "modules.ci_release:selection",
-      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+      "reason": "Pinned public release ABI argv is unchanged. The reviewed scope now reports the same bounded failure identifiers in hosted CI and the lab; selection still owns identity/integrity acceptance, and child success or diagnostics confer no CI authority."
     },
     "modules.ci_release:selection:subprocess.check_output": {
       "call_sha256": [
@@ -416,7 +416,7 @@
       "call_sha256": [
         "f6d2f1f3f2a0d2faa5ba2249fab6bd55582d4a637f6f9b75efc3a1a94e078aef"
       ],
-      "scope_sha256": "36d9ab38d86fd0e47d0491d1eaf21a8e39b17c9baa6fbe70675d65763d48d91b",
+      "scope_sha256": "cda05047f7ef7d0980ece1ce0d418e12742ccecd7b8c363317b53bdb609b54b8",
       "validator": "modules.operator_registry:read_manifest",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },
@@ -424,7 +424,7 @@
       "call_sha256": [
         "1c3a543f0275e3a6cdacd4d24786bd97e1e9a50acb3f884acd34ecc2ab8efbe2"
       ],
-      "scope_sha256": "a05f89ba5c31af8713bef1e5a8b25e8c25fdefd1f6c95c7904ad53da4537e56b",
+      "scope_sha256": "b27a50fb523cbd6ac11a8016dd3b9ef5328d48d2a8cf0de20f17c1c59dfe3172",
       "validator": "modules.operator_registry:read_manifest",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },
@@ -432,7 +432,7 @@
       "call_sha256": [
         "87ccab81ee4cf8888a2b25747dd9d0ca3b15d1041d6de8db7ddd10be10a43a5e"
       ],
-      "scope_sha256": "f3b107685bc118ba63c0e79a2957da1d922af191d1704518535096a3f39a6082",
+      "scope_sha256": "8ce6ccb9f618336f2c8a345302eda58134d14d4b31f8b55f35d878554b5e5cff",
       "validator": "modules.oras_registry:OrasRegistry.resolve",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },
@@ -440,7 +440,7 @@
       "call_sha256": [
         "c4fc3c26b8b70759ec477afddb3d4b631f30e9e9c06f179a0844533af3e543a9"
       ],
-      "scope_sha256": "cd9bb41b936a116f51fa9cc06756db227d58ce6efed780d56c15be5659e0835d",
+      "scope_sha256": "5576cb55cb0b00f82ba0a86eeecb949ec0ba874cf79afb3869b391d64c4ec9df",
       "validator": "modules.oras_registry:OrasRegistry.resolve",
       "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
     },
@@ -481,9 +481,9 @@
       "call_sha256": [
         "f880b2c9356a52b5201b558af7729744bd449f154bb6262d87fb5250de68358b"
       ],
-      "scope_sha256": "57263a4409bb0cde46772325b6e4d90d79a848e59ec0c351dcf4911239593f7c",
+      "scope_sha256": "0482bde63bd2ae6e9e70e63a1e491eef05ab78dba56c4570c94007cb2d7f73ac",
       "validator": "modules.quality_outputs:export_quality",
-      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority."
+      "reason": "Pinned process call is transport or declared task/hook execution only; the named trusted validator retains exact identity/integrity/authorization acceptance. Child success alone does not confer CI authority. Copied sources use Git-free temporary placement without changing subprocess arguments or quality acceptance."
     },
     "templates.github.actions.publish-immutable-release.publish:digest:subprocess.run": {
       "call_sha256": [

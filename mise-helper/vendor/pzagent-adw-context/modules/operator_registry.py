@@ -9,7 +9,7 @@ import tempfile
 from urllib.request import Request, urlopen
 
 from .common import ContractError
-from .oras_registry import OrasRegistry
+from .oras_registry import OrasRegistry, access_denied
 from .release_manifest import DIGEST_REF, release_kind, validate
 
 
@@ -23,6 +23,8 @@ def oras(*args: str, binary: bool = False):
     except OSError as exc:
         raise ContractError('ORAS is unavailable; install the pinned mise tools') from exc
     if result.returncode:
+        if access_denied(getattr(result, 'stderr', None)):
+            raise ContractError('registry_access_denied')
         raise ContractError('registry operation failed; check registry access and selected reference')
     return result.stdout
 
@@ -61,6 +63,8 @@ def authentication(values: dict[str, str]):
         except OSError as exc:
             raise ContractError('ORAS is unavailable; install the pinned mise tools') from exc
         if result.returncode:
+            if access_denied(getattr(result, 'stderr', None)):
+                raise ContractError('registry_access_denied')
             raise ContractError('registry login failed')
         path.chmod(0o600)
         previous = os.environ.get('DOCKER_CONFIG')

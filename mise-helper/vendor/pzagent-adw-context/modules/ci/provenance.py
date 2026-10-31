@@ -133,7 +133,15 @@ def _release_records(api, pull: Pull, changed: list[str], metadata: dict, base_m
     return True
 
 
-def _release_statement(api, sha: str, tree: dict[str, str] | None) -> dict | None:
+def _release_declined(diagnostic: list[str] | None, reason: str):
+    """Record one fixed diagnostic without changing the decision or artifact schema."""
+    if diagnostic is not None and not diagnostic:
+        diagnostic.append(reason)
+    return None
+
+
+def _release_statement(api, sha: str, tree: dict[str, str] | None,
+                       diagnostic: list[str] | None = None) -> dict | None:
     """The head's release statement when this checkout's release key signed it and the lock binds it.
 
     `tree` is the head's full blob map (None when unusable): it answers "no record" without
@@ -141,58 +149,65 @@ def _release_statement(api, sha: str, tree: dict[str, str] | None) -> dict | Non
     """
     if tree is not None and not any(directory + '/' + release_signature.RECORD in tree
                                     for directory in PROJECT_DIRECTORIES):
-        return None
+        return _release_declined(diagnostic, 'signed_release_record_missing')
     try:
         lock_path, lock = project_files(api, sha, 'pzagent-context-lock.json')['pzagent-context-lock.json']
         record = _content_at(api, lock_path.rpartition('/')[0] + '/' + release_signature.RECORD, sha)
         if record is None:
-            return None
+            return _release_declined(diagnostic, 'signed_release_record_missing')
         raw, signature = release_signature.load_record(record[1])
         statement = release_signature.verify(raw, signature, RELEASE_SIGNERS)
         lock = json.loads(lock)
-    except (ApiError, ProofError, KeyError, TypeError, ValueError, OSError):
-        return None  # No verified statement: the scope stays this checkout's own.
+    except ApiError:
+        return _release_declined(diagnostic, 'signed_release_lookup_failed')
+    except (ProofError, KeyError, TypeError, ValueError, OSError):
+        # No verified statement: the scope stays this checkout's own.
+        return _release_declined(diagnostic, 'signed_release_unverified')
     if (not isinstance(lock, dict) or lock.get('source_ref') != statement['commit']
             or lock.get('package_version') != statement['version']
             or lock.get('bundle_sha256') != statement['bundle_sha256']):
-        return None
+        return _release_declined(diagnostic, 'signed_release_lock_mismatch')
     return statement
 
 
-def _trusted_scope(api, pull: Pull, tree: dict[str, str] | None) -> tuple[list[str], dict | None]:
+def _trusted_scope(api, pull: Pull, tree: dict[str, str] | None,
+                   diagnostic: list[str] | None = None) -> tuple[list[str], dict | None]:
     """This checkout's trusted paths, then those a verified release statement adds.
 
     TRUSTED_PATHS is append-only, so a newer release's list extends this one in the same
     order and every checker computes the same ordered scope. A statement only ever adds
     paths; it never removes one.
     """
-    statement = _release_statement(api, pull.head_sha, tree)
+    statement = _release_statement(api, pull.head_sha, tree, diagnostic)
     if statement is None:
         return list(TRUSTED_PATHS), None
     return [*TRUSTED_PATHS, *(path for path in statement['trusted_paths'] if path not in TRUSTED_PATHS)], statement
 
 
 def _signed_vendor(api, pull: Pull, changed: list[str], statement: dict | None,
-                   tree: dict[str, str] | None) -> str | None:
+                   tree: dict[str, str] | None, diagnostic: list[str] | None = None) -> str | None:
     """Return the tag when the PR vendors exactly the signed release its lock names.
 
     Release-owned files are compared by git blob SHA against the signed statement, using
     the head tree already read for the scope; only the lock, the bundle descriptor, the
     manifests and, when the generic layer moves, its pin and files are read as content.
     """
-    if statement is None or not changed or tree is None:
-        return None
+    if statement is None:
+        return _release_declined(diagnostic, 'signed_release_unverified')
+    if not changed or tree is None:
+        return _release_declined(diagnostic, 'consumer_tree_unavailable')
     try:
         metadata = project_files(api, pull.head_sha, 'adw-task-manifest.json', 'pzagent-context-lock.json')
         manifest_path = metadata['adw-task-manifest.json'][0]
         base_metadata = project_files(api, pull.base_sha, 'adw-task-manifest.json')
         if base_metadata['adw-task-manifest.json'][0] != manifest_path:
-            return None  # A directory migration always needs an administrator decision.
+            # A directory migration always needs an administrator decision.
+            return _release_declined(diagnostic, 'not_exact_released_vendor')
         blobs = statement['blobs']
         blob, bundle = api.content(VENDOR_PREFIX + 'bundle.json', pull.head_sha)
         if (blob != blobs.get('bundle.json') or tree.get(VENDOR_PREFIX + 'bundle.json') != blob
                 or hashlib.sha256(bundle).hexdigest() != statement['bundle_sha256']):
-            return None
+            return _release_declined(diagnostic, 'not_exact_released_vendor')
         inventory = {item['path']: item['sha256'] for item in json.loads(bundle)['files']}
         for path in changed:
             if path in (manifest_path, VENDOR_PREFIX + 'bundle.json') or path.startswith(GENERIC_PREFIX):
@@ -202,9 +217,9 @@ def _signed_vendor(api, pull: Pull, changed: list[str], statement: dict | None,
             elif path.startswith(WORKFLOW_DIR) and '/' not in path.removeprefix(WORKFLOW_DIR):
                 relative = 'templates/github/' + path.removeprefix(WORKFLOW_DIR)
             else:
-                return None  # Outside the release-owned surface.
+                return _release_declined(diagnostic, 'not_exact_released_vendor')
             if relative not in blobs or relative not in inventory or tree.get(path) != blobs[relative]:
-                return None
+                return _release_declined(diagnostic, 'not_exact_released_vendor')
 
         def vendored_pin():
             pin_blob, raw = api.content(VENDOR_PREFIX + generic_release.GENERIC_PIN, pull.head_sha)
@@ -214,10 +229,13 @@ def _signed_vendor(api, pull: Pull, changed: list[str], statement: dict | None,
             return generic_release.validate_generic_pin(json.loads(raw))
         if not _release_records(api, pull, changed, metadata, base_metadata, statement['commit'],
                                 inventory, vendored_pin):
-            return None
+            return _release_declined(diagnostic, 'not_exact_released_vendor')
         return statement['tag']
-    except (ApiError, ProofError, KeyError, TypeError, ValueError, OSError):
-        return None  # Any doubt keeps the manual administrator decision.
+    except ApiError:
+        return _release_declined(diagnostic, 'released_vendor_lookup_failed')
+    except (ProofError, KeyError, TypeError, ValueError, OSError):
+        # Any doubt keeps the manual administrator decision.
+        return _release_declined(diagnostic, 'not_exact_released_vendor')
 
 
 def _content_at(api, path: str, ref: str):
@@ -295,10 +313,11 @@ def _changed_paths(api, pull: Pull) -> list[str]:
     return _scope_changes(api, pull)[0]
 
 
-def _scope_changes(api, pull: Pull) -> tuple[list[str], dict | None, dict[str, str] | None]:
+def _scope_changes(api, pull: Pull, diagnostic: list[str] | None = None
+                   ) -> tuple[list[str], dict | None, dict[str, str] | None]:
     """Changed trusted paths over the release-defined scope, the verified statement and the head tree."""
     tree=_tree_blobs(api,pull.head_sha)
-    paths,statement=_trusted_scope(api,pull,tree)
+    paths,statement=_trusted_scope(api,pull,tree,diagnostic)
     return _changed_in(api,pull,paths,tree),statement,tree
 
 
@@ -346,7 +365,7 @@ def _controller_binding(pull: Pull) -> str:
     return 'pzagent-trust-root-controller:v1:'+hashlib.sha256(encoded).hexdigest()
 
 
-def _message(result: dict, *, decline: str = '') -> str:
+def _message(result: dict, *, decline: str = '', automatic_decline: str = '') -> str:
     if result['status']=='normal':
         return ('No extra approval is needed: this PR does not change the trusted '
                 'CI/provenance source.')
@@ -375,10 +394,12 @@ def _message(result: dict, *, decline: str = '') -> str:
                   '`BOOTSTRAP_DISABLED`. After the controller records success, '
                   'use **Re-run all jobs** for any ADW CI attempt that already stopped at the '
                   'fail-fast trust-root gate.')
+    diagnostic=(f'Automatic signed-release approval did not apply: `{automatic_decline}`.\n\n'
+                if automatic_decline else '')
     return ('This PR changes code that defines or validates CI/provenance trust. '
             'The normal provenance proof therefore needs an explicit administrator '
             'decision before this revision can advance.\n\n'
-            f"**Status:** {decision}\n\n{identity}\n\nChanged trusted paths:\n{changed}")
+            f"**Status:** {decision}\n\n{diagnostic}{identity}\n\nChanged trusted paths:\n{changed}")
 
 
 def _artifact_inventory(page: dict) -> list[dict]:
@@ -564,8 +585,9 @@ def _denied(api, pull: Pull, changed: list[str]) -> bool:
 def bootstrap_status(api, pull: Pull, *, allow_released_vendor: bool = True,
                      changed: list[str] | None = None) -> dict:
     statement=tree=None
+    diagnostic=[]
     if changed is None:
-        changed,statement,tree=_scope_changes(api,pull)
+        changed,statement,tree=_scope_changes(api,pull,diagnostic)
     result={
         'schema_version':'1.0.0',
         'repository':pull.repository,
@@ -581,7 +603,7 @@ def bootstrap_status(api, pull: Pull, *, allow_released_vendor: bool = True,
         'controller_external_id':_controller_binding(pull),
         'approver':None,
     }
-    released=_signed_vendor(api,pull,changed,statement,tree) if changed and allow_released_vendor else None
+    released=_signed_vendor(api,pull,changed,statement,tree,diagnostic) if changed and allow_released_vendor else None
     if released and not _denied(api,pull,changed):
         result.update(status='released-vendor',allowed=True,release=released)
     elif changed:
@@ -595,7 +617,8 @@ def bootstrap_status(api, pull: Pull, *, allow_released_vendor: bool = True,
             result['allowed']=decision=='ENABLED'
             result['approver']=actor
     result['message']=_message(result,
-                               decline=_fingerprint(pull,changed) if result['status']=='released-vendor' else '')
+                               decline=_fingerprint(pull,changed) if result['status']=='released-vendor' else '',
+                               automatic_decline=diagnostic[0] if diagnostic and allow_released_vendor else '')
     return result
 
 
